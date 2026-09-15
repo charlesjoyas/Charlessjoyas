@@ -12,7 +12,14 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://charlesjoyass_db_user:57XZqt7XTrFdkaKt@cluster0.ceb3uhz.mongodb.net/charlesjoyas_pos?retryWrites=true&w=majority&appName=Cluster0';
+const DIRECT_MONGO_URI = 'mongodb://charlesjoyass_db_user:57XZqt7XTrFdkaKt@ac-3th3i0i-shard-00-00.ceb3uhz.mongodb.net:27017,ac-3th3i0i-shard-00-01.ceb3uhz.mongodb.net:27017,ac-3th3i0i-shard-00-02.ceb3uhz.mongodb.net:27017/charlesjoyas_pos?ssl=true&replicaSet=atlas-xpgtcp-shard-0&authSource=admin&retryWrites=true&w=majority';
+let MONGO_URI = process.env.MONGO_URI || DIRECT_MONGO_URI;
+
+// If URI uses SRV for cluster0.ceb3uhz.mongodb.net, prefer the direct replica set URI to prevent querySrv ECONNREFUSED in serverless environments (AWS/Vercel)
+if (MONGO_URI.includes('cluster0.ceb3uhz.mongodb.net') && MONGO_URI.startsWith('mongodb+srv://')) {
+  MONGO_URI = DIRECT_MONGO_URI;
+}
+
 const DB_FILE = path.join(__dirname, 'db.json');
 
 app.use(cors());
@@ -48,6 +55,7 @@ app.get(['/', '/index.html'], (req, res) => {
 });
 
 let mongoConnected = false;
+let connectingPromise = null;
 
 // Mongoose Schema for general state
 const DataSchema = new mongoose.Schema({
@@ -57,15 +65,44 @@ const DataSchema = new mongoose.Schema({
 });
 const DataModel = mongoose.model('NexusData', DataSchema);
 
-// Connect MongoDB with graceful fallback
-mongoose.connect(MONGO_URI, {
-  serverSelectionTimeoutMS: 2000
-}).then(() => {
-  mongoConnected = true;
-  console.log('[Nexus Server] Conectado exitosamente a MongoDB:', MONGO_URI);
-}).catch(err => {
-  mongoConnected = false;
-  console.log('[Nexus Server] MongoDB no detectado localmente. Operando en modo Local JSON / LocalStorage persistence.');
+// Robust Serverless-friendly MongoDB Atlas Connection Manager
+async function ensureDbConnected() {
+  if (mongoose.connection.readyState === 1) {
+    mongoConnected = true;
+    return true;
+  }
+  if (mongoose.connection.readyState === 2 && connectingPromise) {
+    await connectingPromise;
+    mongoConnected = mongoose.connection.readyState === 1;
+    return mongoConnected;
+  }
+  try {
+    connectingPromise = mongoose.connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 8000,
+      connectTimeoutMS: 10000,
+      socketTimeoutMS: 30000
+    });
+    await connectingPromise;
+    mongoConnected = true;
+    console.log('[Nexus Server] Conectado exitosamente a MongoDB Atlas');
+    return true;
+  } catch (err) {
+    console.warn('[Nexus Server] Error conectando a MongoDB Atlas:', err.message);
+    mongoConnected = false;
+    connectingPromise = null;
+    return false;
+  }
+}
+
+// Immediately attempt connection on start
+ensureDbConnected().catch(() => {});
+
+// Ensure database connection before executing any /api/ endpoint
+app.use(async (req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    await ensureDbConnected();
+  }
+  next();
 });
 
 // Helper: load local db file
@@ -83,6 +120,9 @@ function loadLocalDb() {
 
 // Helper: save local db file atomically
 function saveLocalDb(data) {
+  if (process.env.VERCEL) {
+    return; // Read-only filesystem in Vercel, MongoDB Atlas handles persistence
+  }
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const tmpFile = `${DB_FILE}.tmp.${uniqueSuffix}`;
   try {
@@ -109,6 +149,9 @@ app.get('/api/health', (req, res) => {
 // GET /api/data - Fetch complete store state
 app.get('/api/data', async (req, res) => {
   try {
+    if (!mongoConnected) {
+      await ensureDbConnected();
+    }
     if (mongoConnected) {
       const doc = await DataModel.findOne({ key: 'main_store' });
       if (doc && doc.content) {
@@ -161,12 +204,18 @@ app.post('/api/data', async (req, res) => {
     data.updatedAt = new Date().toISOString();
     saveLocalDb(data);
 
+    if (!mongoConnected) {
+      await ensureDbConnected();
+    }
+
     if (mongoConnected) {
       await DataModel.findOneAndUpdate(
         { key: 'main_store' },
         { content: data, updatedAt: new Date() },
         { upsert: true, new: true }
       );
+    } else if (process.env.VERCEL) {
+      return res.status(503).json({ error: 'Error de persistencia: No se pudo conectar a MongoDB Atlas en Vercel.' });
     }
 
     res.json({ success: true, mode: mongoConnected ? 'MongoDB' : 'Local JSON', timestamp: new Date() });
@@ -175,7 +224,7 @@ app.post('/api/data', async (req, res) => {
   }
 });
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && require.main === module) {
   app.listen(PORT, () => {
     console.log(`[Nexus Server] Servidor Nexus POS SaaS corriendo en http://localhost:${PORT}`);
   });
