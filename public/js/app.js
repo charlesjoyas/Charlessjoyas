@@ -437,6 +437,9 @@ class NexusApp {
         }
         if (c.document === undefined || c.document === null) c.document = '';
         if (c.address === undefined || c.address === null) c.address = '';
+        if (!c.docType) {
+          c.docType = (c.document && c.document.includes('-')) ? 'NIT' : 'CC';
+        }
       });
     } else {
       this.data.customers = [];
@@ -487,11 +490,36 @@ class NexusApp {
   }
 
   async loadPersistence() {
+    let localData = null;
+    try {
+      const local = localStorage.getItem('nexus_pos_data');
+      if (local) {
+        localData = JSON.parse(local);
+      }
+    } catch(e) {}
+
     try {
       const res = await fetch('/api/data');
       if (res.ok) {
         const dbData = await res.json();
         if (dbData && dbData.products && Array.isArray(dbData.products)) {
+          const dbTime = new Date(dbData.updatedAt || 0).getTime();
+          const localTime = new Date(localData?.updatedAt || 0).getTime();
+
+          // If local data is strictly newer by more than 2s (e.g. user created entities while DB was syncing), preserve local data and re-sync
+          if (localData && localData.products && localTime > dbTime + 2000) {
+            console.log('[NexusApp] LocalStorage tiene datos más recientes que el servidor. Preservando estado local y re-sincronizando...');
+            this.data = Object.assign({}, INITIAL_DATA, localData);
+            this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
+            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
+            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
+            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
+            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
+            this.sanitizeLoadedData();
+            this.savePersistence();
+            return;
+          }
+
           this.data = Object.assign({}, INITIAL_DATA, dbData);
           this.data.store = Object.assign({}, INITIAL_DATA.store, dbData.store || {});
           this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, dbData.kpis || {});
@@ -507,21 +535,15 @@ class NexusApp {
       console.warn('[NexusApp] Servidor REST inaccesible. Usando LocalStorage fallback.');
     }
 
-    const local = localStorage.getItem('nexus_pos_data');
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (parsed && parsed.products) {
-          this.data = Object.assign({}, INITIAL_DATA, parsed);
-          this.data.store = Object.assign({}, INITIAL_DATA.store, parsed.store || {});
-          this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, parsed.kpis || {});
-          this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, parsed.cashShiftLog || {});
-          this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, parsed.balanceSheet || {});
-          this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, parsed.stockRadarData || {});
-          this.sanitizeLoadedData();
-          console.log('[NexusApp] Persistencia cargada desde LocalStorage.');
-        }
-      } catch(e) {}
+    if (localData && localData.products) {
+      this.data = Object.assign({}, INITIAL_DATA, localData);
+      this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
+      this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
+      this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
+      this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
+      this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
+      this.sanitizeLoadedData();
+      console.log('[NexusApp] Persistencia cargada desde LocalStorage.');
     }
     this.sanitizeLoadedData();
   }
@@ -630,6 +652,8 @@ class NexusApp {
       }
       this.data.kpis.skusCount = this.data.products.length;
     }
+
+    this.data.updatedAt = new Date().toISOString();
 
     try {
       localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));

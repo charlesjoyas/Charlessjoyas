@@ -25,15 +25,15 @@
     }
   },
   "kpis": {
-    "salesToday": 0,
+    "salesToday": 9000000,
     "salesTrend": "0%",
-    "transactionsToday": 0,
+    "transactionsToday": 2,
     "txTrend": "0%",
-    "inventoryValue": 0,
-    "avgCostPerGram": 0,
-    "avgCostGrams": 0,
-    "skusCount": 0,
-    "totalGrams": 0,
+    "inventoryValue": 115500000,
+    "avgCostPerGram": 350000,
+    "avgCostGrams": 330,
+    "skusCount": 7,
+    "totalGrams": 330,
     "netMargin": "0%",
     "marginTrend": "0%",
     "totalCustomers": 0,
@@ -53,7 +53,26 @@
       "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80"
     }
   ],
-  "customers": [],
+  "customers": [
+    {
+      "id": "CLI-652",
+      "docType": "CE",
+      "document": "CE-99887766",
+      "name": "Carlos Test Joyero CE",
+      "phone": "3109998877",
+      "email": "carlos.test@joyas.com",
+      "address": "Carrera 7 # 72-10 Oficina 502",
+      "creditLimit": 10000000,
+      "creditBalance": 4000000,
+      "allowedPaymentMethods": [
+        "Efectivo",
+        "Transferencia",
+        "Crédito",
+        "Plan Separe"
+      ],
+      "status": "Active"
+    }
+  ],
   "suppliers": [],
   "perfiles": [
     {
@@ -103,7 +122,17 @@
       ]
     }
   ],
-  "expenses": [],
+  "expenses": [
+    {
+      "id": "EXP-1195",
+      "date": "2026-09-15",
+      "description": "Herramientas y discos de pulido para taller",
+      "category": "Mantenimiento",
+      "amount": 75000,
+      "status": "Pagado",
+      "method": "Efectivo"
+    }
+  ],
   "paymentMethods": [
     {
       "id": "PM-15",
@@ -149,7 +178,24 @@
     }
   ],
   "purchases": [],
-  "customerCredits": [],
+  "customerCredits": [
+    {
+      "id": "SEP-729",
+      "customer": "Carlos Test Joyero CE",
+      "totalGranted": 4500000,
+      "currentBalance": 2000000,
+      "dueDate": "2026-10-30",
+      "status": "Plan Separe"
+    },
+    {
+      "id": "SEP-520",
+      "customer": "Carlos Test Joyero CE",
+      "totalGranted": 4500000,
+      "currentBalance": 2000000,
+      "dueDate": "2026-10-30",
+      "status": "Plan Separe"
+    }
+  ],
   "supplierCredits": [],
   "services": [],
   "categories": [
@@ -160,16 +206,16 @@
       "color": "#6366f1",
       "availableGrams": 0,
       "cost": 385000,
-      "totalValuation": 77000000
+      "totalValuation": 0
     },
     {
       "id": "oro18k",
       "name": "Oro 18K Italiano & Ley",
-      "itemsCount": 0,
+      "itemsCount": 7,
       "color": "#F59E0B",
-      "availableGrams": 0,
-      "cost": 273845,
-      "totalValuation": 223430000
+      "availableGrams": 330,
+      "cost": 350000,
+      "totalValuation": 115500000
     },
     {
       "id": "oro14k",
@@ -178,29 +224,188 @@
       "color": "#D97706",
       "availableGrams": 0,
       "cost": 300000,
-      "totalValuation": 55500000
+      "totalValuation": 0
     }
   ],
-  "products": [],
+  "products": [
+    {
+      "id": "PRD-437",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 40,
+      "minStock": 0.5,
+      "status": "active",
+      "sold30d": 10,
+      "monthlySales": {
+        "2026-09": {
+          "15": 10
+        }
+      }
+    },
+    {
+      "id": "PRD-694",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 40,
+      "minStock": 0.5,
+      "status": "active",
+      "sold30d": 10,
+      "monthlySales": {
+        "2026-09": {
+          "15": 10
+        }
+      }
+    },
+    {
+      "id": "PRD-460",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 50,
+      "minStock": 0.5,
+      "status": "active"
+    },
+    {
+      "id": "PRD-981",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 50,
+      "minStock": 0.5,
+      "status": "active"
+    },
+    {
+      "id": "PRD-279",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 50,
+      "minStock": 0.5,
+      "status": "active"
+    },
+    {
+      "id": "PRD-116",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 50,
+      "minStock": 0.5,
+      "status": "active"
+    },
+    {
+      "id": "PRD-419",
+      "sku": "CAD-CUB-18K",
+      "name": "Cadena Eslabón Cubano 18K",
+      "measureType": "Pesaje",
+      "weightUnit": "g",
+      "unit": "g",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 350000,
+      "price": 0,
+      "stock": 50,
+      "minStock": 0.5,
+      "status": "active"
+    }
+  ],
   "assets": [],
   "cashShiftLog": {
     "shiftId": "TURNO-001",
-    "openedAt": "08:00 AM",
-    "openingCash": 0,
-    "cashSales": 0,
+    "openedAt": "06:37 p. m.",
+    "openingCash": 500000,
+    "cashSales": 5000000,
     "cardSales": 0,
     "qrSales": 0,
-    "cashExpenses": 0,
-    "expectedCashInDrawer": 0,
+    "cashExpenses": 75000,
+    "expectedCashInDrawer": 5425000,
     "actualCashInDrawer": 0,
     "discrepancy": 0,
-    "status": "Cerrado"
+    "status": "Abierto",
+    "closingCash": 0,
+    "openedBy": "Carlos Mendoza",
+    "openedDate": "2026-09-15"
   },
   "cashShiftsHistory": [],
-  "abonosVentas": [],
+  "abonosVentas": [
+    {
+      "id": "AB-V497224",
+      "date": "2026-09-15 23:38",
+      "customer": "Carlos Test Joyero CE",
+      "invoiceId": "TX-97225",
+      "amount": 1000000,
+      "method": "Efectivo",
+      "cashier": "Carlos Mendoza"
+    },
+    {
+      "id": "AB-V449638",
+      "date": "2026-09-15 23:37",
+      "customer": "Carlos Test Joyero CE",
+      "invoiceId": "TX-49638",
+      "amount": 1000000,
+      "method": "Efectivo",
+      "cashier": "Carlos Mendoza"
+    }
+  ],
   "abonosCompras": [],
-  "recentTransactions": [],
-  "financialLedger": [],
   "balanceSheet": {
     "assetsCurrent": 0,
     "assetsFixed": 0,
@@ -225,8 +430,85 @@
       0,
       0,
       0
+    ],
+    "profitability": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "stockRisk": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
     ]
   },
+  "recentTransactions": [
+    {
+      "id": "TX-91876",
+      "customer": "Carlos Test Joyero CE",
+      "customerDoc": "CE-99887766",
+      "customerDocType": "CE",
+      "customerAddress": "Carrera 7 # 72-10 Oficina 502",
+      "customerPhone": "3109998877",
+      "time": "06:38:15 p. m.",
+      "date": "15/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 10,
+      "items": [
+        {
+          "id": "PRD-437",
+          "sku": "CAD-CUB-18K",
+          "name": "Cadena Eslabón Cubano 18K",
+          "qty": 10,
+          "quantity": 10,
+          "price": 450000,
+          "total": 4500000
+        }
+      ],
+      "subtotal": 4500000,
+      "tax": 0,
+      "total": 4500000,
+      "paymentMethod": "Plan Separe",
+      "cashier": "Carlos Mendoza",
+      "status": "completed"
+    },
+    {
+      "id": "TX-91756",
+      "customer": "Carlos Test Joyero CE",
+      "customerDoc": "CE-99887766",
+      "customerDocType": "CE",
+      "customerAddress": "Carrera 7 # 72-10 Oficina 502",
+      "customerPhone": "3109998877",
+      "time": "06:37:27 p. m.",
+      "date": "15/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 10,
+      "items": [
+        {
+          "id": "PRD-694",
+          "sku": "CAD-CUB-18K",
+          "name": "Cadena Eslabón Cubano 18K",
+          "qty": 10,
+          "quantity": 10,
+          "price": 450000,
+          "total": 4500000
+        }
+      ],
+      "subtotal": 4500000,
+      "tax": 0,
+      "total": 4500000,
+      "paymentMethod": "Plan Separe",
+      "cashier": "Carlos Mendoza",
+      "status": "completed"
+    }
+  ],
+  "financialLedger": [],
   "chartData": {
     "salesByDay": [
       0,
@@ -243,5 +525,5 @@
       0
     ]
   },
-  "updatedAt": "2026-09-15T23:07:09.084Z"
+  "updatedAt": "2026-09-15T23:38:20.045Z"
 }
