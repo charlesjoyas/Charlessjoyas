@@ -5,10 +5,12 @@ const path = require('path');
 const dns = require('dns');
 const mongoose = require('mongoose');
 
-// Ensure robust DNS resolution for MongoDB Atlas SRV records
-try {
-  dns.setServers(['8.8.8.8', '1.1.1.1']);
-} catch (e) {}
+// Ensure robust DNS resolution for MongoDB Atlas SRV records locally (avoid on Vercel AWS Lambda)
+if (!process.env.VERCEL) {
+  try {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+  } catch (e) {}
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +58,7 @@ app.get(['/', '/index.html'], (req, res) => {
 
 let mongoConnected = false;
 let connectingPromise = null;
+let lastMongoError = null;
 
 // Mongoose Schema for general state
 const DataSchema = new mongoose.Schema({
@@ -69,6 +72,7 @@ const DataModel = mongoose.model('NexusData', DataSchema);
 async function ensureDbConnected() {
   if (mongoose.connection.readyState === 1) {
     mongoConnected = true;
+    lastMongoError = null;
     return true;
   }
   if (mongoose.connection.readyState === 2 && connectingPromise) {
@@ -84,11 +88,13 @@ async function ensureDbConnected() {
     });
     await connectingPromise;
     mongoConnected = true;
+    lastMongoError = null;
     console.log('[Nexus Server] Conectado exitosamente a MongoDB Atlas');
     return true;
   } catch (err) {
     console.warn('[Nexus Server] Error conectando a MongoDB Atlas:', err.message);
     mongoConnected = false;
+    lastMongoError = err.message;
     connectingPromise = null;
     return false;
   }
@@ -142,6 +148,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     mongoConnected,
     storageMode: mongoConnected ? 'MongoDB' : 'Local JSON / Storage',
+    lastMongoError,
     timestamp: new Date()
   });
 });
