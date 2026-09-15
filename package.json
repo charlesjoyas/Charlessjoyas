@@ -1,0 +1,17 @@
+{
+  "name": "nexus-pos-saas",
+  "version": "1.0.0",
+  "description": "Nexus POS SaaS - Sistema Punto de Venta, Inventario y Finanzas",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "localtunnel": "^2.0.2",
+    "mongoose": "^8.3.1",
+    "tunnelmole": "^2.4.0"
+  }
+}
