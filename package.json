@@ -2,7 +2,6 @@
   "name": "nexus-pos-saas",
   "version": "1.0.0",
   "description": "Nexus POS SaaS - Sistema Punto de Venta, Inventario y Finanzas",
-  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"

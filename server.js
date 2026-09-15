@@ -37,6 +37,11 @@ app.use((req, res, next) => {
 
 app.use(express.static(__dirname));
 
+// Explicit frontend route handler for root requests
+app.get(['/', '/index.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 let mongoConnected = false;
 
 // Mongoose Schema for general state
