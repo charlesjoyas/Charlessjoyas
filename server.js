@@ -165,9 +165,11 @@ app.post('/api/data', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[Nexus Server] Servidor Nexus POS SaaS corriendo en http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`[Nexus Server] Servidor Nexus POS SaaS corriendo en http://localhost:${PORT}`);
+  });
+}
 
 module.exports = app;
 
