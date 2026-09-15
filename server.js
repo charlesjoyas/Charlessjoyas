@@ -76,15 +76,17 @@ async function ensureDbConnected() {
     return true;
   }
   if (mongoose.connection.readyState === 2 && connectingPromise) {
-    await connectingPromise;
+    try {
+      await connectingPromise;
+    } catch (_) {}
     mongoConnected = mongoose.connection.readyState === 1;
     return mongoConnected;
   }
   try {
     connectingPromise = mongoose.connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 8000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 30000
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 6000,
+      socketTimeoutMS: 20000
     });
     await connectingPromise;
     mongoConnected = true;
@@ -103,10 +105,15 @@ async function ensureDbConnected() {
 // Immediately attempt connection on start
 ensureDbConnected().catch(() => {});
 
-// Ensure database connection before executing any /api/ endpoint
+// Ensure database connection before executing any /api/ endpoint (guaranteed no hanging)
 app.use(async (req, res, next) => {
   if (req.path.startsWith('/api')) {
-    await ensureDbConnected();
+    try {
+      await Promise.race([
+        ensureDbConnected(),
+        new Promise(r => setTimeout(r, 5500))
+      ]);
+    } catch (_) {}
   }
   next();
 });
@@ -149,6 +156,8 @@ app.get('/api/health', (req, res) => {
     mongoConnected,
     storageMode: mongoConnected ? 'MongoDB' : 'Local JSON / Storage',
     lastMongoError,
+    uriType: MONGO_URI.startsWith('mongodb+srv') ? 'SRV' : 'Direct ReplicaSet',
+    hasEnvMongoUri: !!process.env.MONGO_URI,
     timestamp: new Date()
   });
 });
