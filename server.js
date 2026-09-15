@@ -2,11 +2,17 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const dns = require('dns');
 const mongoose = require('mongoose');
+
+// Ensure robust DNS resolution for MongoDB Atlas SRV records
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/nexuspos';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://charlesjoyass_db_user:57XZqt7XTrFdkaKt@cluster0.ceb3uhz.mongodb.net/charlesjoyas_pos?retryWrites=true&w=majority&appName=Cluster0';
 const DB_FILE = path.join(__dirname, 'db.json');
 
 app.use(cors());
