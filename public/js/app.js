@@ -53,6 +53,17 @@ class NexusApp {
     return `${prefix}${formatted} COP`;
   }
 
+  formatCurrencyDecimals(amount, forceDecimals = true, includeCurrencyCode = false) {
+    const val = Number(amount) || 0;
+    const minDec = forceDecimals ? 2 : (val % 1 === 0 ? 0 : 2);
+    const formatted = Math.abs(val).toLocaleString('es-CO', {
+      minimumFractionDigits: minDec,
+      maximumFractionDigits: 2
+    });
+    const prefix = val < 0 ? '-$ ' : '$ ';
+    return includeCurrencyCode ? `${prefix}${formatted} COP` : `${prefix}${formatted}`;
+  }
+
   formatNumberWithCommas(val, allowDecimals = false) {
     if (val === null || val === undefined || val === '') return '';
     const str = String(val).replace(/,/g, '').trim();
@@ -592,10 +603,10 @@ class NexusApp {
     const cost = parseFloat(String(p.cost || 0).replace(',', '.')) || 0;
     const grams = this.getGramsFromProduct(p);
     if (grams > 0) {
-      return Math.round(grams * cost);
+      return Math.round(grams * cost * 100) / 100;
     }
     const stock = parseFloat(String(p.stock || 0).replace(',', '.')) || 0;
-    return Math.round(stock * cost);
+    return Math.round(stock * cost * 100) / 100;
   }
 
   syncAllCategoryGrams() {
@@ -613,16 +624,16 @@ class NexusApp {
       const totalGrams = prodsInCat.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
       const totalCost = prodsInCat.reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
       cat.availableGrams = Math.round(totalGrams * 100) / 100;
-      cat.totalValuation = Math.round(totalCost);
+      cat.totalValuation = Math.round(totalCost * 100) / 100;
 
       const isUnidades = cat.id === 'relojes' || cat.id === 'accesorios';
       if (isUnidades) {
         const totalUnits = prodsInCat.reduce((sum, p) => sum + (parseFloat(String(p.stock || 0).replace(',', '.')) || 0), 0);
         if (totalUnits > 0) {
-          cat.cost = Math.round(totalCost / totalUnits);
+          cat.cost = Math.round((totalCost / totalUnits) * 100) / 100;
         }
-      } else if (cat.availableGrams > 0) {
-        cat.cost = Math.round(totalCost / cat.availableGrams);
+      } else if (cat.availableGrams > 0 && totalCost > 0) {
+        cat.cost = Math.round((totalCost / cat.availableGrams) * 100) / 100;
       }
     });
     if (this.data.kpis) {
@@ -3591,22 +3602,22 @@ class NexusApp {
     let calculatedAvgCost = Number(cat.cost) || 0;
     if (isUnidades) {
       const totalUnits = prodsInCat.reduce((sum, p) => sum + (parseFloat(String(p.stock || 0).replace(',', '.')) || 0), 0);
-      if (totalUnits > 0) calculatedAvgCost = Math.round(totalCostInProds / totalUnits);
+      if (totalUnits > 0) calculatedAvgCost = Math.round((totalCostInProds / totalUnits) * 100) / 100;
     } else if (availableGrams > 0 && totalCostInProds > 0) {
-      calculatedAvgCost = Math.round(totalCostInProds / availableGrams);
+      calculatedAvgCost = Math.round((totalCostInProds / availableGrams) * 100) / 100;
     }
     cat.cost = calculatedAvgCost;
 
     if (gramsInput) gramsInput.value = this.formatNumberWithCommas(availableGrams, true);
     if (prodsCountEl) {
       if (prodsInCat.length > 0) {
-        prodsCountEl.textContent = `${prodsInCat.length} productos (${availableGrams.toFixed(2)} g en piezas) — Costo Promedio: ${this.formatCurrency(calculatedAvgCost)}/g`;
+        prodsCountEl.textContent = `${prodsInCat.length} productos (${availableGrams.toFixed(2)} g en piezas) — Costo Promedio: ${this.formatCurrencyDecimals(calculatedAvgCost)}/g`;
       } else {
         prodsCountEl.textContent = `0 productos asociados (sin inventario registrado)`;
       }
     }
     const costInput = document.getElementById('edit-cat-cost-input');
-    if (costInput) costInput.value = this.formatNumberWithCommas(calculatedAvgCost);
+    if (costInput) costInput.value = this.formatNumberWithCommas(calculatedAvgCost, true);
     this.updateEditCategoryValuationPreview();
 
     this.openModal('edit-category-modal');
@@ -5077,12 +5088,13 @@ class NexusApp {
       // sumatoria de los costos totales de los productos ingresados dividida en los gramos totales de la categoría
       let avgCost = 0;
       if (isUnidades) {
-        avgCost = totalUnits > 0 ? Math.round(prodsTotalCost / totalUnits) : (Number(cat.cost) || 0);
+        avgCost = totalUnits > 0 ? (prodsTotalCost / totalUnits) : (Number(cat.cost) || 0);
       } else {
-        avgCost = formattedGrams > 0 ? Math.round(prodsTotalCost / formattedGrams) : (Number(cat.cost) || 0);
+        avgCost = formattedGrams > 0 ? (prodsTotalCost / formattedGrams) : (Number(cat.cost) || 0);
       }
+      avgCost = Math.round(avgCost * 100) / 100;
       cat.cost = avgCost;
-      const totalValuation = Math.round(prodsTotalCost > 0 ? prodsTotalCost : (formattedGrams * avgCost));
+      const totalValuation = Math.round((prodsTotalCost > 0 ? prodsTotalCost : (formattedGrams * avgCost)) * 100) / 100;
       cat.totalValuation = totalValuation;
 
       const quickCostStepper = canEditCategory ? `
@@ -5094,20 +5106,20 @@ class NexusApp {
 
       const isCalculated = count > 0 && (formattedGrams > 0 || (isUnidades && totalUnits > 0));
       const costBadgeTitle = isCalculated 
-        ? `Costo Promedio Ponderado: Sumatoria de costos (${this.formatCurrency(totalValuation)}) ÷ Gramos totales (${formattedGrams} g)` 
+        ? `Costo Promedio Ponderado: Sumatoria de costos (${this.formatCurrencyDecimals(totalValuation)}) ÷ Gramos totales (${formattedGrams} g)` 
         : 'Costo base de referencia (sin inventario registrado)';
 
       const costDisplay = `
         <div style="display:flex; flex-direction:column; gap:2px;">
           <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
-            <span class="badge" title="${costBadgeTitle}" style="background:#ECFDF5; color:#065F46; font-weight:800; font-size:0.85rem; padding:4px 9px; border-radius:6px; border:1px solid rgba(16,185,129,0.3); ${canEditCategory ? 'cursor:pointer;' : ''}" ${canEditCategory ? `onclick="app.openEditCategoryModal('${this.escapeHtml(cat.id)}')"` : ''}>💰 ${this.formatCurrency(avgCost)} / ${costUnit}</span>
+            <span class="badge" title="${costBadgeTitle}" style="background:#ECFDF5; color:#065F46; font-weight:800; font-size:0.85rem; padding:4px 9px; border-radius:6px; border:1px solid rgba(16,185,129,0.3); ${canEditCategory ? 'cursor:pointer;' : ''}" ${canEditCategory ? `onclick="app.openEditCategoryModal('${this.escapeHtml(cat.id)}')"` : ''}>💰 ${this.formatCurrencyDecimals(avgCost)} / ${costUnit}</span>
             ${quickCostStepper}
           </div>
           ${isCalculated ? `<span style="font-size:0.7rem; color:var(--text-subtle); font-weight:600;">⚖️ Promedio (${count} piezas)</span>` : `<span style="font-size:0.7rem; color:var(--text-subtle);">Costo base</span>`}
         </div>
       `;
 
-      const valuationDisplay = `<span class="font-bold" style="color:var(--brand-primary); font-size:0.88rem;">${this.formatCurrency(totalValuation)}</span>`;
+      const valuationDisplay = `<span class="font-bold" style="color:var(--brand-primary); font-size:0.88rem;">${this.formatCurrencyDecimals(totalValuation)}</span>`;
 
       const editBtn = canEditCategory 
         ? `<button class="btn-action-edit" onclick="app.openEditCategoryModal('${this.escapeHtml(cat.id)}')">Editar</button>` 
