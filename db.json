@@ -25,9 +25,9 @@
     }
   },
   "kpis": {
-    "salesToday": 29000000,
+    "salesToday": 0,
     "salesTrend": "0%",
-    "transactionsToday": 3,
+    "transactionsToday": 0,
     "txTrend": "0%",
     "inventoryValue": 407404358.79,
     "avgCostPerGram": 410095,
@@ -149,24 +149,7 @@
     }
   ],
   "purchases": [],
-  "customerCredits": [
-    {
-      "id": "SEP-729",
-      "customer": "Carlos Test Joyero CE",
-      "totalGranted": 4500000,
-      "currentBalance": 2000000,
-      "dueDate": "2026-10-30",
-      "status": "Plan Separe"
-    },
-    {
-      "id": "SEP-520",
-      "customer": "Carlos Test Joyero CE",
-      "totalGranted": 4500000,
-      "currentBalance": 2000000,
-      "dueDate": "2026-10-30",
-      "status": "Plan Separe"
-    }
-  ],
+  "customerCredits": [],
   "supplierCredits": [],
   "services": [],
   "categories": [
@@ -15896,41 +15879,19 @@
   "assets": [],
   "cashShiftLog": {
     "shiftId": "TURNO-001",
-    "openedAt": "06:37 p. m.",
-    "openingCash": 500000,
-    "cashSales": 25000000,
+    "openedAt": "08:00 AM",
+    "openingCash": 0,
+    "cashSales": 0,
     "cardSales": 0,
     "qrSales": 0,
     "cashExpenses": 0,
-    "expectedCashInDrawer": 25500000,
+    "expectedCashInDrawer": 0,
     "actualCashInDrawer": 0,
     "discrepancy": 0,
-    "status": "Abierto",
-    "closingCash": 0,
-    "openedBy": "Carlos Mendoza",
-    "openedDate": "2026-09-15"
+    "status": "Cerrado"
   },
   "cashShiftsHistory": [],
-  "abonosVentas": [
-    {
-      "id": "AB-V497224",
-      "date": "2026-09-15 23:38",
-      "customer": "Carlos Test Joyero CE",
-      "invoiceId": "TX-97225",
-      "amount": 1000000,
-      "method": "Efectivo",
-      "cashier": "Carlos Mendoza"
-    },
-    {
-      "id": "AB-V449638",
-      "date": "2026-09-15 23:37",
-      "customer": "Carlos Test Joyero CE",
-      "invoiceId": "TX-49638",
-      "amount": 1000000,
-      "method": "Efectivo",
-      "cashier": "Carlos Mendoza"
-    }
-  ],
+  "abonosVentas": [],
   "abonosCompras": [],
   "balanceSheet": {
     "assetsCurrent": 0,
@@ -15974,95 +15935,7 @@
       0
     ]
   },
-  "recentTransactions": [
-    {
-      "id": "TX-90693",
-      "customer": "Cliente Mostrador",
-      "customerDoc": "",
-      "customerDocType": "CC",
-      "customerAddress": "",
-      "customerPhone": "",
-      "time": "19:46:20",
-      "date": "15/09/2026",
-      "type": "Venta POS Joyería",
-      "itemsCount": 40,
-      "items": [
-        {
-          "id": "PRD-437",
-          "sku": "CAD-CUB-18K",
-          "name": "Cadena Eslabón Cubano 18K",
-          "qty": 40,
-          "quantity": 40,
-          "price": 500000,
-          "total": 20000000
-        }
-      ],
-      "subtotal": 20000000,
-      "tax": 0,
-      "total": 20000000,
-      "paymentMethod": "Efectivo",
-      "cashier": "Carlos Mendoza",
-      "status": "completed"
-    },
-    {
-      "id": "TX-91876",
-      "customer": "Carlos Test Joyero CE",
-      "customerDoc": "CE-99887766",
-      "customerDocType": "CE",
-      "customerAddress": "Carrera 7 # 72-10 Oficina 502",
-      "customerPhone": "3109998877",
-      "time": "06:38:15 p. m.",
-      "date": "15/09/2026",
-      "type": "Venta POS Joyería",
-      "itemsCount": 10,
-      "items": [
-        {
-          "id": "PRD-437",
-          "sku": "CAD-CUB-18K",
-          "name": "Cadena Eslabón Cubano 18K",
-          "qty": 10,
-          "quantity": 10,
-          "price": 450000,
-          "total": 4500000
-        }
-      ],
-      "subtotal": 4500000,
-      "tax": 0,
-      "total": 4500000,
-      "paymentMethod": "Plan Separe",
-      "cashier": "Carlos Mendoza",
-      "status": "completed"
-    },
-    {
-      "id": "TX-91756",
-      "customer": "Carlos Test Joyero CE",
-      "customerDoc": "CE-99887766",
-      "customerDocType": "CE",
-      "customerAddress": "Carrera 7 # 72-10 Oficina 502",
-      "customerPhone": "3109998877",
-      "time": "06:37:27 p. m.",
-      "date": "15/09/2026",
-      "type": "Venta POS Joyería",
-      "itemsCount": 10,
-      "items": [
-        {
-          "id": "PRD-694",
-          "sku": "CAD-CUB-18K",
-          "name": "Cadena Eslabón Cubano 18K",
-          "qty": 10,
-          "quantity": 10,
-          "price": 450000,
-          "total": 4500000
-        }
-      ],
-      "subtotal": 4500000,
-      "tax": 0,
-      "total": 4500000,
-      "paymentMethod": "Plan Separe",
-      "cashier": "Carlos Mendoza",
-      "status": "completed"
-    }
-  ],
+  "recentTransactions": [],
   "financialLedger": [],
   "chartData": {
     "salesByDay": [
@@ -16080,5 +15953,6 @@
       0
     ]
   },
-  "updatedAt": "2026-09-16T21:14:11.926Z"
+  "updatedAt": "2026-09-16T21:56:08.237Z",
+  "sales": []
 }
