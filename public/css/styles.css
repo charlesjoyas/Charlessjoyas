@@ -933,6 +933,74 @@ h1, h2, h3, h4, .font-heading {
   border-color: var(--rose-danger);
 }
 
+.btn-action-key {
+  background: rgba(245, 158, 11, 0.12);
+  color: #D97706;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-action-key:hover {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #D97706;
+  color: #B45309;
+}
+
+[data-theme="dark"] .btn-action-key {
+  background: rgba(245, 158, 11, 0.18);
+  color: #FBBF24;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+[data-theme="dark"] .btn-action-key:hover {
+  background: rgba(245, 158, 11, 0.3);
+  border-color: #F59E0B;
+  color: #FDE68A;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper .form-input {
+  padding-right: 2.5rem;
+}
+
+.password-eye-btn {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.password-eye-btn:hover {
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .password-eye-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* Subnav Tab Pill Buttons */
 button.subnav-tab,
 .subnav-tab {

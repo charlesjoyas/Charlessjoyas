@@ -1718,12 +1718,22 @@ class NexusApp {
           const customPerms = this.getSelectedPermissions('edit-user-perm-box', 'edit-usr-perm');
           u.customPermissions = customPerms.length > 0 ? customPerms : null;
 
+          const newPass = document.getElementById('edit-user-password')?.value?.trim();
+          if (newPass) {
+            if (newPass.length < 4) {
+              this.showToast('La nueva contraseña debe tener al menos 4 caracteres.', 'warning');
+              return;
+            }
+            u.password = newPass;
+          }
+
           await this.savePersistence();
           this.renderUsersTable();
           this.renderPerfilesTable();
 
           if (this.currentUser && this.currentUser.id === u.id) {
             this.currentUser = u;
+            localStorage.setItem('nexus_pos_user', JSON.stringify(u));
             this.updateUIForRole();
           }
 
@@ -3006,20 +3016,18 @@ class NexusApp {
   switchConfigTab(tabName) {
     const storePane = document.getElementById('config-pane-store');
     const brandingPane = document.getElementById('config-pane-branding');
+    const securityPane = document.getElementById('config-pane-security');
     const btnStore = document.getElementById('btn-tab-config-store');
     const btnBranding = document.getElementById('btn-tab-config-branding');
+    const btnSecurity = document.getElementById('btn-tab-config-security');
 
-    if (tabName === 'store') {
-      if (storePane) storePane.style.display = 'block';
-      if (brandingPane) brandingPane.style.display = 'none';
-      if (btnStore) btnStore.classList.add('active');
-      if (btnBranding) btnBranding.classList.remove('active');
-    } else {
-      if (storePane) storePane.style.display = 'none';
-      if (brandingPane) brandingPane.style.display = 'block';
-      if (btnStore) btnStore.classList.remove('active');
-      if (btnBranding) btnBranding.classList.add('active');
-    }
+    if (storePane) storePane.style.display = tabName === 'store' ? 'block' : 'none';
+    if (brandingPane) brandingPane.style.display = tabName === 'branding' ? 'block' : 'none';
+    if (securityPane) securityPane.style.display = tabName === 'security' ? 'block' : 'none';
+
+    if (btnStore) btnStore.classList.toggle('active', tabName === 'store');
+    if (btnBranding) btnBranding.classList.toggle('active', tabName === 'branding');
+    if (btnSecurity) btnSecurity.classList.toggle('active', tabName === 'security');
   }
 
   hexToRgb(hex) {
@@ -3797,10 +3805,280 @@ class NexusApp {
     document.getElementById('edit-user-email').value = u.email;
     document.getElementById('edit-user-status').value = u.status;
 
+    const pwdField = document.getElementById('edit-user-password');
+    if (pwdField) {
+      pwdField.value = '';
+      pwdField.type = 'password';
+    }
+
     this.populateRoleSelect('edit-user-role', u.role);
     this.renderPermissionCheckboxes('edit-user-perm-box', u.customPermissions || [], 'edit-usr-perm', 'Permisos Personalizados del Usuario (Opcional - anula rol)');
 
     this.openModal('edit-user-modal');
+  }
+
+  generateSecureRandomPassword() {
+    const prefixes = ['Joyas', 'Oro18k', 'Nexus', 'Esmeralda', 'Diamante', 'Plata', 'Zafiro', 'Rubi'];
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const num = Math.floor(100 + Math.random() * 900);
+    const symbols = ['!', '@', '#', '$', '*'];
+    const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+    return `${prefix}${num}${symbol}`;
+  }
+
+  toggleFieldPassword(fieldId, btnEl) {
+    const input = document.getElementById(fieldId);
+    if (!input) return;
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+
+    if (btnEl) {
+      if (isPassword) {
+        btnEl.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
+      } else {
+        btnEl.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+      }
+    }
+  }
+
+  generateRandomPasswordForField(fieldId) {
+    const input = document.getElementById(fieldId);
+    if (!input) return;
+    const pwd = this.generateSecureRandomPassword();
+    input.value = pwd;
+    input.type = 'text';
+    this.showToast(`Contraseña generada: ${pwd}`, 'info');
+  }
+
+  openChangeMyPasswordModal() {
+    if (!this.currentUser) {
+      this.showToast('Debes iniciar sesión para cambiar tu contraseña.', 'warning');
+      return;
+    }
+    const subtitle = document.getElementById('my-pwd-user-subtitle');
+    if (subtitle) {
+      subtitle.textContent = `${this.currentUser.name} (${this.currentUser.email || this.currentUser.role})`;
+    }
+    const cur = document.getElementById('my-pwd-current');
+    const nw = document.getElementById('my-pwd-new');
+    const cf = document.getElementById('my-pwd-confirm');
+    if (cur) { cur.value = ''; cur.type = 'password'; }
+    if (nw) { nw.value = ''; nw.type = 'password'; }
+    if (cf) { cf.value = ''; cf.type = 'password'; }
+    this.openModal('change-my-password-modal');
+  }
+
+  async handleSaveMyPassword(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!this.currentUser) {
+      this.showToast('No hay una sesión activa.', 'danger');
+      return;
+    }
+
+    const currentPwd = document.getElementById('my-pwd-current')?.value || '';
+    const newPwd = document.getElementById('my-pwd-new')?.value || '';
+    const confirmPwd = document.getElementById('my-pwd-confirm')?.value || '';
+
+    const expectedPwd = this.currentUser.password || '123456';
+    if (currentPwd !== expectedPwd) {
+      this.showToast('La contraseña actual ingresada no es correcta.', 'danger');
+      return;
+    }
+
+    if (newPwd.length < 4) {
+      this.showToast('La nueva contraseña debe contener al menos 4 caracteres.', 'warning');
+      return;
+    }
+
+    if (newPwd !== confirmPwd) {
+      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
+      return;
+    }
+
+    const u = this.data.users.find(usr => usr.id === this.currentUser.id || usr.email === this.currentUser.email);
+    if (u) {
+      u.password = newPwd;
+    }
+    this.currentUser.password = newPwd;
+    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
+
+    await this.savePersistence();
+    this.closeModal('change-my-password-modal');
+    this.showToast('¡Tu contraseña ha sido actualizada con éxito!', 'success');
+  }
+
+  async handleSaveMyPasswordFromConfig(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!this.currentUser) {
+      this.showToast('No hay una sesión activa.', 'danger');
+      return;
+    }
+
+    const currentPwd = document.getElementById('cfg-pwd-current')?.value || '';
+    const newPwd = document.getElementById('cfg-pwd-new')?.value || '';
+    const confirmPwd = document.getElementById('cfg-pwd-confirm')?.value || '';
+
+    const expectedPwd = this.currentUser.password || '123456';
+    if (currentPwd !== expectedPwd) {
+      this.showToast('La contraseña actual ingresada no es correcta.', 'danger');
+      return;
+    }
+
+    if (newPwd.length < 4) {
+      this.showToast('La nueva contraseña debe contener al menos 4 caracteres.', 'warning');
+      return;
+    }
+
+    if (newPwd !== confirmPwd) {
+      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
+      return;
+    }
+
+    const u = this.data.users.find(usr => usr.id === this.currentUser.id || usr.email === this.currentUser.email);
+    if (u) {
+      u.password = newPwd;
+    }
+    this.currentUser.password = newPwd;
+    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
+
+    await this.savePersistence();
+
+    const cur = document.getElementById('cfg-pwd-current');
+    const nw = document.getElementById('cfg-pwd-new');
+    const cf = document.getElementById('cfg-pwd-confirm');
+    if (cur) cur.value = '';
+    if (nw) nw.value = '';
+    if (cf) cf.value = '';
+
+    this.showToast('¡Tu contraseña ha sido actualizada exitosamente desde Configuración!', 'success');
+  }
+
+  openAdminChangePasswordModal(userId) {
+    if (!this.currentUser || this.currentUser.role !== 'Super Admin') {
+      this.showToast('Acceso Denegado: Solo el Super Admin puede gestionar contraseñas de usuarios.', 'danger');
+      return;
+    }
+
+    const u = this.data.users.find(usr => usr.id === userId);
+    if (!u) {
+      this.showToast('Usuario no encontrado.', 'danger');
+      return;
+    }
+
+    const targetIdInput = document.getElementById('admin-pwd-target-user-id');
+    if (targetIdInput) targetIdInput.value = u.id;
+
+    const nameEl = document.getElementById('admin-pwd-target-name');
+    if (nameEl) nameEl.textContent = u.name;
+
+    const emailEl = document.getElementById('admin-pwd-target-email');
+    if (emailEl) emailEl.textContent = u.email;
+
+    const roleEl = document.getElementById('admin-pwd-target-role');
+    if (roleEl) roleEl.textContent = u.role;
+
+    const idEl = document.getElementById('admin-pwd-target-id');
+    if (idEl) idEl.textContent = u.id;
+
+    const avatarEl = document.getElementById('admin-pwd-target-avatar');
+    if (avatarEl) {
+      if (u.avatar && u.avatar.startsWith('http')) {
+        avatarEl.innerHTML = `<img src="${u.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" alt="${u.name}">`;
+      } else {
+        avatarEl.textContent = (u.name || 'U').charAt(0).toUpperCase();
+      }
+    }
+
+    this._adminTargetUserPassword = u.password || '123456';
+    const displayEl = document.getElementById('admin-pwd-current-display');
+    if (displayEl) displayEl.textContent = '••••••••';
+
+    const revealBtn = document.getElementById('btn-toggle-admin-reveal');
+    if (revealBtn) revealBtn.textContent = '👁️ Revelar';
+
+    const nw = document.getElementById('admin-pwd-new');
+    const cf = document.getElementById('admin-pwd-confirm');
+    if (nw) { nw.value = ''; nw.type = 'password'; }
+    if (cf) { cf.value = ''; cf.type = 'password'; }
+
+    this.openModal('admin-change-user-password-modal');
+  }
+
+  toggleAdminCurrentPasswordVisibility() {
+    const displayEl = document.getElementById('admin-pwd-current-display');
+    const revealBtn = document.getElementById('btn-toggle-admin-reveal');
+    if (!displayEl) return;
+
+    if (displayEl.textContent === '••••••••') {
+      displayEl.textContent = this._adminTargetUserPassword || '123456';
+      if (revealBtn) revealBtn.textContent = '🙈 Ocultar';
+    } else {
+      displayEl.textContent = '••••••••';
+      if (revealBtn) revealBtn.textContent = '👁️ Revelar';
+    }
+  }
+
+  generateRandomPasswordForAdmin() {
+    const pwd = this.generateSecureRandomPassword();
+    const nw = document.getElementById('admin-pwd-new');
+    const cf = document.getElementById('admin-pwd-confirm');
+    if (nw) { nw.value = pwd; nw.type = 'text'; }
+    if (cf) { cf.value = pwd; cf.type = 'text'; }
+    this.showToast(`Contraseña generada: ${pwd}`, 'info');
+  }
+
+  async handleAdminSaveUserPassword(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!this.currentUser || this.currentUser.role !== 'Super Admin') {
+      this.showToast('Acceso Denegado: Solo el Super Admin puede redefinir contraseñas.', 'danger');
+      return;
+    }
+
+    const targetId = document.getElementById('admin-pwd-target-user-id')?.value;
+    const u = this.data.users.find(usr => usr.id === targetId);
+    if (!u) {
+      this.showToast('Usuario objetivo no encontrado.', 'danger');
+      return;
+    }
+
+    const newPwd = document.getElementById('admin-pwd-new')?.value?.trim();
+    const confirmPwd = document.getElementById('admin-pwd-confirm')?.value?.trim();
+
+    if (!newPwd || newPwd.length < 4) {
+      this.showToast('La nueva contraseña debe tener al menos 4 caracteres.', 'warning');
+      return;
+    }
+
+    if (newPwd !== confirmPwd) {
+      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
+      return;
+    }
+
+    u.password = newPwd;
+    this._adminTargetUserPassword = newPwd;
+
+    // If super admin edited their own password, keep session in sync
+    if (this.currentUser && (this.currentUser.id === u.id || this.currentUser.email === u.email)) {
+      this.currentUser.password = newPwd;
+      localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
+    }
+
+    await this.savePersistence();
+    this.renderUsersTable();
+
+    const copyClip = document.getElementById('admin-pwd-copy-clip')?.checked;
+    if (copyClip && navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(newPwd);
+        this.showToast(`Contraseña actualizada para "${u.name}" y copiada al portapapeles.`, 'success');
+      } catch(err) {
+        this.showToast(`Contraseña de "${u.name}" actualizada con éxito: ${newPwd}`, 'success');
+      }
+    } else {
+      this.showToast(`Contraseña de "${u.name}" actualizada con éxito a: ${newPwd}`, 'success');
+    }
+
+    this.closeModal('admin-change-user-password-modal');
   }
 
   openEditProfileModal(id) {
@@ -4600,11 +4878,15 @@ class NexusApp {
       if (!canEditUser && !canDeleteUser) {
         actionHtml = `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
       } else {
+        const isSuperAdmin = this.currentUser && this.currentUser.role === 'Super Admin';
+        const keyBtn = isSuperAdmin 
+          ? `<button class="btn-action-key" title="Cambiar / Restablecer Contraseña" onclick="app.openAdminChangePasswordModal('${u.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Clave</button>` 
+          : '';
         const editBtn = canEditUser ? `<button class="btn-action-edit" onclick="app.openEditUserModal('${u.id}')">Editar</button>` : '';
         const deleteBtn = isRootUser 
           ? `<span class="badge" style="background:#EEF2FF; color:#4F46E5; font-size:0.72rem; font-weight:700;">Raíz</span>`
           : (canDeleteUser ? `<button class="btn-action-delete" onclick="app.deleteUser('${u.id}')">Eliminar</button>` : '');
-        actionHtml = `<div class="action-btn-group">${editBtn}${deleteBtn}</div>`;
+        actionHtml = `<div class="action-btn-group">${keyBtn}${editBtn}${deleteBtn}</div>`;
       }
 
       return `

@@ -9,7 +9,7 @@
     "email": "contacto@nexuspos.io",
     "address": "Carrera 53 # 47 - 21, Local 109",
     "addressExtra": "C.C Luz del Dia",
-    "cashier": "Carlos Mendoza",
+    "cashier": "Carlos Garzon",
     "shiftStatus": "Cerrado",
     "shiftStartTime": "08:00 AM",
     "cashInBox": 0,
@@ -29,10 +29,10 @@
     "salesTrend": "0%",
     "transactionsToday": 0,
     "txTrend": "0%",
-    "inventoryValue": 407404358.79,
+    "inventoryValue": 407404358.81999993,
     "avgCostPerGram": 410095,
     "avgCostGrams": 993.44,
-    "skusCount": 6,
+    "skusCount": 783,
     "totalGrams": 993.44,
     "netMargin": "0%",
     "marginTrend": "0%",
@@ -43,14 +43,36 @@
   },
   "users": [
     {
+      "id": "USR-515",
+      "name": "Santiago Muñoz",
+      "email": "santi@gmail.com",
+      "password": "1234561234567",
+      "role": "Cajero",
+      "customPermissions": [
+        "dashboard",
+        "pos",
+        "ventas",
+        "clientes",
+        "creditos_clientes",
+        "comprar",
+        "formas_pago",
+        "cuadre_caja",
+        "abonos_compras"
+      ],
+      "status": "Active",
+      "lastLogin": "Ahora mismo",
+      "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
+    },
+    {
       "id": "USR-001",
-      "name": "Carlos Mendoza",
+      "name": "Carlos Garzon",
       "email": "carlos@nexuspos.io",
       "role": "Super Admin",
       "status": "Active",
       "lastLogin": "Hoy 08:15 AM",
       "password": "admin123",
-      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80"
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+      "customPermissions": null
     }
   ],
   "customers": [],
@@ -171,7 +193,7 @@
       "cost": 402601.59,
       "availableGrams": 712.91,
       "itemsCount": 658,
-      "totalValuation": 287018699.53
+      "totalValuation": 287018699.56
     },
     {
       "id": "broches",
@@ -15953,6 +15975,6 @@
       0
     ]
   },
-  "updatedAt": "2026-09-16T21:56:08.237Z",
+  "updatedAt": "2026-09-16T23:49:23.335Z",
   "sales": []
 }
