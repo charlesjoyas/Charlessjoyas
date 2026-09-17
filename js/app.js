@@ -335,6 +335,57 @@ class NexusApp {
   /* --------------------------------------------------------------------------
      PERSISTENCE LAYER (MongoDB REST API & LocalStorage Fallback)
      -------------------------------------------------------------------------- */
+  ensureOrderedUserIds() {
+    if (!this.data.users || !Array.isArray(this.data.users) || this.data.users.length === 0) return;
+
+    // 1. Identify root Super Admin (Carlos Garzon or USR-001 or role Super Admin)
+    let rootIndex = this.data.users.findIndex(u => u.id === 'USR-001' || u.role === 'Super Admin' || u.email?.toLowerCase() === 'carlos@nexuspos.io');
+    let rootUser;
+    if (rootIndex !== -1) {
+      rootUser = this.data.users[rootIndex];
+    } else {
+      rootUser = this.data.users[0];
+    }
+
+    const others = this.data.users.filter(u => u !== rootUser);
+
+    // Check if others have disordered legacy random IDs (like > 10) or if root was not at index 0
+    const hasDisorderedLegacy = others.some(u => {
+      const m = (u.id || '').match(/USR-(\d+)/i);
+      return m && parseInt(m[1], 10) > 10;
+    }) || this.data.users[0] !== rootUser;
+
+    if (hasDisorderedLegacy) {
+      // In the legacy unshift system, new users were prepended to index 0,
+      // so the array was [Victor, Zharick, Santiago, Carlos].
+      // Reversing 'others' restores chronological creation order: Santiago -> Zharick -> Victor
+      // With rootUser (Carlos) as first: [Carlos, Santiago, Zharick, Victor]
+      const chronologicalOthers = [...others].reverse();
+      this.data.users = [rootUser, ...chronologicalOthers];
+    } else {
+      // Sort users by numeric ID if they already have USR-xxx format, ensuring root is first
+      this.data.users = [rootUser, ...others.sort((a, b) => {
+        const numA = parseInt((a.id || '').replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt((b.id || '').replace(/\D/g, ''), 10) || 0;
+        return numA - numB;
+      })];
+    }
+
+    // Assign sequential, cleanly formatted IDs: USR-001, USR-002, USR-003, USR-004...
+    this.data.users.forEach((u, idx) => {
+      u.id = `USR-${String(idx + 1).padStart(3, '0')}`;
+    });
+
+    // Update currentUser ID if matching email
+    if (this.currentUser && !this.isGhostSession) {
+      const me = this.data.users.find(u => u.email?.toLowerCase() === this.currentUser.email?.toLowerCase());
+      if (me && this.currentUser.id !== me.id) {
+        this.currentUser.id = me.id;
+        try { localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (e) {}
+      }
+    }
+  }
+
   sanitizeLoadedData() {
     if (this.data.users && Array.isArray(this.data.users)) {
       this.data.users.forEach(u => {
@@ -355,6 +406,7 @@ class NexusApp {
       if (rootUser && !this.data.users.some(u => u.id === 'USR-001' || u.role === 'Super Admin')) {
         this.data.users.unshift(rootUser);
       }
+      this.ensureOrderedUserIds();
     } else {
       this.data.users = Array.from(INITIAL_DATA.users);
     }
@@ -1776,21 +1828,33 @@ class NexusApp {
         }
         const customPermissions = this.getSelectedPermissions('add-user-perm-box', 'add-usr-perm');
 
+        let maxNum = 0;
+        (this.data.users || []).forEach(u => {
+          const match = (u.id || '').match(/USR-(\d+)/i);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
+        });
+        const nextNum = Math.max(maxNum + 1, (this.data.users || []).length + 1);
+        const nextId = `USR-${String(nextNum).padStart(3, '0')}`;
+
         const newUser = {
-          id: `USR-${Math.floor(100 + Math.random() * 900)}`,
+          id: nextId,
           name, email, password, role,
           customPermissions: customPermissions.length > 0 ? customPermissions : null,
           status: "Active",
           lastLogin: "Ahora mismo",
           avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
         };
-        this.data.users.unshift(newUser);
+        this.data.users.push(newUser);
+        this.ensureOrderedUserIds();
         await this.savePersistence();
         this.renderUsersTable();
         this.renderPerfilesTable();
         userForm.reset();
         this.closeModal('user-modal');
-        this.showToast(`Usuario "${name}" creado exitosamente con el rol ${role}`, 'success');
+        this.showToast(`Usuario "${name}" (${nextId}) creado exitosamente con el rol ${role}`, 'success');
       });
     }
 
@@ -4485,6 +4549,7 @@ class NexusApp {
     }
     if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente este usuario (${u ? u.name : id})?`)) return;
     this.data.users = this.data.users.filter(usr => usr.id !== id);
+    this.ensureOrderedUserIds();
     await this.savePersistence();
     this.renderUsersTable();
     this.renderPerfilesTable();
@@ -5190,6 +5255,8 @@ class NexusApp {
     const canEditUser = this.canPerformAction('edit', 'user');
     const canDeleteUser = this.canPerformAction('delete', 'user');
 
+    this.ensureOrderedUserIds();
+
     tbody.innerHTML = this.data.users.map(u => {
       const hasCustom = u.customPermissions && Array.isArray(u.customPermissions) && u.customPermissions.length > 0;
       const permBadge = hasCustom ? `<span class="badge badge-warning" style="margin-left:4px; font-size:0.68rem;" title="Permisos Personalizados Activos">Especial</span>` : '';
@@ -5214,7 +5281,7 @@ class NexusApp {
 
       return `
         <tr>
-          <td><b>${this.escapeHtml(u.id)}</b></td>
+          <td style="white-space:nowrap;"><b>${this.escapeHtml(u.id)}</b></td>
           <td>${this.escapeHtml(u.name)}</td>
           <td>${this.escapeHtml(u.email)}</td>
           <td><span class="badge" style="background:#EEF2FF; color:#6366F1;">${this.escapeHtml(u.role)}</span>${permBadge}</td>
