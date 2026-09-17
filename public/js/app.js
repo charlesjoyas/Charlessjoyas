@@ -463,6 +463,7 @@ class NexusApp {
     }
     if (this.data.suppliers && Array.isArray(this.data.suppliers)) {
       this.data.suppliers.forEach(s => {
+        if (!s.docType) s.docType = 'NIT';
         if (s.nit === undefined || s.nit === null) s.nit = '';
         if (s.address === undefined || s.address === null) s.address = '';
         if (s.status === undefined || s.status === null) s.status = 'Active';
@@ -2020,6 +2021,31 @@ class NexusApp {
       });
     }
 
+    // Dynamic placeholders for supplier document type selection
+    const suppDocTypeSelect = document.getElementById('supp-doctype-select');
+    const suppNitInput = document.getElementById('supp-nit-input');
+    if (suppDocTypeSelect && suppNitInput) {
+      suppDocTypeSelect.addEventListener('change', () => {
+        const val = suppDocTypeSelect.value;
+        if (val === 'CC') suppNitInput.placeholder = 'ej. 1020304050';
+        else if (val === 'CE') suppNitInput.placeholder = 'ej. 450123';
+        else if (val === 'PAS') suppNitInput.placeholder = 'ej. P1234567';
+        else if (val === 'NIT') suppNitInput.placeholder = 'ej. 900.123.456-7';
+      });
+    }
+
+    const editSuppDocTypeSelect = document.getElementById('edit-supp-doctype');
+    const editSuppNitInput = document.getElementById('edit-supp-nit');
+    if (editSuppDocTypeSelect && editSuppNitInput) {
+      editSuppDocTypeSelect.addEventListener('change', () => {
+        const val = editSuppDocTypeSelect.value;
+        if (val === 'CC') editSuppNitInput.placeholder = 'ej. 1020304050';
+        else if (val === 'CE') editSuppNitInput.placeholder = 'ej. 450123';
+        else if (val === 'PAS') editSuppNitInput.placeholder = 'ej. P1234567';
+        else if (val === 'NIT') editSuppNitInput.placeholder = 'ej. 900.123.456-7';
+      });
+    }
+
     // 3. Add Supplier Form
     const suppForm = document.getElementById('add-supplier-form');
     if (suppForm) {
@@ -2029,6 +2055,7 @@ class NexusApp {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar proveedores.', 'danger');
           return;
         }
+        const docType = document.getElementById('supp-doctype-select')?.value || 'NIT';
         const nit = (document.getElementById('supp-nit-input')?.value || '').trim();
         const name = (document.getElementById('supp-name-input')?.value || '').trim();
         const phone = (document.getElementById('supp-phone-input')?.value || '').trim();
@@ -2057,6 +2084,7 @@ class NexusApp {
 
         const newSupp = {
           id: `PRV-${Math.floor(205 + Math.random() * 900)}`,
+          docType,
           nit,
           name,
           phone,
@@ -2107,6 +2135,7 @@ class NexusApp {
         const id = document.getElementById('edit-supp-id').value;
         const supp = this.data.suppliers.find(s => s.id === id);
         if (supp) {
+          const docType = document.getElementById('edit-supp-doctype')?.value || 'NIT';
           const nit = (document.getElementById('edit-supp-nit')?.value || '').trim();
           const name = (document.getElementById('edit-supp-name')?.value || '').trim();
           const phone = (document.getElementById('edit-supp-phone')?.value || '').trim();
@@ -2134,6 +2163,7 @@ class NexusApp {
           }
 
           const oldName = supp.name;
+          supp.docType = docType;
           supp.nit = nit;
           supp.name = name;
           supp.phone = phone;
@@ -3902,6 +3932,10 @@ class NexusApp {
   openSupplierModal() {
     const suppForm = document.getElementById('add-supplier-form');
     if (suppForm) suppForm.reset();
+    const docTypeSelect = document.getElementById('supp-doctype-select');
+    if (docTypeSelect) docTypeSelect.value = 'NIT';
+    const nitInput = document.getElementById('supp-nit-input');
+    if (nitInput) nitInput.placeholder = 'ej. 900.123.456-7';
     const activeCheck = document.getElementById('supp-active-checkbox');
     if (activeCheck) activeCheck.checked = true;
     const pendingInput = document.getElementById('supp-pending-balance-input');
@@ -3920,7 +3954,17 @@ class NexusApp {
     if (!s) return;
 
     document.getElementById('edit-supp-id').value = s.id;
-    document.getElementById('edit-supp-nit').value = s.nit || '';
+    const editDocType = document.getElementById('edit-supp-doctype');
+    if (editDocType) editDocType.value = s.docType || 'NIT';
+    const nitInput = document.getElementById('edit-supp-nit');
+    if (nitInput) {
+      nitInput.value = s.nit || '';
+      const dt = s.docType || 'NIT';
+      if (dt === 'CC') nitInput.placeholder = 'ej. 1020304050';
+      else if (dt === 'CE') nitInput.placeholder = 'ej. 450123';
+      else if (dt === 'PAS') nitInput.placeholder = 'ej. P1234567';
+      else nitInput.placeholder = 'ej. 900.123.456-7';
+    }
     document.getElementById('edit-supp-name').value = s.name || '';
     document.getElementById('edit-supp-phone').value = s.phone || '';
     document.getElementById('edit-supp-email').value = s.email || '';
@@ -5253,11 +5297,12 @@ class NexusApp {
       ` : `<span style="color:var(--text-muted); font-size:0.8rem;">Sin datos bancarios</span>`;
 
       const isAct = s.status !== 'Inactive';
+      const docBadge = s.docType ? `<span class="badge" style="background:rgba(99,102,241,0.08); color:var(--primary-indigo); font-size:0.72rem; font-weight:700; padding:2px 6px; border-radius:4px; margin-right:5px;">${this.escapeHtml(s.docType)}</span>` : '';
 
       return `
         <tr>
           <td><b>${this.escapeHtml(s.id)}</b></td>
-          <td><span style="font-weight:700; font-family:monospace; color:var(--primary-indigo);">${this.escapeHtml(s.nit || '---')}</span></td>
+          <td>${docBadge}<span style="font-weight:700; font-family:monospace; color:var(--primary-indigo);">${this.escapeHtml(s.nit || '---')}</span></td>
           <td><b>${this.escapeHtml(s.name)}</b></td>
           <td>${this.escapeHtml(s.phone || '---')}</td>
           <td>${this.escapeHtml(s.email || '---')}</td>

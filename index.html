@@ -2721,8 +2721,17 @@
             <!-- Columna Izquierda -->
             <div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
+                <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Tipo de documento</label>
+                <select id="supp-doctype-select" class="form-select">
+                  <option value="NIT" selected>NIT (Empresa / Comercial)</option>
+                  <option value="CC">Cédula de Ciudadanía (C.C.)</option>
+                  <option value="CE">Cédula de Extranjería (C.E.)</option>
+                  <option value="PAS">Pasaporte</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Identificacion - Nit</label>
-                <input type="text" id="supp-nit-input" class="form-input" placeholder="Identificacion - Nit" required>
+                <input type="text" id="supp-nit-input" class="form-input" placeholder="ej. 900.123.456-7" required>
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Nombres</label>
@@ -2736,20 +2745,14 @@
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Email</label>
                 <input type="email" id="supp-email-input" class="form-input" placeholder="Email" required>
               </div>
-              <div class="form-group" style="margin-bottom: 0.85rem;">
-                <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Dirección</label>
-                <input type="text" id="supp-address-input" class="form-input" placeholder="Dirección" required>
-              </div>
-              <div class="form-group" style="margin-top: 0.75rem;">
-                <label style="display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
-                  <input type="checkbox" id="supp-active-checkbox" checked style="width: 18px; height: 18px; accent-color: #1e293b; cursor: pointer;">
-                  Activo
-                </label>
-              </div>
             </div>
 
             <!-- Columna Derecha -->
             <div>
+              <div class="form-group" style="margin-bottom: 0.85rem;">
+                <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Dirección</label>
+                <input type="text" id="supp-address-input" class="form-input" placeholder="Dirección" required>
+              </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Tipo cuenta</label>
                 <select id="supp-account-type-select" class="form-select">
@@ -2771,6 +2774,12 @@
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Saldo pendiente</label>
                 <input type="text" inputmode="numeric" id="supp-pending-balance-input" value="0" class="form-input" placeholder="0">
+              </div>
+              <div class="form-group" style="margin-top: 0.75rem;">
+                <label style="display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
+                  <input type="checkbox" id="supp-active-checkbox" checked style="width: 18px; height: 18px; accent-color: #1e293b; cursor: pointer;">
+                  Activo
+                </label>
               </div>
             </div>
           </div>
@@ -3515,8 +3524,17 @@
             <!-- Columna Izquierda -->
             <div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
+                <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Tipo de documento</label>
+                <select id="edit-supp-doctype" class="form-select">
+                  <option value="NIT">NIT (Empresa / Comercial)</option>
+                  <option value="CC">Cédula de Ciudadanía (C.C.)</option>
+                  <option value="CE">Cédula de Extranjería (C.E.)</option>
+                  <option value="PAS">Pasaporte</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Identificacion - Nit</label>
-                <input type="text" id="edit-supp-nit" class="form-input" placeholder="Identificacion - Nit" required>
+                <input type="text" id="edit-supp-nit" class="form-input" placeholder="ej. 900.123.456-7" required>
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Nombres</label>
@@ -3530,20 +3548,14 @@
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Email</label>
                 <input type="email" id="edit-supp-email" class="form-input" placeholder="Email" required>
               </div>
-              <div class="form-group" style="margin-bottom: 0.85rem;">
-                <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Dirección</label>
-                <input type="text" id="edit-supp-address" class="form-input" placeholder="Dirección" required>
-              </div>
-              <div class="form-group" style="margin-top: 0.75rem;">
-                <label style="display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
-                  <input type="checkbox" id="edit-supp-active" style="width: 18px; height: 18px; accent-color: #1e293b; cursor: pointer;">
-                  Activo
-                </label>
-              </div>
             </div>
 
             <!-- Columna Derecha -->
             <div>
+              <div class="form-group" style="margin-bottom: 0.85rem;">
+                <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Dirección</label>
+                <input type="text" id="edit-supp-address" class="form-input" placeholder="Dirección" required>
+              </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Tipo cuenta</label>
                 <select id="edit-supp-account-type" class="form-select">
@@ -3565,6 +3577,12 @@
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Saldo pendiente</label>
                 <input type="text" inputmode="numeric" id="edit-supp-pending-balance" class="form-input" placeholder="0">
+              </div>
+              <div class="form-group" style="margin-top: 0.75rem;">
+                <label style="display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
+                  <input type="checkbox" id="edit-supp-active" style="width: 18px; height: 18px; accent-color: #1e293b; cursor: pointer;">
+                  Activo
+                </label>
               </div>
             </div>
           </div>
