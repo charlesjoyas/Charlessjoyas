@@ -193,6 +193,9 @@ class NexusApp {
       'exp-amount-input',
       'edit-exp-amount',
       'cash-physical-counted',
+      'open-cash-base-input',
+      'supp-pending-balance-input',
+      'edit-supp-pending-balance',
       'srv-price-input',
       'edit-srv-price',
       'ast-cost-input',
@@ -5851,9 +5854,29 @@ class NexusApp {
     const inputEl = document.getElementById('open-cash-base-input');
     if (inputEl) {
       inputEl.value = '500,000';
-      this.attachGlobalNumberMasks();
     }
+    this.attachGlobalNumberMasks();
+    this.updateOpenCashBasePreview();
     this.openModal('open-cash-modal');
+  }
+
+  setOpenCashBase(val) {
+    const el = document.getElementById('open-cash-base-input');
+    if (el) {
+      el.value = this.formatNumberWithCommas(val);
+      el.dispatchEvent(new Event('input'));
+      this.updateOpenCashBasePreview();
+    }
+  }
+
+  updateOpenCashBasePreview() {
+    const input = document.getElementById('open-cash-base-input');
+    const preview = document.getElementById('open-cash-base-preview');
+    if (!input) return;
+    const val = this.parseCleanNumber(input.value);
+    if (preview) {
+      preview.innerHTML = `💵 Base en Caja: <strong>${this.formatCurrency(val)}</strong>`;
+    }
   }
 
   async submitCashShiftOpen() {
@@ -5887,8 +5910,35 @@ class NexusApp {
     const countedEl = document.getElementById('cash-physical-counted');
     if (theoEl) theoEl.innerText = this.formatCurrency(shift.expectedCashInDrawer);
     if (salesEl) salesEl.innerText = this.formatCurrency(shift.cashSales);
-    if (countedEl) countedEl.value = this.formatNumberWithCommas(shift.expectedCashInDrawer);
+    if (countedEl) {
+      countedEl.value = this.formatNumberWithCommas(shift.expectedCashInDrawer);
+    }
+    this.attachGlobalNumberMasks();
+    this.updateCashCloseDiff();
     this.openModal('close-cash-modal');
+  }
+
+  updateCashCloseDiff() {
+    const countedEl = document.getElementById('cash-physical-counted');
+    const diffEl = document.getElementById('cash-diff-display');
+    if (!countedEl || !diffEl) return;
+    const counted = this.parseCleanNumber(countedEl.value);
+    const expected = this.data.cashShiftLog?.expectedCashInDrawer || 0;
+    const diff = counted - expected;
+    diffEl.style.display = 'block';
+    if (diff === 0) {
+      diffEl.style.background = 'rgba(16, 185, 129, 0.12)';
+      diffEl.style.color = 'var(--emerald-text, #059669)';
+      diffEl.innerHTML = `✅ Caja Cuadrada Perfecta: ${this.formatCurrency(counted)}`;
+    } else if (diff > 0) {
+      diffEl.style.background = 'rgba(245, 158, 11, 0.12)';
+      diffEl.style.color = 'var(--amber-text, #D97706)';
+      diffEl.innerHTML = `⚠️ Sobrante en Caja: +${this.formatCurrency(diff)} (Total Físico: ${this.formatCurrency(counted)})`;
+    } else {
+      diffEl.style.background = 'rgba(239, 68, 68, 0.12)';
+      diffEl.style.color = 'var(--rose-text, #DC2626)';
+      diffEl.innerHTML = `❌ Faltante en Caja: -${this.formatCurrency(Math.abs(diff))} (Total Físico: ${this.formatCurrency(counted)})`;
+    }
   }
 
   async finalizeCashClose() {

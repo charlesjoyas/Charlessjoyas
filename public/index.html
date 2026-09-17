@@ -3606,13 +3606,16 @@
           </div>
           <div class="form-group">
             <label class="form-label" for="open-cash-base-input">Monto Base Inicial de Caja ($ COP) *</label>
-            <input type="text" inputmode="numeric" id="open-cash-base-input" class="form-input" value="500,000" style="font-size:1.15rem; font-weight:700;" required>
+            <input type="text" inputmode="numeric" id="open-cash-base-input" class="form-input" value="500,000" style="font-size:1.15rem; font-weight:700;" required oninput="app.updateOpenCashBasePreview()">
+            <div id="open-cash-base-preview" style="margin-top:6px; font-size:0.88rem; font-weight:700; color:var(--emerald-text, #059669);">
+              💵 Base en Caja: $ 500.000 COP
+            </div>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
-            <button type="button" class="btn btn-secondary text-xs" onclick="document.getElementById('open-cash-base-input').value = '200,000'">$ 200.000</button>
-            <button type="button" class="btn btn-secondary text-xs" onclick="document.getElementById('open-cash-base-input').value = '300,000'">$ 300.000</button>
-            <button type="button" class="btn btn-secondary text-xs" onclick="document.getElementById('open-cash-base-input').value = '500,000'">$ 500.000</button>
-            <button type="button" class="btn btn-secondary text-xs" onclick="document.getElementById('open-cash-base-input').value = '1,000,000'">$ 1.000.000</button>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(200000)">$ 200.000</button>
+            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(300000)">$ 300.000</button>
+            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(500000)">$ 500.000</button>
+            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(1000000)">$ 1.000.000</button>
           </div>
         </div>
         <div class="modal-footer">
@@ -3637,7 +3640,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Efectivo Físico Contado en Caja ($)</label>
-          <input type="text" inputmode="numeric" id="cash-physical-counted" class="form-input" placeholder="0" required>
+          <input type="text" inputmode="numeric" id="cash-physical-counted" class="form-input" placeholder="0" required oninput="app.updateCashCloseDiff()">
         </div>
         <div id="cash-diff-display" style="padding:0.75rem; border-radius:var(--radius-sm); margin-bottom:1rem; font-weight:700; text-align:center; display:none;"></div>
       </div>
