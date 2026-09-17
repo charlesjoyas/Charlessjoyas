@@ -1028,8 +1028,15 @@ class NexusApp {
 
   togglePasswordVisibility() {
     const input = document.getElementById('login-password');
+    const eyeSvg = document.getElementById('pwd-eye-icon');
     if (input) {
-      input.type = input.type === 'password' ? 'text' : 'password';
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      if (eyeSvg) {
+        eyeSvg.outerHTML = isPassword
+          ? `<svg id="pwd-eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+          : `<svg id="pwd-eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+      }
     }
   }
 
@@ -1669,7 +1676,11 @@ class NexusApp {
         const name = document.getElementById('user-name-input').value.trim();
         const email = document.getElementById('user-email-input').value.trim();
         const role = document.getElementById('user-role-select').value;
-        const password = document.getElementById('user-password-input')?.value || "123456";
+        const password = document.getElementById('user-password-input')?.value?.trim() || "123456";
+        if (password.length < 4) {
+          this.showToast('La contraseña debe contener al menos 4 caracteres.', 'warning');
+          return;
+        }
         const customPermissions = this.getSelectedPermissions('add-user-perm-box', 'add-usr-perm');
 
         const newUser = {
@@ -3785,6 +3796,11 @@ class NexusApp {
   openUserModal() {
     this.populateRoleSelect('user-role-select');
     this.renderPermissionCheckboxes('add-user-perm-box', [], 'add-usr-perm', 'Permisos Personalizados del Usuario (Opcional - anula rol)');
+    const pwdInput = document.getElementById('user-password-input');
+    if (pwdInput) {
+      pwdInput.value = '123456';
+    }
+    this.resetPasswordInputState('user-password-input');
   }
 
   openProfileModal() {
@@ -3810,11 +3826,36 @@ class NexusApp {
       pwdField.value = '';
       pwdField.type = 'password';
     }
+    this.resetPasswordInputState('edit-user-password');
 
     this.populateRoleSelect('edit-user-role', u.role);
     this.renderPermissionCheckboxes('edit-user-perm-box', u.customPermissions || [], 'edit-usr-perm', 'Permisos Personalizados del Usuario (Opcional - anula rol)');
 
     this.openModal('edit-user-modal');
+  }
+
+  resetPasswordInputState(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.type = 'password';
+    const wrapper = input.closest('.password-input-wrapper');
+    const eyeBtn = wrapper ? wrapper.querySelector('.password-eye-btn') : null;
+    if (eyeBtn) {
+      eyeBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    }
+  }
+
+  setPasswordInputVisible(inputId, visible) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.type = visible ? 'text' : 'password';
+    const wrapper = input.closest('.password-input-wrapper');
+    const eyeBtn = wrapper ? wrapper.querySelector('.password-eye-btn') : null;
+    if (eyeBtn) {
+      eyeBtn.innerHTML = visible
+        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+        : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    }
   }
 
   generateSecureRandomPassword() {
@@ -3832,12 +3873,11 @@ class NexusApp {
     const isPassword = input.type === 'password';
     input.type = isPassword ? 'text' : 'password';
 
-    if (btnEl) {
-      if (isPassword) {
-        btnEl.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
-      } else {
-        btnEl.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
-      }
+    const targetBtn = btnEl || input.closest('.password-input-wrapper')?.querySelector('.password-eye-btn');
+    if (targetBtn) {
+      targetBtn.innerHTML = isPassword
+        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+        : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
     }
   }
 
@@ -3846,7 +3886,7 @@ class NexusApp {
     if (!input) return;
     const pwd = this.generateSecureRandomPassword();
     input.value = pwd;
-    input.type = 'text';
+    this.setPasswordInputVisible(fieldId, true);
     this.showToast(`Contraseña generada: ${pwd}`, 'info');
   }
 
@@ -3855,6 +3895,9 @@ class NexusApp {
       this.showToast('Debes iniciar sesión para cambiar tu contraseña.', 'warning');
       return;
     }
+    if (typeof this.toggleMobileSidebar === 'function') {
+      this.toggleMobileSidebar(false);
+    }
     const subtitle = document.getElementById('my-pwd-user-subtitle');
     if (subtitle) {
       subtitle.textContent = `${this.currentUser.name} (${this.currentUser.email || this.currentUser.role})`;
@@ -3862,9 +3905,12 @@ class NexusApp {
     const cur = document.getElementById('my-pwd-current');
     const nw = document.getElementById('my-pwd-new');
     const cf = document.getElementById('my-pwd-confirm');
-    if (cur) { cur.value = ''; cur.type = 'password'; }
-    if (nw) { nw.value = ''; nw.type = 'password'; }
-    if (cf) { cf.value = ''; cf.type = 'password'; }
+    if (cur) cur.value = '';
+    if (nw) nw.value = '';
+    if (cf) cf.value = '';
+    this.resetPasswordInputState('my-pwd-current');
+    this.resetPasswordInputState('my-pwd-new');
+    this.resetPasswordInputState('my-pwd-confirm');
     this.openModal('change-my-password-modal');
   }
 
@@ -3895,7 +3941,7 @@ class NexusApp {
       return;
     }
 
-    const u = this.data.users.find(usr => usr.id === this.currentUser.id || usr.email === this.currentUser.email);
+    const u = this.data.users.find(usr => usr.id === this.currentUser.id || (usr.email && usr.email.toLowerCase() === this.currentUser.email?.toLowerCase()));
     if (u) {
       u.password = newPwd;
     }
@@ -3903,6 +3949,17 @@ class NexusApp {
     localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
 
     await this.savePersistence();
+
+    const cur = document.getElementById('my-pwd-current');
+    const nw = document.getElementById('my-pwd-new');
+    const cf = document.getElementById('my-pwd-confirm');
+    if (cur) cur.value = '';
+    if (nw) nw.value = '';
+    if (cf) cf.value = '';
+    this.resetPasswordInputState('my-pwd-current');
+    this.resetPasswordInputState('my-pwd-new');
+    this.resetPasswordInputState('my-pwd-confirm');
+
     this.closeModal('change-my-password-modal');
     this.showToast('¡Tu contraseña ha sido actualizada con éxito!', 'success');
   }
@@ -3934,7 +3991,7 @@ class NexusApp {
       return;
     }
 
-    const u = this.data.users.find(usr => usr.id === this.currentUser.id || usr.email === this.currentUser.email);
+    const u = this.data.users.find(usr => usr.id === this.currentUser.id || (usr.email && usr.email.toLowerCase() === this.currentUser.email?.toLowerCase()));
     if (u) {
       u.password = newPwd;
     }
@@ -3949,6 +4006,9 @@ class NexusApp {
     if (cur) cur.value = '';
     if (nw) nw.value = '';
     if (cf) cf.value = '';
+    this.resetPasswordInputState('cfg-pwd-current');
+    this.resetPasswordInputState('cfg-pwd-new');
+    this.resetPasswordInputState('cfg-pwd-confirm');
 
     this.showToast('¡Tu contraseña ha sido actualizada exitosamente desde Configuración!', 'success');
   }
@@ -3998,8 +4058,13 @@ class NexusApp {
 
     const nw = document.getElementById('admin-pwd-new');
     const cf = document.getElementById('admin-pwd-confirm');
-    if (nw) { nw.value = ''; nw.type = 'password'; }
-    if (cf) { cf.value = ''; cf.type = 'password'; }
+    if (nw) nw.value = '';
+    if (cf) cf.value = '';
+    this.resetPasswordInputState('admin-pwd-new');
+    this.resetPasswordInputState('admin-pwd-confirm');
+
+    const copyClip = document.getElementById('admin-pwd-copy-clip');
+    if (copyClip) copyClip.checked = true;
 
     this.openModal('admin-change-user-password-modal');
   }
@@ -4022,8 +4087,10 @@ class NexusApp {
     const pwd = this.generateSecureRandomPassword();
     const nw = document.getElementById('admin-pwd-new');
     const cf = document.getElementById('admin-pwd-confirm');
-    if (nw) { nw.value = pwd; nw.type = 'text'; }
-    if (cf) { cf.value = pwd; cf.type = 'text'; }
+    if (nw) nw.value = pwd;
+    if (cf) cf.value = pwd;
+    this.setPasswordInputVisible('admin-pwd-new', true);
+    this.setPasswordInputVisible('admin-pwd-confirm', true);
     this.showToast(`Contraseña generada: ${pwd}`, 'info');
   }
 
@@ -4058,7 +4125,7 @@ class NexusApp {
     this._adminTargetUserPassword = newPwd;
 
     // If super admin edited their own password, keep session in sync
-    if (this.currentUser && (this.currentUser.id === u.id || this.currentUser.email === u.email)) {
+    if (this.currentUser && (this.currentUser.id === u.id || (this.currentUser.email && this.currentUser.email.toLowerCase() === u.email?.toLowerCase()))) {
       this.currentUser.password = newPwd;
       localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
     }
@@ -4077,6 +4144,13 @@ class NexusApp {
     } else {
       this.showToast(`Contraseña de "${u.name}" actualizada con éxito a: ${newPwd}`, 'success');
     }
+
+    const nw = document.getElementById('admin-pwd-new');
+    const cf = document.getElementById('admin-pwd-confirm');
+    if (nw) nw.value = '';
+    if (cf) cf.value = '';
+    this.resetPasswordInputState('admin-pwd-new');
+    this.resetPasswordInputState('admin-pwd-confirm');
 
     this.closeModal('admin-change-user-password-modal');
   }
