@@ -9609,7 +9609,9 @@ class NexusApp {
     if (!this.data.store.metalRates) {
       this.data.store.metalRates = {
         oro18k: 580000,
+        oro18kItaliano: 580000,
         oro14k: 510000,
+        oro18kNacional: 510000,
         balineria: 38000,
         plata925: 38000
       };
@@ -9618,8 +9620,8 @@ class NexusApp {
     const el18 = document.getElementById('rate-display-oro18k');
     const el14 = document.getElementById('rate-display-oro14k');
     const el925 = document.getElementById('rate-display-plata925');
-    if (el18) el18.textContent = `$ ${this.formatNumberWithCommas(rates.oro18k || 580000)} COP/g`;
-    if (el14) el14.textContent = `$ ${this.formatNumberWithCommas(rates.oro14k || 510000)} COP/g`;
+    if (el18) el18.textContent = `$ ${this.formatNumberWithCommas(rates.oro18kItaliano || rates.oro18k || 580000)} COP/g`;
+    if (el14) el14.textContent = `$ ${this.formatNumberWithCommas(rates.oro18kNacional || rates.oro14k || 510000)} COP/g`;
     if (el925) el925.textContent = `$ ${this.formatNumberWithCommas(rates.balineria || rates.plata925 || 38000)} COP/g`;
 
     const editBtn = document.getElementById('btn-edit-metal-rates');
@@ -9638,7 +9640,9 @@ class NexusApp {
     if (!this.data.store.metalRates) {
       this.data.store.metalRates = {
         oro18k: 580000,
+        oro18kItaliano: 580000,
         oro14k: 510000,
+        oro18kNacional: 510000,
         balineria: 38000,
         plata925: 38000
       };
@@ -9647,8 +9651,8 @@ class NexusApp {
     const in18 = document.getElementById('input-rate-oro18k');
     const in14 = document.getElementById('input-rate-oro14k');
     const in925 = document.getElementById('input-rate-plata925');
-    if (in18) in18.value = this.formatNumberWithCommas(rates.oro18k || 580000);
-    if (in14) in14.value = this.formatNumberWithCommas(rates.oro14k || 510000);
+    if (in18) in18.value = this.formatNumberWithCommas(rates.oro18kItaliano || rates.oro18k || 580000);
+    if (in14) in14.value = this.formatNumberWithCommas(rates.oro18kNacional || rates.oro14k || 510000);
     if (in925) in925.value = this.formatNumberWithCommas(rates.balineria || rates.plata925 || 38000);
 
     this.openModal('metal-rates-modal');
@@ -9671,7 +9675,9 @@ class NexusApp {
     if (!this.data.store) this.data.store = {};
     this.data.store.metalRates = {
       oro18k: Math.round(val18),
+      oro18kItaliano: Math.round(val18),
       oro14k: Math.round(val14),
+      oro18kNacional: Math.round(val14),
       balineria: Math.round(val925),
       plata925: Math.round(val925)
     };
