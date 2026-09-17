@@ -24,6 +24,11 @@ const INITIAL_DATA = {
       secondaryColor: "#0d9488",
       fontHeading: "Inter",
       fontBody: "Outfit"
+    },
+    metalRates: {
+      oro18k: 580000,
+      oro14k: 510000,
+      plata925: 38000
     }
   },
 

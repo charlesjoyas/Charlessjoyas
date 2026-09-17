@@ -199,7 +199,10 @@ class NexusApp {
       'srv-price-input',
       'edit-srv-price',
       'ast-cost-input',
-      'edit-ast-val'
+      'edit-ast-val',
+      'input-rate-oro18k',
+      'input-rate-oro14k',
+      'input-rate-plata925'
     ];
 
     integerInputs.forEach(id => {
@@ -461,6 +464,14 @@ class NexusApp {
     if (!this.data.customerCredits || !Array.isArray(this.data.customerCredits)) {
       this.data.customerCredits = [];
     }
+    if (!this.data.store) this.data.store = {};
+    if (!this.data.store.metalRates) {
+      this.data.store.metalRates = {
+        oro18k: 580000,
+        oro14k: 510000,
+        plata925: 38000
+      };
+    }
     if (this.data.suppliers && Array.isArray(this.data.suppliers)) {
       this.data.suppliers.forEach(s => {
         if (!s.docType) s.docType = 'NIT';
@@ -571,6 +582,7 @@ class NexusApp {
     this.populateProductCategorySelect('new-prod-cat');
     this.populateProductCategorySelect('edit-prod-cat');
     this.renderPOSProducts();
+    this.renderPosMetalRates();
     if (typeof this.renderCarteraMorosidadTable === 'function') this.renderCarteraMorosidadTable();
     if (typeof this.renderMorosidadPortfolio === 'function') this.renderMorosidadPortfolio();
     this.populateTendenciaDatalist();
@@ -1446,6 +1458,7 @@ class NexusApp {
 
   updateUIForRole() {
     if (!this.currentUser) return;
+    this.renderPosMetalRates();
 
     const avatarEl = document.getElementById('sidebar-user-avatar');
     const nameEl = document.getElementById('sidebar-user-name');
@@ -9588,6 +9601,82 @@ class NexusApp {
     this.selectedCategory = catId;
     this.renderCategoryPills();
     this.renderPOSProducts();
+  }
+
+  renderPosMetalRates() {
+    if (!this.data) return;
+    if (!this.data.store) this.data.store = {};
+    if (!this.data.store.metalRates) {
+      this.data.store.metalRates = {
+        oro18k: 580000,
+        oro14k: 510000,
+        plata925: 38000
+      };
+    }
+    const rates = this.data.store.metalRates;
+    const el18 = document.getElementById('rate-display-oro18k');
+    const el14 = document.getElementById('rate-display-oro14k');
+    const el925 = document.getElementById('rate-display-plata925');
+    if (el18) el18.textContent = `$ ${this.formatNumberWithCommas(rates.oro18k || 580000)} COP/g`;
+    if (el14) el14.textContent = `$ ${this.formatNumberWithCommas(rates.oro14k || 510000)} COP/g`;
+    if (el925) el925.textContent = `$ ${this.formatNumberWithCommas(rates.plata925 || 38000)} COP/g`;
+
+    const editBtn = document.getElementById('btn-edit-metal-rates');
+    if (editBtn) {
+      const isSuperAdmin = this.currentUser?.role === 'Super Admin';
+      editBtn.style.display = isSuperAdmin ? 'inline-flex' : 'none';
+    }
+  }
+
+  openEditMetalRatesModal() {
+    if (this.currentUser?.role !== 'Super Admin') {
+      this.showToast('Acceso Denegado: Solo el Super Administrador puede modificar las cotizaciones del día.', 'danger');
+      return;
+    }
+    if (!this.data.store) this.data.store = {};
+    if (!this.data.store.metalRates) {
+      this.data.store.metalRates = {
+        oro18k: 580000,
+        oro14k: 510000,
+        plata925: 38000
+      };
+    }
+    const rates = this.data.store.metalRates;
+    const in18 = document.getElementById('input-rate-oro18k');
+    const in14 = document.getElementById('input-rate-oro14k');
+    const in925 = document.getElementById('input-rate-plata925');
+    if (in18) in18.value = this.formatNumberWithCommas(rates.oro18k || 580000);
+    if (in14) in14.value = this.formatNumberWithCommas(rates.oro14k || 510000);
+    if (in925) in925.value = this.formatNumberWithCommas(rates.plata925 || 38000);
+
+    this.openModal('metal-rates-modal');
+  }
+
+  async saveMetalRates() {
+    if (this.currentUser?.role !== 'Super Admin') {
+      this.showToast('Acceso Denegado: Solo el Super Administrador puede guardar las cotizaciones del día.', 'danger');
+      return;
+    }
+    const val18 = this.parseCleanNumber(document.getElementById('input-rate-oro18k')?.value);
+    const val14 = this.parseCleanNumber(document.getElementById('input-rate-oro14k')?.value);
+    const val925 = this.parseCleanNumber(document.getElementById('input-rate-plata925')?.value);
+
+    if (isNaN(val18) || val18 <= 0 || isNaN(val14) || val14 <= 0 || isNaN(val925) || val925 <= 0) {
+      this.showToast('Por favor ingresa valores numéricos válidos mayores a 0 para todas las cotizaciones.', 'warning');
+      return;
+    }
+
+    if (!this.data.store) this.data.store = {};
+    this.data.store.metalRates = {
+      oro18k: Math.round(val18),
+      oro14k: Math.round(val14),
+      plata925: Math.round(val925)
+    };
+
+    this.renderPosMetalRates();
+    await this.savePersistence();
+    this.closeModal('metal-rates-modal');
+    this.showToast('Cotizaciones del día actualizadas y guardadas con éxito para todos los usuarios.', 'success');
   }
 
   renderPOSCatalog() {
