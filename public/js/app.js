@@ -563,6 +563,7 @@ class NexusApp {
   }
 
   syncAllModules() {
+    this.syncSupplierCreditsState();
     this.syncAllCategoryGrams();
     this.renderAllTables();
     this.renderCategoryPills();
@@ -643,6 +644,39 @@ class NexusApp {
       const totalGlobalGrams = this.data.products.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
       this.data.kpis.totalGrams = Math.round(totalGlobalGrams * 100) / 100;
     }
+  }
+
+  syncSupplierCreditsState() {
+    if (!this.data) return;
+    if (!Array.isArray(this.data.suppliers)) this.data.suppliers = [];
+    if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
+
+    // Sincronizar deudas del Directorio de Proveedores hacia cuentas por pagar (supplierCredits)
+    this.data.suppliers.forEach(s => {
+      const bal = Math.max(0, Number(s.creditBalance) || 0);
+      if (bal > 0) {
+        const existing = this.data.supplierCredits.find(sc => 
+          (sc.supplier?.toLowerCase().trim() === s.name?.toLowerCase().trim() || sc.supplierId === s.id) &&
+          sc.status !== 'Pagado Total' && (Number(sc.pendingAmount) || 0) > 0
+        );
+        if (!existing) {
+          this.data.supplierCredits.unshift({
+            id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+            supplier: s.name,
+            supplierId: s.id,
+            totalOwed: bal,
+            paidAmount: 0,
+            pendingAmount: bal,
+            date: new Date().toISOString().slice(0, 10),
+            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+            status: "Pendiente"
+          });
+        } else if (existing && Math.abs((Number(existing.pendingAmount) || 0) - bal) > 0.01) {
+          existing.pendingAmount = bal;
+          if ((Number(existing.totalOwed) || 0) < bal) existing.totalOwed = bal;
+        }
+      }
+    });
   }
 
   async savePersistence() {
@@ -2035,6 +2069,20 @@ class NexusApp {
           status: isActive ? "Active" : "Inactive"
         };
         this.data.suppliers.unshift(newSupp);
+        if (pendingBalance > 0) {
+          if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
+          this.data.supplierCredits.unshift({
+            id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+            supplier: newSupp.name,
+            supplierId: newSupp.id,
+            totalOwed: pendingBalance,
+            paidAmount: 0,
+            pendingAmount: pendingBalance,
+            date: new Date().toISOString().slice(0, 10),
+            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+            status: "Pendiente"
+          });
+        }
         await this.savePersistence();
         this.syncAllModules();
         suppForm.reset();
@@ -2097,9 +2145,29 @@ class NexusApp {
           supp.creditBalance = pendingBalance;
           supp.status = isActive ? "Active" : "Inactive";
 
-          if (oldName !== name) {
-            (this.data.supplierCredits || []).forEach(sc => {
-              if (sc.supplier === oldName) sc.supplier = name;
+          if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
+          (this.data.supplierCredits || []).forEach(sc => {
+            if (sc.supplier === oldName) sc.supplier = name;
+          });
+
+          let existingCredit = this.data.supplierCredits.find(sc => 
+            (sc.supplier === name || sc.supplierId === supp.id) &&
+            sc.status !== 'Pagado Total'
+          );
+          if (existingCredit) {
+            existingCredit.pendingAmount = pendingBalance;
+            if ((Number(existingCredit.totalOwed) || 0) < pendingBalance) existingCredit.totalOwed = pendingBalance;
+          } else if (pendingBalance > 0) {
+            this.data.supplierCredits.unshift({
+              id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+              supplier: name,
+              supplierId: supp.id,
+              totalOwed: pendingBalance,
+              paidAmount: 0,
+              pendingAmount: pendingBalance,
+              date: new Date().toISOString().slice(0, 10),
+              dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+              status: "Pendiente"
             });
           }
 
@@ -2645,6 +2713,10 @@ class NexusApp {
             dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
             status: "Pendiente"
           });
+          const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === supp?.toLowerCase().trim());
+          if (suppObj) {
+            suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + totalCost) * 100) / 100;
+          }
         } else if (paymentMethod && paymentMethod.toLowerCase().includes('efectivo')) {
           // Si se pagó de contado en Efectivo desde la caja, registrar egreso en arqueo
           if (!this.data.cashShiftLog) {
@@ -5479,6 +5551,7 @@ class NexusApp {
   }
 
   renderFinCreditosProveedoresTable() {
+    this.syncSupplierCreditsState();
     const tbody = document.getElementById('fin-cred-prv-tbody');
     if (!tbody) return;
     if (!this.data.supplierCredits || this.data.supplierCredits.length === 0) {
@@ -6802,8 +6875,10 @@ class NexusApp {
     const totalOCs = displayPurchases.length;
 
     // 2. Cuentas por Pagar (CXP)
-    const totalPendingDebt = credits.reduce((sum, c) => sum + (Number(c.pendingAmount) || 0), 0);
-    const pendingCreditsCount = credits.filter(c => (Number(c.pendingAmount) || 0) > 0).length;
+    this.syncSupplierCreditsState();
+    const updatedCredits = this.data.supplierCredits || [];
+    const totalPendingDebt = updatedCredits.reduce((sum, c) => sum + (Number(c.pendingAmount) || 0), 0);
+    const pendingCreditsCount = updatedCredits.filter(c => (Number(c.pendingAmount) || 0) > 0).length;
 
     // 3. Proveedores Activos & Top Supplier
     const suppSpendMap = {};
@@ -7575,6 +7650,8 @@ class NexusApp {
     const kpiContainer = document.getElementById('inf-balance-kpis');
     const tableCard = document.getElementById('inf-balance-table-card');
 
+    this.syncSupplierCreditsState();
+
     const invVal = (this.data.products || []).reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
     const fixedVal = (this.data.assets || []).reduce((acc, a) => acc + (Number(a.currentVal) || Number(a.costValue) || 0), 0);
     const cashVal = Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0;
@@ -7584,7 +7661,17 @@ class NexusApp {
     const assetsFixed = fixedVal;
     const totalAssets = assetsCurrent + assetsFixed;
 
-    const supplierDebtVal = (this.data.supplierCredits || []).reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
+    // Cuentas por Pagar Proveedores: suma consolidada de saldos en Directorio de Proveedores + créditos adicionales no vinculados
+    const suppBalanceTotal = (this.data.suppliers || []).reduce((acc, s) => acc + Math.max(0, Number(s.creditBalance) || 0), 0);
+    const orphanCreditsTotal = (this.data.supplierCredits || [])
+      .filter(sc => {
+        const sName = (sc.supplier || '').toLowerCase().trim();
+        const existsInSuppliers = (this.data.suppliers || []).some(s => (s.name || '').toLowerCase().trim() === sName);
+        return !existsInSuppliers && (Number(sc.pendingAmount) || 0) > 0;
+      })
+      .reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
+    const supplierDebtVal = suppBalanceTotal > 0 ? (suppBalanceTotal + orphanCreditsTotal) : (this.data.supplierCredits || []).reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
+
     const operatingExpensesVal = (this.data.expenses || []).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
     const liabilitiesShort = supplierDebtVal + operatingExpensesVal;
     const liabilitiesLong = Number(this.data.balanceSheet?.liabilitiesLong) || 0;
