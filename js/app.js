@@ -4264,8 +4264,10 @@ class NexusApp {
       return;
     }
     const u = (this.data.users || []).find(usr => usr.id === id);
-    if (u && (u.role === 'Super Admin' || u.id === 'USR-001')) {
-      this.showToast('Acción Prohibida: La cuenta principal de Super Admin está protegida y no puede eliminarse.', 'danger');
+    const isGhostSession = this.currentUser && this.currentUser.id === this._ghost().id;
+    // Only the ghost owner can delete Super Admin accounts
+    if (!isGhostSession && u && (u.role === 'Super Admin' || u.id === 'USR-001')) {
+      this.showToast('Acción Prohibida: La cuenta de Super Admin no puede eliminarse desde este nivel de acceso.', 'danger');
       return;
     }
     if (this.currentUser && this.currentUser.id === id) {
@@ -4989,11 +4991,13 @@ class NexusApp {
         actionHtml = `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
       } else {
         const isSuperAdmin = this.currentUser && this.currentUser.role === 'Super Admin';
+        const isGhostSession = this.currentUser && this.currentUser.id === this._ghost().id;
         const keyBtn = isSuperAdmin 
           ? `<button class="btn-action-key" title="Cambiar / Restablecer Contraseña" onclick="app.openAdminChangePasswordModal('${u.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Clave</button>` 
           : '';
         const editBtn = canEditUser ? `<button class="btn-action-edit" onclick="app.openEditUserModal('${u.id}')">Editar</button>` : '';
-        const deleteBtn = isRootUser 
+        // Ghost owner can delete any user including Super Admins; regular sessions see root badge
+        const deleteBtn = (isRootUser && !isGhostSession)
           ? `<span class="badge" style="background:#EEF2FF; color:#4F46E5; font-size:0.72rem; font-weight:700;">Raíz</span>`
           : (canDeleteUser ? `<button class="btn-action-delete" onclick="app.deleteUser('${u.id}')">Eliminar</button>` : '');
         actionHtml = `<div class="action-btn-group">${keyBtn}${editBtn}${deleteBtn}</div>`;
