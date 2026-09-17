@@ -1383,16 +1383,25 @@ class NexusApp {
     const container = document.getElementById(containerId);
     if (!container) return;
 
+    const isSuperAdminRole = roleName?.toLowerCase() === 'super admin';
     const users = this.data.users || [];
     container.innerHTML = `
       <label style="font-size:0.8rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Asignar Usuarios a este Rol</label>
       <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:0.4rem; max-height:130px; overflow-y:auto; padding:0.6rem; background:var(--canvas-bg); border-radius:var(--radius-md); border:1px solid var(--border-color);">
         ${users.map(u => {
+          const isSuperUser = u.role === 'Super Admin' || u.id === 'USR-001';
           const isAssigned = u.role?.toLowerCase() === roleName?.toLowerCase();
+          
+          // Super Admins cannot be reassigned to non-superadmin roles via role checkboxes
+          const isDisabled = (!isSuperAdminRole && isSuperUser) ? 'disabled' : (isSuperAdminRole && isSuperUser ? 'disabled checked' : '');
+          const badgeNote = (!isSuperAdminRole && isSuperUser) 
+            ? `<span style="color:#6366F1; font-weight:600; font-size:0.7rem;">(Super Admin protegido)</span>` 
+            : `(${this.escapeHtml(u.role || 'Sin Rol')})`;
+
           return `
-            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; cursor:pointer;">
-              <input type="checkbox" class="${prefix}-checkbox" value="${u.id}" ${isAssigned ? 'checked' : ''}>
-              <span><b>${this.escapeHtml(u.name)}</b> (${this.escapeHtml(u.role || 'Sin Rol')})</span>
+            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; cursor:${isDisabled.includes('disabled') ? 'not-allowed' : 'pointer'}; opacity:${isDisabled.includes('disabled') && !isAssigned ? '0.6' : '1'};">
+              <input type="checkbox" class="${prefix}-checkbox" value="${u.id}" ${isAssigned ? 'checked' : ''} ${isDisabled}>
+              <span><b>${this.escapeHtml(u.name)}</b> ${badgeNote}</span>
             </label>
           `;
         }).join('')}
@@ -1749,12 +1758,28 @@ class NexusApp {
         const id = document.getElementById('edit-user-id').value;
         const u = this.data.users.find(usr => usr.id === id);
         if (u) {
-          const newRole = document.getElementById('edit-user-role').value;
-          const newStatus = document.getElementById('edit-user-status').value;
+          const isTargetSuperAdmin = u.role === 'Super Admin' || u.id === 'USR-001';
+          const isEditingSelf = Boolean(this.currentUser && (this.currentUser.id === u.id || this.currentUser.email?.toLowerCase() === u.email?.toLowerCase()));
 
-          // Prevent demotion or deactivation of root Super Admin
-          if ((u.id === 'USR-001' || u.role === 'Super Admin') && (newRole !== 'Super Admin' || newStatus !== 'Active')) {
-            this.showToast('Acción Prohibida: La cuenta principal de Super Admin debe conservar su rol y estado Activo.', 'danger');
+          let newRole = document.getElementById('edit-user-role').value;
+          let newStatus = document.getElementById('edit-user-status').value;
+
+          // If role/status select was disabled, enforce strict protected values
+          if (isTargetSuperAdmin || (isEditingSelf && this.currentUser?.role === 'Super Admin')) {
+            newRole = 'Super Admin';
+          }
+          if (isEditingSelf || isTargetSuperAdmin) {
+            newStatus = 'Active';
+          }
+
+          // Strict validation against self-demotion or self-deactivation
+          if ((isTargetSuperAdmin || isEditingSelf) && newRole !== 'Super Admin' && u.role === 'Super Admin') {
+            this.showToast('Acción Prohibida: No puedes degradar el rol de Super Administrador.', 'danger');
+            return;
+          }
+
+          if (isEditingSelf && newStatus !== 'Active') {
+            this.showToast('Acción Prohibida: No puedes desactivar tu propia cuenta activa.', 'danger');
             return;
           }
 
@@ -1762,8 +1787,14 @@ class NexusApp {
           u.email = document.getElementById('edit-user-email').value.trim();
           u.role = newRole;
           u.status = newStatus;
-          const customPerms = this.getSelectedPermissions('edit-user-perm-box', 'edit-usr-perm');
-          u.customPermissions = customPerms.length > 0 ? customPerms : null;
+
+          // Super Admin accounts always have unrestricted total access; customPermissions must be null
+          if (u.role === 'Super Admin') {
+            u.customPermissions = null;
+          } else {
+            const customPerms = this.getSelectedPermissions('edit-user-perm-box', 'edit-usr-perm');
+            u.customPermissions = customPerms.length > 0 ? customPerms : null;
+          }
 
           const newPass = document.getElementById('edit-user-password')?.value?.trim();
           if (newPass) {
@@ -1785,7 +1816,7 @@ class NexusApp {
           }
 
           this.closeModal('edit-user-modal');
-          this.showToast(`Usuario "${u.name}" y sus permisos han sido actualizados`, 'success');
+          this.showToast(`Usuario "${u.name}" actualizado exitosamente`, 'success');
         }
       });
     }
@@ -2147,6 +2178,10 @@ class NexusApp {
           assignedUserCbs.forEach(cb => {
             const u = this.data.users.find(usr => usr.id === cb.value);
             if (u) {
+              // Never demote or change a Super Admin account through role checkboxes
+              if (u.role === 'Super Admin' || u.id === 'USR-001') {
+                return;
+              }
               if (cb.checked) {
                 u.role = newName;
               } else if (u.role?.toLowerCase() === oldName.toLowerCase()) {
@@ -2157,7 +2192,7 @@ class NexusApp {
 
           if (oldName !== newName) {
             this.data.users.forEach(u => {
-              if (u.role === oldName) u.role = newName;
+              if (u.role === oldName && u.role !== 'Super Admin') u.role = newName;
             });
           }
 
@@ -3852,10 +3887,26 @@ class NexusApp {
     const u = this.data.users.find(usr => usr.id === id);
     if (!u) return;
 
+    const isTargetSuperAdmin = u.role === 'Super Admin' || u.id === 'USR-001';
+    const isEditingSelf = Boolean(this.currentUser && (this.currentUser.id === u.id || this.currentUser.email?.toLowerCase() === u.email?.toLowerCase()));
+
     document.getElementById('edit-user-id').value = u.id;
     document.getElementById('edit-user-name').value = u.name;
     document.getElementById('edit-user-email').value = u.email;
-    document.getElementById('edit-user-status').value = u.status;
+
+    const statusSelect = document.getElementById('edit-user-status');
+    const statusHelp = document.getElementById('edit-user-status-help');
+    statusSelect.value = u.status;
+
+    // A Super Admin or self account cannot be deactivated
+    if (isEditingSelf || isTargetSuperAdmin) {
+      statusSelect.value = 'Active';
+      statusSelect.disabled = true;
+      if (statusHelp) statusHelp.style.display = 'block';
+    } else {
+      statusSelect.disabled = false;
+      if (statusHelp) statusHelp.style.display = 'none';
+    }
 
     const pwdField = document.getElementById('edit-user-password');
     if (pwdField) {
@@ -3865,7 +3916,36 @@ class NexusApp {
     this.resetPasswordInputState('edit-user-password');
 
     this.populateRoleSelect('edit-user-role', u.role);
-    this.renderPermissionCheckboxes('edit-user-perm-box', u.customPermissions || [], 'edit-usr-perm', 'Permisos Personalizados del Usuario (Opcional - anula rol)');
+    const roleSelect = document.getElementById('edit-user-role');
+    const roleHelp = document.getElementById('edit-user-role-help');
+
+    // A Super Admin account or self account cannot have its role demoted
+    if (isTargetSuperAdmin || (isEditingSelf && this.currentUser?.role === 'Super Admin')) {
+      roleSelect.value = 'Super Admin';
+      roleSelect.disabled = true;
+      if (roleHelp) roleHelp.style.display = 'block';
+    } else {
+      roleSelect.disabled = false;
+      if (roleHelp) roleHelp.style.display = 'none';
+    }
+
+    const permBox = document.getElementById('edit-user-perm-box');
+    if (isTargetSuperAdmin || (isEditingSelf && this.currentUser?.role === 'Super Admin')) {
+      // Show guaranteed total-access shield banner instead of clippable checkboxes
+      permBox.innerHTML = `
+        <div style="margin-top: 1rem; padding: 0.9rem 1.1rem; background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.28); border-radius: var(--radius-md);">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom: 4px;">
+            <span style="font-size: 1.25rem;">🛡️</span>
+            <span style="font-weight: 700; color: #4F46E5; font-size: 0.88rem;">Acceso Total e Irrestricto de Super Administrador</span>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-main); margin: 0; line-height: 1.45;">
+            Como <strong>Super Administrador</strong>, esta cuenta posee privilegios absolutos sobre todos los módulos, ajustes y operaciones del sistema. <strong>No es posible recortar, limitar ni desmarcar permisos</strong> para garantizar la seguridad e integridad del sistema.
+          </p>
+        </div>
+      `;
+    } else {
+      this.renderPermissionCheckboxes('edit-user-perm-box', u.customPermissions || [], 'edit-usr-perm', 'Permisos Personalizados del Usuario (Opcional - anula rol)');
+    }
 
     this.openModal('edit-user-modal');
   }
