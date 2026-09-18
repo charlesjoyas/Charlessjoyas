@@ -849,6 +849,8 @@ class NexusApp {
             this.renderDashboardMetrics();
             this.renderPOSProducts();
             this.renderCart();
+            this.renderCuadreCajaCard();
+            this.renderCashStatusIndicator();
             if (this.currentSubView === 'rep_compras') this.renderRepCompras();
             if (this.currentSubView === 'rep_finanzas') this.renderRepFinanzas();
             if (this.currentSubView === 'inf_tendencia') this.consultarTendencia();
@@ -2500,8 +2502,11 @@ class NexusApp {
           if (!this.data.cashShiftLog) {
             this.data.cashShiftLog = { openingCash: 500000, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 500000, status: 'Abierto' };
           }
-          this.data.cashShiftLog.cashExpenses = Math.round(((this.data.cashShiftLog.cashExpenses || 0) + amount) * 100) / 100;
-          this.data.cashShiftLog.expectedCashInDrawer = Math.round(Math.max(0, (this.data.cashShiftLog.expectedCashInDrawer || 0) - amount) * 100) / 100;
+          this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + amount) * 100) / 100;
+          this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+          if (this.data.store) {
+            this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+          }
         }
 
         await this.savePersistence();
@@ -2939,12 +2944,18 @@ class NexusApp {
               suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + totalCost) * 100) / 100;
             }
           } else if (paymentMethod && paymentMethod.toLowerCase().includes('efectivo')) {
-            // Si se pagó de contado en Efectivo desde la caja, registrar egreso en arqueo de caja
-            if (!this.data.cashShiftLog) {
-              this.data.cashShiftLog = { openingCash: 500000, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 500000, status: 'Abierto' };
+            // Descontar de gaveta de caja solo si el monto es viable frente al efectivo disponible
+            const currentDrawerCash = Number(this.data.cashShiftLog?.expectedCashInDrawer) || 0;
+            if (totalCost <= currentDrawerCash && currentDrawerCash > 0) {
+              if (!this.data.cashShiftLog) {
+                this.data.cashShiftLog = { openingCash: 500000, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 500000, status: 'Abierto' };
+              }
+              this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + totalCost) * 100) / 100;
+              this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+              if (this.data.store) {
+                this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+              }
             }
-            this.data.cashShiftLog.cashExpenses = Math.round(((this.data.cashShiftLog.cashExpenses || 0) + totalCost) * 100) / 100;
-            this.data.cashShiftLog.expectedCashInDrawer = Math.round(Math.max(0, (this.data.cashShiftLog.expectedCashInDrawer || 0) - totalCost) * 100) / 100;
           }
 
           // 4. Guardar persistencia en MongoDB y db.json
@@ -4947,8 +4958,11 @@ class NexusApp {
     const exp = (this.data.expenses || []).find(e => e.id === id);
     if (exp && exp.method && exp.method.toLowerCase().includes('efectivo') && this.data.cashShiftLog) {
       const expAmt = Number(exp.amount) || 0;
-      this.data.cashShiftLog.cashExpenses = Math.round(Math.max(0, (this.data.cashShiftLog.cashExpenses || 0) - expAmt) * 100) / 100;
-      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((this.data.cashShiftLog.expectedCashInDrawer || 0) + expAmt) * 100) / 100;
+      this.data.cashShiftLog.cashExpenses = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashExpenses) || 0) - expAmt) * 100) / 100;
+      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+      if (this.data.store) {
+        this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+      }
     }
     this.data.expenses = this.data.expenses.filter(e => e.id !== id);
     await this.savePersistence();
@@ -5058,9 +5072,17 @@ class NexusApp {
       }
       if (methodSelect) methodSelect.value = 'Efectivo';
     } else {
-      const cp = this.data.supplierCredits.find(s => s.id === id);
+      let cp = (this.data.supplierCredits || []).find(s => s.id === id);
+      if (!cp) {
+        const cleanId = String(id || '').toLowerCase().trim();
+        cp = (this.data.supplierCredits || []).find(s => 
+          String(s.id || '').toLowerCase().trim() === cleanId ||
+          String(s.supplier || '').toLowerCase().trim() === cleanId ||
+          String(s.supplierId || '').toLowerCase().trim() === cleanId
+        );
+      }
       if (!cp) return;
-      this.currentAbonoMaxBalance = cp.pendingAmount;
+      this.currentAbonoMaxBalance = Number(cp.pendingAmount) || 0;
       if (titleEl) titleEl.textContent = `Registrar Pago a Proveedor (${cp.id})`;
       if (entityLabelEl) entityLabelEl.textContent = 'Proveedor:';
       if (entityNameEl) entityNameEl.textContent = cp.supplier;
@@ -5070,6 +5092,7 @@ class NexusApp {
         amountInput.max = cp.pendingAmount;
       }
       if (methodSelect) methodSelect.value = 'Efectivo';
+      if (idInput) idInput.value = cp.id;
     }
 
     if (amountInput) {
@@ -5110,7 +5133,7 @@ class NexusApp {
       deductCheck.checked = true;
     }
 
-    const willDeduct = deductCheck ? deductCheck.checked : isCash;
+    const willDeduct = isCash || (deductCheck ? deductCheck.checked : false);
 
     if (currentValEl) {
       currentValEl.textContent = this.formatCurrency(currentCash);
@@ -5160,20 +5183,31 @@ class NexusApp {
         this.showToast(`No hay créditos pendientes registrados para ${entityName}`, 'info');
       }
     } else if (type === 'supplier') {
-      const supp = this.data.suppliers.find(s => s.id === entityIdentifier || s.name === entityIdentifier);
+      const cleanIdent = String(entityIdentifier || '').toLowerCase().trim();
+      const supp = (this.data.suppliers || []).find(s => 
+        String(s.id || '').toLowerCase().trim() === cleanIdent || 
+        String(s.name || '').toLowerCase().trim() === cleanIdent
+      );
       const entityName = supp ? supp.name : entityIdentifier;
-      let cp = this.data.supplierCredits.find(s => (s.supplier === entityName || (supp && s.supplier === supp.name)) && s.pendingAmount > 0);
+      let cp = (this.data.supplierCredits || []).find(s => 
+        (String(s.supplier || '').toLowerCase().trim() === cleanIdent || (supp && String(s.supplier || '').toLowerCase().trim() === String(supp.name || '').toLowerCase().trim())) && 
+        Number(s.pendingAmount) > 0
+      );
       if (!cp) {
-        if (supp && supp.creditBalance > 0) {
+        const bal = supp ? Number(supp.creditBalance) || 0 : 0;
+        if (bal > 0) {
           cp = {
             id: `CP-${Math.floor(403 + Math.random() * 900)}`,
             supplier: entityName,
-            totalOwed: supp.creditBalance,
+            supplierId: supp ? supp.id : '',
+            totalOwed: bal,
             paidAmount: 0,
-            pendingAmount: supp.creditBalance,
-            dueDate: new Date().toISOString().slice(0, 10),
+            pendingAmount: bal,
+            date: new Date().toISOString().slice(0, 10),
+            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
             status: "Pendiente"
           };
+          if (!this.data.supplierCredits) this.data.supplierCredits = [];
           this.data.supplierCredits.unshift(cp);
         }
       }
@@ -5200,7 +5234,7 @@ class NexusApp {
     }
 
     if (type === 'customer') {
-      const cred = this.data.customerCredits.find(c => c.id === id);
+      const cred = (this.data.customerCredits || []).find(c => c.id === id);
       if (!cred) return;
 
       if (amountPaid > cred.currentBalance + 0.01) {
@@ -5215,7 +5249,7 @@ class NexusApp {
         cred.status = "Saldado";
       }
 
-      const cust = this.data.customers.find(c => c.name === cred.customer);
+      const cust = (this.data.customers || []).find(c => c.name === cred.customer);
       if (cust) {
         cust.creditBalance = Math.round(Math.max(0, (cust.creditBalance || 0) - actualPay) * 100) / 100;
       }
@@ -5223,8 +5257,11 @@ class NexusApp {
       // Sync with cashier cash drawer if paid in cash
       if (method.toLowerCase().includes('efectivo')) {
         if (!this.data.cashShiftLog) this.data.cashShiftLog = { openingCash: 500000, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 500000, status: 'Abierto' };
-        this.data.cashShiftLog.cashSales = Math.round(((this.data.cashShiftLog.cashSales || 0) + actualPay) * 100) / 100;
-        this.data.cashShiftLog.expectedCashInDrawer = Math.round(((this.data.cashShiftLog.expectedCashInDrawer || 0) + actualPay) * 100) / 100;
+        this.data.cashShiftLog.cashSales = Math.round(((Number(this.data.cashShiftLog.cashSales) || 0) + actualPay) * 100) / 100;
+        this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+        if (this.data.store) {
+          this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+        }
       }
 
       if (!this.data.abonosVentas) this.data.abonosVentas = [];
@@ -5241,11 +5278,55 @@ class NexusApp {
       this.closeModal('abono-modal');
       await this.savePersistence();
       this.syncAllModules();
+      this.renderCuadreCajaCard();
+      this.renderCashStatusIndicator();
       this.showToast(`Abono de ${this.formatCurrency(actualPay)} registrado a ${cred.customer}`, 'success');
 
     } else if (type === 'supplier') {
-      const cp = this.data.supplierCredits.find(s => s.id === id);
-      if (!cp) return;
+      let cp = (this.data.supplierCredits || []).find(s => s.id === id);
+      if (!cp) {
+        const cleanId = String(id || '').toLowerCase().trim();
+        cp = (this.data.supplierCredits || []).find(s => 
+          String(s.id || '').toLowerCase().trim() === cleanId || 
+          String(s.supplier || '').toLowerCase().trim() === cleanId ||
+          String(s.supplierId || '').toLowerCase().trim() === cleanId
+        );
+      }
+      if (!cp) {
+        const po = (this.data.purchases || []).find(p => p.id === id);
+        if (po) {
+          cp = (this.data.supplierCredits || []).find(s => 
+            s.id === po.id || 
+            (s.supplier && s.supplier.toLowerCase().trim() === String(po.supplier).toLowerCase().trim())
+          );
+        }
+      }
+      if (!cp) {
+        const suppObj = (this.data.suppliers || []).find(s => 
+          s.id === id || 
+          s.name?.toLowerCase().trim() === String(id).toLowerCase().trim()
+        );
+        if (suppObj && Number(suppObj.creditBalance) > 0) {
+          cp = {
+            id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+            supplier: suppObj.name,
+            supplierId: suppObj.id,
+            totalOwed: Number(suppObj.creditBalance),
+            paidAmount: 0,
+            pendingAmount: Number(suppObj.creditBalance),
+            date: new Date().toISOString().slice(0, 10),
+            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+            status: "Pendiente"
+          };
+          if (!this.data.supplierCredits) this.data.supplierCredits = [];
+          this.data.supplierCredits.unshift(cp);
+        }
+      }
+
+      if (!cp) {
+        this.showToast('No se encontró el registro de crédito del proveedor para aplicar el abono.', 'warning');
+        return;
+      }
 
       if (amountPaid > cp.pendingAmount + 0.01) {
         this.showToast(`El monto a pagar (${this.formatCurrency(amountPaid)}) excede la deuda pendiente (${this.formatCurrency(cp.pendingAmount)})`, 'warning');
@@ -5254,34 +5335,51 @@ class NexusApp {
 
       const actualPay = Math.round(Math.min(amountPaid, cp.pendingAmount) * 100) / 100;
       cp.pendingAmount = Math.round(Math.max(0, cp.pendingAmount - actualPay) * 100) / 100;
+      cp.paidAmount = Math.round(((Number(cp.paidAmount) || 0) + actualPay) * 100) / 100;
       if (cp.pendingAmount <= 0) {
         cp.pendingAmount = 0;
         cp.status = "Pagado Total";
       }
 
-      const supp = this.data.suppliers.find(s => s.name === cp.supplier);
+      const supp = (this.data.suppliers || []).find(s => 
+        s.name?.toLowerCase().trim() === cp.supplier?.toLowerCase().trim() ||
+        s.id === cp.supplierId
+      );
       if (supp) {
-        supp.creditBalance = Math.round(Math.max(0, (supp.creditBalance || 0) - actualPay) * 100) / 100;
+        supp.creditBalance = Math.round(Math.max(0, (Number(supp.creditBalance) || 0) - actualPay) * 100) / 100;
       }
 
       // Sync with cashier cash drawer: descontar del dinero en caja si es Efectivo o si el checkbox está activo
       const deductCheck = document.getElementById('abono-deduct-cash-check');
-      const shouldDeductFromCash = method.toLowerCase().includes('efectivo') || (deductCheck ? deductCheck.checked : true);
+      const isCash = method.toLowerCase().includes('efectivo');
+      const shouldDeductFromCash = isCash || (deductCheck ? deductCheck.checked : false);
 
       if (shouldDeductFromCash) {
         if (!this.data.cashShiftLog) {
           this.data.cashShiftLog = { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Abierto' };
         }
-        this.data.cashShiftLog.cashExpenses = Math.round(((this.data.cashShiftLog.cashExpenses || 0) + actualPay) * 100) / 100;
-        this.data.cashShiftLog.expectedCashInDrawer = Math.round(((this.data.cashShiftLog.expectedCashInDrawer || 0) - actualPay) * 100) / 100;
+        this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + actualPay) * 100) / 100;
+        this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
         if (this.data.store) {
           this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
         }
+
+        // Registrar comprobante de egreso en this.data.expenses para trazabilidad contable
+        if (!this.data.expenses) this.data.expenses = [];
+        this.data.expenses.unshift({
+          id: `EXP-${Date.now().toString().slice(-4)}`,
+          date: new Date().toISOString().slice(0, 10),
+          description: `Pago/Abono a Proveedor: ${cp.supplier} (${cp.id || 'Crédito'})`,
+          category: 'Pago a Proveedor',
+          amount: actualPay,
+          status: 'Pagado',
+          method: 'Efectivo (Caja)'
+        });
       }
 
       // Sincronizar Orden de Compra asociada si existe
       if (this.data.purchases && Array.isArray(this.data.purchases)) {
-        const po = this.data.purchases.find(p => p.id === cp.id || (p.supplier === cp.supplier && p.paymentStatus !== 'Pagado Total'));
+        const po = this.data.purchases.find(p => p.id === cp.id || (p.supplier?.toLowerCase().trim() === cp.supplier?.toLowerCase().trim() && p.paymentStatus !== 'Pagado Total'));
         if (po) {
           po.paidAmount = Math.round(((Number(po.paidAmount) || 0) + actualPay) * 100) / 100;
           if (po.paidAmount >= (Number(po.total) || 0) - 0.01) {
@@ -5307,6 +5405,8 @@ class NexusApp {
       this.closeModal('abono-modal');
       await this.savePersistence();
       this.syncAllModules();
+      this.renderCuadreCajaCard();
+      this.renderCashStatusIndicator();
       const deductMsg = shouldDeductFromCash ? ' y descontado de caja' : '';
       this.showToast(`Pago de ${this.formatCurrency(actualPay)} registrado a ${cp.supplier}${deductMsg}`, 'success');
     }
@@ -6031,11 +6131,22 @@ class NexusApp {
       if (!this.data.cashShiftLog) {
         this.data.cashShiftLog = { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Abierto' };
       }
-      this.data.cashShiftLog.cashExpenses = Math.round(((this.data.cashShiftLog.cashExpenses || 0) + po.total) * 100) / 100;
-      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((this.data.cashShiftLog.expectedCashInDrawer || 0) - po.total) * 100) / 100;
+      this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + po.total) * 100) / 100;
+      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
       if (this.data.store) {
         this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
+
+      if (!this.data.expenses) this.data.expenses = [];
+      this.data.expenses.unshift({
+        id: `EXP-${Date.now().toString().slice(-4)}`,
+        date: new Date().toISOString().slice(0, 10),
+        description: `Pago Orden de Compra: ${po.id} (${po.supplier})`,
+        category: 'Pago a Proveedor',
+        amount: po.total,
+        status: 'Pagado',
+        method: 'Efectivo (Caja)'
+      });
     }
 
     if (!this.data.abonosCompras) this.data.abonosCompras = [];
@@ -6052,16 +6163,24 @@ class NexusApp {
 
     // Si tiene un crédito asociado en supplierCredits, marcarlo saldado
     if (this.data.supplierCredits) {
-      const cred = this.data.supplierCredits.find(c => c.id === po.id || (c.supplier === po.supplier && c.totalOwed === po.total));
+      const cred = this.data.supplierCredits.find(c => c.id === po.id || (c.supplier?.toLowerCase().trim() === po.supplier?.toLowerCase().trim() && c.totalOwed === po.total));
       if (cred) {
         cred.pendingAmount = 0;
+        cred.paidAmount = po.total;
         cred.status = 'Pagado Total';
       }
     }
 
+    const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === po.supplier?.toLowerCase().trim());
+    if (suppObj) {
+      suppObj.creditBalance = Math.round(Math.max(0, (Number(suppObj.creditBalance) || 0) - po.total) * 100) / 100;
+    }
+
     await this.savePersistence();
     this.syncAllModules();
-    this.showToast(`Orden #${po.id} marcada como Pagada Total`, 'success');
+    this.renderCuadreCajaCard();
+    this.renderCashStatusIndicator();
+    this.showToast(`Orden #${po.id} marcada como Pagada Total y descontada de caja`, 'success');
     this.showPurchaseReceiptModal(po.id);
   }
 
@@ -6573,6 +6692,66 @@ class NexusApp {
     }).join('');
   }
 
+  renderCashShiftExpensesSummary() {
+    const today = new Date().toISOString().slice(0, 10);
+    const expensesToday = (this.data.expenses || []).filter(e => {
+      const isToday = e.date && (e.date.includes(today) || e.date.includes('18/09'));
+      const isCash = (e.method || '').toLowerCase().includes('efectivo');
+      return isToday && isCash;
+    });
+
+    const abonosToday = (this.data.abonosCompras || []).filter(a => {
+      const isToday = a.date && (a.date.includes(today) || a.date.includes('18/09'));
+      const isCash = (a.method || '').toLowerCase().includes('efectivo');
+      return isToday && isCash;
+    });
+
+    if (expensesToday.length === 0 && abonosToday.length === 0) {
+      return `<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding:0.75rem 0.5rem;">No se han registrado retiros ni egresos en efectivo en este turno.</div>`;
+    }
+
+    let rows = '';
+    expensesToday.forEach(e => {
+      rows += `
+        <tr style="border-bottom:1px solid var(--border-color);">
+          <td style="padding:6px 8px; font-size:0.8rem;"><b>${this.escapeHtml(e.id)}</b></td>
+          <td style="padding:6px 8px; font-size:0.8rem;">Gasto: ${this.escapeHtml(e.description || e.category || 'Gasto Operativo')}</td>
+          <td style="padding:6px 8px; font-size:0.8rem;"><span class="badge" style="background:#FEF3C7; color:#D97706; font-size:0.7rem; font-weight:700;">Gasto Operativo</span></td>
+          <td style="padding:6px 8px; font-size:0.8rem; font-weight:700; color:var(--rose-text); text-align:right;">-${this.formatCurrency(e.amount)}</td>
+        </tr>
+      `;
+    });
+
+    abonosToday.forEach(a => {
+      rows += `
+        <tr style="border-bottom:1px solid var(--border-color);">
+          <td style="padding:6px 8px; font-size:0.8rem;"><b>${this.escapeHtml(a.id)}</b></td>
+          <td style="padding:6px 8px; font-size:0.8rem;">Pago a Proveedor: <b>${this.escapeHtml(a.supplier)}</b> (${this.escapeHtml(a.poId || '')})</td>
+          <td style="padding:6px 8px; font-size:0.8rem;"><span class="badge" style="background:#EEF2FF; color:#4F46E5; font-size:0.7rem; font-weight:700;">Abono Proveedor</span></td>
+          <td style="padding:6px 8px; font-size:0.8rem; font-weight:700; color:var(--rose-text); text-align:right;">-${this.formatCurrency(a.amount)}</td>
+        </tr>
+      `;
+    });
+
+    return `
+      <div style="max-height:220px; overflow-y:auto;">
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left;">
+              <th style="padding:4px 8px;">Código</th>
+              <th style="padding:4px 8px;">Concepto / Beneficiario</th>
+              <th style="padding:4px 8px;">Tipo</th>
+              <th style="padding:4px 8px; text-align:right;">Monto Descontado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   renderCuadreCajaCard() {
     const container = document.getElementById('cuadre-caja-card');
     if (!container) return;
@@ -6599,6 +6778,18 @@ class NexusApp {
           ${shift.closedBy ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Cierre por: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : ''}
         </div>
       </div>
+
+      <!-- DESGLOSE DETALLADO DE SALIDAS Y EGRESOS DE CAJA -->
+      <div style="margin-top:1.5rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap; gap:0.5rem;">
+          <h4 style="font-size:0.88rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.4rem; color:var(--text-main);">
+            <span>📋</span> Salidas y Egresos de Efectivo Registrados en este Turno
+          </h4>
+          <span style="font-size:0.82rem; font-weight:800; color:var(--rose-text);">Total Egresos: -${this.formatCurrency(shift.cashExpenses || 0)}</span>
+        </div>
+        ${this.renderCashShiftExpensesSummary()}
+      </div>
+
       <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
         <span class="badge ${isOpen ? 'badge-active' : 'badge-inactive'}" style="font-size:0.9rem;"><span class="badge-dot"></span>Turno: ${shift.status}</span>
         <div style="display:flex; gap:0.5rem;">
@@ -11233,7 +11424,8 @@ class NexusApp {
 
     if (this.selectedPayMethod === 'cash') {
       this.data.cashShiftLog.cashSales = Math.round((Number(this.data.cashShiftLog.cashSales || 0) + grandTotal) * 100) / 100;
-      this.data.cashShiftLog.expectedCashInDrawer = Math.round((Number(this.data.cashShiftLog.expectedCashInDrawer || 0) + grandTotal) * 100) / 100;
+      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+      if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
     } else if (this.selectedPayMethod === 'transfer') {
       this.data.cashShiftLog.cardSales = Math.round((Number(this.data.cashShiftLog.cardSales || 0) + grandTotal) * 100) / 100;
     } else if (this.selectedPayMethod === 'credit') {
@@ -11260,7 +11452,8 @@ class NexusApp {
       separePending = Math.round(Math.max(0, grandTotal - separeAbono) * 100) / 100;
       if (separeAbono > 0) {
         this.data.cashShiftLog.cashSales = Math.round((Number(this.data.cashShiftLog.cashSales || 0) + separeAbono) * 100) / 100;
-        this.data.cashShiftLog.expectedCashInDrawer = Math.round((Number(this.data.cashShiftLog.expectedCashInDrawer || 0) + separeAbono) * 100) / 100;
+        this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+        if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
       if (cust && separePending > 0) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + separePending) * 100) / 100;

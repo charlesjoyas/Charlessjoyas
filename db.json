@@ -12,7 +12,7 @@
     "cashier": "Carlos Garzon",
     "shiftStatus": "Cerrado",
     "shiftStartTime": "08:00 AM",
-    "cashInBox": 0,
+    "cashInBox": 2934197.57,
     "taxRate": 0,
     "branding": {
       "appName": "CHARLES JOYAS",
@@ -31,15 +31,15 @@
     }
   },
   "kpis": {
-    "salesToday": 3780996.5700000003,
+    "salesToday": 5347196.569999999,
     "salesTrend": "0%",
-    "transactionsToday": 6,
+    "transactionsToday": 7,
     "txTrend": "0%",
-    "inventoryValue": 475138901.63,
-    "avgCostPerGram": 477033,
-    "avgCostGrams": 996.03,
-    "skusCount": 788,
-    "totalGrams": 996.03,
+    "inventoryValue": 470180963.5599996,
+    "avgCostPerGram": 477482,
+    "avgCostGrams": 984.71,
+    "skusCount": 787,
+    "totalGrams": 984.71,
     "netMargin": "0%",
     "marginTrend": "0%",
     "totalCustomers": 0,
@@ -192,7 +192,7 @@
       "accountType": "Ahorros",
       "accountNumber": "11111",
       "bank": "bancolombia",
-      "creditBalance": 750000,
+      "creditBalance": 0,
       "status": "Active"
     },
     {
@@ -219,7 +219,7 @@
       "accountType": "Ahorros",
       "accountNumber": "",
       "bank": "BANCOL",
-      "creditBalance": 103642700,
+      "creditBalance": 102142700,
       "status": "Active",
       "docType": "NIT"
     },
@@ -233,7 +233,7 @@
       "accountType": "Ahorros",
       "accountNumber": "6780077026",
       "bank": "bancolombia",
-      "creditBalance": 95866001,
+      "creditBalance": 94904001,
       "status": "Active",
       "docType": "NIT"
     }
@@ -276,6 +276,60 @@
     }
   ],
   "expenses": [
+    {
+      "id": "EXP-2318",
+      "date": "2026-09-18",
+      "description": "Pago/Abono a Proveedor: carlos andres garzon (CP-773)",
+      "category": "Pago a Proveedor",
+      "amount": 50000,
+      "status": "Pagado",
+      "method": "Efectivo (Caja)"
+    },
+    {
+      "id": "EXP-0191",
+      "date": "2026-09-18",
+      "description": "Pago/Abono a Proveedor: carlos andres garzon (OC-00191)",
+      "category": "Pago a Proveedor",
+      "amount": 912999,
+      "status": "Pagado",
+      "method": "Efectivo (Caja)"
+    },
+    {
+      "id": "EXP-3773",
+      "date": "2026-09-18",
+      "description": "Pago/Abono a Proveedor: joyeria santa isabel (OC-13773)",
+      "category": "Pago a Proveedor",
+      "amount": 750000,
+      "status": "Pagado",
+      "method": "Efectivo (Caja)"
+    },
+    {
+      "id": "EXP-4978",
+      "date": "2026-09-18",
+      "description": "Pago/Abono a Proveedor: Calia joyería (OC-64978)",
+      "category": "Pago a Proveedor",
+      "amount": 492000,
+      "status": "Pagado",
+      "method": "Efectivo (Caja)"
+    },
+    {
+      "id": "EXP-9527",
+      "date": "2026-09-18",
+      "description": "Pago/Abono a Proveedor: ARISTIZABAL JOYERO (CP-402)",
+      "category": "Pago a Proveedor",
+      "amount": 1500000,
+      "status": "Pagado",
+      "method": "Efectivo (Caja)"
+    },
+    {
+      "id": "EXP-1456",
+      "date": "2026-09-18",
+      "description": "compra agua",
+      "category": "Servicios Básicos",
+      "amount": 32000,
+      "status": "Pagado",
+      "method": "Efectivo"
+    },
     {
       "id": "EXP-1151",
       "date": "2026-09-18",
@@ -341,23 +395,34 @@
   "customerCredits": [],
   "supplierCredits": [
     {
+      "id": "CP-727",
+      "supplier": "Calia joyería",
+      "supplierId": "PRV-460",
+      "totalOwed": 492000,
+      "paidAmount": 0,
+      "pendingAmount": 0,
+      "date": "2026-09-18",
+      "dueDate": "2026-10-18",
+      "status": "Pagado Total"
+    },
+    {
       "id": "CP-491",
       "supplier": "joyeria santa isabel",
       "supplierId": "PRV-501",
       "totalOwed": 750000,
       "paidAmount": 0,
-      "pendingAmount": 750000,
+      "pendingAmount": 0,
       "date": "2026-09-18",
       "dueDate": "2026-10-18",
-      "status": "Pendiente"
+      "status": "Pagado Total"
     },
     {
       "id": "CP-773",
       "supplier": "carlos andres garzon",
       "supplierId": "PRV-907",
       "totalOwed": 95867000,
-      "paidAmount": 0,
-      "pendingAmount": 95866001,
+      "paidAmount": 50000,
+      "pendingAmount": 94904001,
       "date": "2026-09-17",
       "dueDate": "2026-10-17",
       "status": "Pendiente"
@@ -368,7 +433,7 @@
       "supplierId": "PRV-753",
       "totalOwed": 104642700,
       "paidAmount": 0,
-      "pendingAmount": 103642700,
+      "pendingAmount": 102142700,
       "date": "2026-09-17",
       "dueDate": "2026-10-17",
       "status": "Pendiente"
@@ -392,20 +457,20 @@
       "name": "Oro 18K Italiano & Ley",
       "icon": "✨",
       "color": "#f59e0b",
-      "cost": 715056.69,
-      "availableGrams": 244.64,
-      "itemsCount": 123,
-      "totalValuation": 174931469.4
+      "cost": 723249.85,
+      "availableGrams": 237.14,
+      "itemsCount": 122,
+      "totalValuation": 171511469.4
     },
     {
       "id": "nacional",
       "name": "NACIONAL",
       "icon": "💎",
       "color": "#6366f1",
-      "cost": 402590.07,
-      "availableGrams": 711.46,
+      "cost": 402590.01,
+      "availableGrams": 707.64,
       "itemsCount": 658,
-      "totalValuation": 286426732.25
+      "totalValuation": 284888794.18
     },
     {
       "id": "broches",
@@ -536,7 +601,7 @@
     {
       "id": "PRD-424",
       "sku": "782",
-      "name": "CADENA CUBANA 50CM",
+      "name": "CADENA CUBANA 45cm",
       "measureType": "Unidades",
       "weightUnit": "u.",
       "unit": "u.",
@@ -7786,11 +7851,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 0.36,
+      "stock": 0.01,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.925Z"
+      "status": "low_stock",
+      "sold30d": 0.35,
+      "createdAt": "2026-09-16T19:12:12.925Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 0.35
+        }
+      }
     },
     {
       "id": "PRD-CJ-0362",
@@ -9891,11 +9961,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 3.47,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.926Z"
+      "status": "out_of_stock",
+      "sold30d": 3.47,
+      "createdAt": "2026-09-16T19:12:12.926Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 3.47
+        }
+      }
     },
     {
       "id": "PRD-CJ-0467",
@@ -16249,11 +16324,11 @@
     "shiftId": "TURNO-001",
     "openedAt": "10:27 a. m.",
     "openingCash": 2248000,
-    "cashSales": 2868996.57,
+    "cashSales": 4435196.57,
     "cardSales": 912000,
     "qrSales": 0,
-    "cashExpenses": 76376042,
-    "expectedCashInDrawer": 0,
+    "cashExpenses": 3748999,
+    "expectedCashInDrawer": 2934197.57,
     "actualCashInDrawer": 0,
     "discrepancy": 0,
     "status": "Abierto",
@@ -16281,12 +16356,59 @@
   "abonosVentas": [],
   "abonosCompras": [
     {
+      "id": "AB-C012319",
+      "date": "2026-09-18",
+      "supplier": "carlos andres garzon",
+      "poId": "CP-773",
+      "amount": 50000,
+      "method": "Efectivo (Caja)",
+      "cashier": "Carlos Garzon",
+      "status": "Confirmado"
+    },
+    {
+      "id": "AB-C039527",
+      "date": "2026-09-18",
+      "supplier": "ARISTIZABAL JOYERO",
+      "poId": "CP-402",
+      "amount": 1500000,
+      "method": "Efectivo (Caja)",
+      "cashier": "Carlos Garzon",
+      "status": "Confirmado"
+    },
+    {
+      "id": "AB-C586680",
+      "date": "2026-09-18",
+      "supplier": "carlos andres garzon",
+      "poId": "OC-86680",
+      "amount": 912000,
+      "method": "Transferencia",
+      "status": "Confirmado"
+    },
+    {
+      "id": "AB-C564978",
+      "date": "2026-09-18",
+      "supplier": "Calia joyería",
+      "poId": "OC-64978",
+      "amount": 492000,
+      "method": "Efectivo (Caja)",
+      "status": "Confirmado"
+    },
+    {
+      "id": "AB-C513773",
+      "date": "2026-09-18",
+      "supplier": "joyeria santa isabel",
+      "poId": "OC-13773",
+      "amount": 750000,
+      "method": "Efectivo (Caja)",
+      "status": "Confirmado"
+    },
+    {
       "id": "AB-C600191",
       "date": "2026-09-18",
       "supplier": "carlos andres garzon",
       "poId": "OC-00191",
       "amount": 912999,
-      "method": "Efectivo",
+      "method": "Efectivo (Caja)",
       "status": "Confirmado"
     },
     {
@@ -16342,6 +16464,44 @@
     ]
   },
   "recentTransactions": [
+    {
+      "id": "TX-89752",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:41:24 p. m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 3.8200000000000003,
+      "items": [
+        {
+          "id": "PRD-CJ-0361",
+          "sku": "361",
+          "name": "DIJE VIRGEN GUADAL",
+          "qty": 0.35,
+          "quantity": 0.35,
+          "price": 410000,
+          "total": 143500
+        },
+        {
+          "id": "PRD-CJ-0466",
+          "sku": "467",
+          "name": "ANILLO GUADALUPANA",
+          "qty": 3.47,
+          "quantity": 3.47,
+          "price": 410000,
+          "total": 1422700
+        }
+      ],
+      "subtotal": 1566200,
+      "tax": 0,
+      "total": 1566200,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
     {
       "id": "TX-93921",
       "customer": "Cliente Mostrador",
@@ -16639,6 +16799,6 @@
       0
     ]
   },
-  "updatedAt": "2026-09-18T22:36:05.246Z",
+  "updatedAt": "2026-09-18T23:10:12.367Z",
   "sales": []
 }
