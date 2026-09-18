@@ -22,18 +22,24 @@
       "secondaryColor": "#0d9488",
       "fontHeading": "Inter",
       "fontBody": "Outfit"
+    },
+    "metalRates": {
+      "oro18k": 580000,
+      "oro14k": 510000,
+      "balineria": 400000,
+      "plata925": 400000
     }
   },
   "kpis": {
-    "salesToday": 0,
+    "salesToday": 3780996.5700000003,
     "salesTrend": "0%",
-    "transactionsToday": 0,
+    "transactionsToday": 6,
     "txTrend": "0%",
-    "inventoryValue": 407404358.81999993,
-    "avgCostPerGram": 410095,
-    "avgCostGrams": 993.44,
-    "skusCount": 783,
-    "totalGrams": 993.44,
+    "inventoryValue": 475138901.63,
+    "avgCostPerGram": 477033,
+    "avgCostGrams": 996.03,
+    "skusCount": 788,
+    "totalGrams": 996.03,
     "netMargin": "0%",
     "marginTrend": "0%",
     "totalCustomers": 0,
@@ -49,7 +55,7 @@
       "role": "Super Admin",
       "status": "Active",
       "lastLogin": "Hoy 08:15 AM",
-      "password": "admin123",
+      "password": "1234567",
       "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
       "customPermissions": null
     },
@@ -66,17 +72,172 @@
         "clientes",
         "creditos_clientes",
         "comprar",
+        "gastos",
         "formas_pago",
         "cuadre_caja",
+        "abonos_ventas",
         "abonos_compras"
+      ],
+      "status": "Active",
+      "lastLogin": "Ahora mismo",
+      "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "USR-003",
+      "name": "ZHARICK CAROLINA",
+      "email": "Zlombanabuendia31@gmail.com",
+      "password": "141022",
+      "role": "Gerente de Tienda Regional",
+      "customPermissions": [
+        "dashboard",
+        "pos",
+        "ventas",
+        "clientes",
+        "creditos_clientes",
+        "comprar",
+        "proveedores",
+        "creditos_proveedores",
+        "productos",
+        "servicios",
+        "categorias",
+        "activos",
+        "gastos",
+        "formas_pago",
+        "cuadre_caja",
+        "abonos_ventas",
+        "abonos_compras",
+        "reports",
+        "informes",
+        "usuarios"
+      ],
+      "status": "Active",
+      "lastLogin": "Ahora mismo",
+      "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "USR-004",
+      "name": "VICTOR GAVIRIA",
+      "email": "vmga20@hotmail.com",
+      "password": "Victico20*",
+      "role": "Gerente de Tienda Regional",
+      "customPermissions": [
+        "dashboard",
+        "pos",
+        "ventas",
+        "clientes",
+        "creditos_clientes",
+        "comprar",
+        "proveedores",
+        "creditos_proveedores",
+        "productos",
+        "servicios",
+        "categorias",
+        "activos",
+        "gastos",
+        "formas_pago",
+        "cuadre_caja",
+        "abonos_ventas",
+        "abonos_compras",
+        "reports",
+        "informes"
       ],
       "status": "Active",
       "lastLogin": "Ahora mismo",
       "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
     }
   ],
-  "customers": [],
-  "suppliers": [],
+  "customers": [
+    {
+      "id": "CLI-971",
+      "docType": "CC",
+      "document": "122334",
+      "name": "CLIENTE ANONIMO",
+      "phone": "12234",
+      "email": "CLIENTE@GMAIL.COM",
+      "address": "CENTRO",
+      "creditLimit": 5000000000,
+      "creditBalance": 0,
+      "allowedPaymentMethods": [
+        "Efectivo",
+        "Transferencia",
+        "Crédito",
+        "Plan Separe"
+      ],
+      "status": "Active"
+    }
+  ],
+  "suppliers": [
+    {
+      "id": "PRV-460",
+      "docType": "NIT",
+      "nit": "000000",
+      "name": "Calia joyería",
+      "phone": "3127408245",
+      "email": "calia.joyeria@gmail.com",
+      "address": "Luz del día",
+      "accountType": "Ahorros",
+      "accountNumber": "",
+      "bank": "",
+      "creditBalance": 0,
+      "status": "Active"
+    },
+    {
+      "id": "PRV-501",
+      "docType": "NIT",
+      "nit": "11111",
+      "name": "joyeria santa isabel",
+      "phone": "111111",
+      "email": "joyeria@gmail.com",
+      "address": "cc luz del dia",
+      "accountType": "Ahorros",
+      "accountNumber": "11111",
+      "bank": "bancolombia",
+      "creditBalance": 750000,
+      "status": "Active"
+    },
+    {
+      "id": "PRV-974",
+      "nit": "1222",
+      "name": "DH HERNANDEZ JOYEROS",
+      "phone": "11111",
+      "email": "CAR@GMAIL.COM",
+      "address": "CEBTRO",
+      "accountType": "Ahorros",
+      "accountNumber": "11111",
+      "bank": "",
+      "creditBalance": 11405230,
+      "status": "Active",
+      "docType": "NIT"
+    },
+    {
+      "id": "PRV-753",
+      "nit": "12234",
+      "name": "ARISTIZABAL JOYERO",
+      "phone": "1234",
+      "email": "ARIS@GMAIL.COM",
+      "address": "CENTRO",
+      "accountType": "Ahorros",
+      "accountNumber": "",
+      "bank": "BANCOL",
+      "creditBalance": 103642700,
+      "status": "Active",
+      "docType": "NIT"
+    },
+    {
+      "id": "PRV-907",
+      "nit": "1143339747",
+      "name": "carlos andres garzon",
+      "phone": "3205675131",
+      "email": "carlos@gmail.com",
+      "address": "centro",
+      "accountType": "Ahorros",
+      "accountNumber": "6780077026",
+      "bank": "bancolombia",
+      "creditBalance": 95866001,
+      "status": "Active",
+      "docType": "NIT"
+    }
+  ],
   "perfiles": [
     {
       "id": "PRF-01",
@@ -94,22 +255,7 @@
       "permissions": "Acceso total a finanzas y reportes",
       "usersCount": 0,
       "allowedModules": [
-        "dashboard",
-        "pos",
-        "clientes",
-        "proveedores",
-        "gastos",
-        "formas_pago",
-        "ventas",
-        "comprar",
-        "creditos_clientes",
-        "creditos_proveedores",
-        "productos",
-        "servicios",
-        "categorias",
-        "activos",
-        "reports",
-        "informes"
+        "*"
       ]
     },
     {
@@ -118,15 +264,36 @@
       "permissions": "Ventas en POS, Cobros, Apertura y Cierre de Caja Chica",
       "usersCount": 2,
       "allowedModules": [
+        "dashboard",
         "pos",
+        "ventas",
         "clientes",
-        "cuadre_caja",
-        "ventas"
+        "creditos_clientes",
+        "productos",
+        "formas_pago",
+        "cuadre_caja"
       ]
     }
   ],
-  "expenses": [],
+  "expenses": [
+    {
+      "id": "EXP-1151",
+      "date": "2026-09-18",
+      "description": "Pago marcación láser ",
+      "category": "Servicios Básicos",
+      "amount": 12000,
+      "status": "Pagado",
+      "method": "Efectivo"
+    }
+  ],
   "paymentMethods": [
+    {
+      "id": "PM-74",
+      "name": "CUENTA BANCARIA CARLOS",
+      "icon": "card",
+      "fee": "0%",
+      "active": true
+    },
     {
       "id": "PM-15",
       "name": "plan separe",
@@ -164,7 +331,7 @@
     },
     {
       "id": "PM-05",
-      "name": "Transferencia Bancaria",
+      "name": "Transferencia Bancaria CTA ZHARICK",
       "icon": "bank",
       "fee": "0%",
       "active": true
@@ -172,7 +339,52 @@
   ],
   "purchases": [],
   "customerCredits": [],
-  "supplierCredits": [],
+  "supplierCredits": [
+    {
+      "id": "CP-491",
+      "supplier": "joyeria santa isabel",
+      "supplierId": "PRV-501",
+      "totalOwed": 750000,
+      "paidAmount": 0,
+      "pendingAmount": 750000,
+      "date": "2026-09-18",
+      "dueDate": "2026-10-18",
+      "status": "Pendiente"
+    },
+    {
+      "id": "CP-773",
+      "supplier": "carlos andres garzon",
+      "supplierId": "PRV-907",
+      "totalOwed": 95867000,
+      "paidAmount": 0,
+      "pendingAmount": 95866001,
+      "date": "2026-09-17",
+      "dueDate": "2026-10-17",
+      "status": "Pendiente"
+    },
+    {
+      "id": "CP-402",
+      "supplier": "ARISTIZABAL JOYERO",
+      "supplierId": "PRV-753",
+      "totalOwed": 104642700,
+      "paidAmount": 0,
+      "pendingAmount": 103642700,
+      "date": "2026-09-17",
+      "dueDate": "2026-10-17",
+      "status": "Pendiente"
+    },
+    {
+      "id": "CP-866",
+      "supplier": "DH HERNANDEZ JOYEROS",
+      "supplierId": "PRV-974",
+      "totalOwed": 11405230,
+      "paidAmount": 0,
+      "pendingAmount": 11405230,
+      "date": "2026-09-17",
+      "dueDate": "2026-10-17",
+      "status": "Pendiente"
+    }
+  ],
   "services": [],
   "categories": [
     {
@@ -180,20 +392,20 @@
       "name": "Oro 18K Italiano & Ley",
       "icon": "✨",
       "color": "#f59e0b",
-      "cost": 443914.19,
-      "availableGrams": 228.42,
-      "itemsCount": 116,
-      "totalValuation": 101398879.28
+      "cost": 715056.69,
+      "availableGrams": 244.64,
+      "itemsCount": 123,
+      "totalValuation": 174931469.4
     },
     {
       "id": "nacional",
       "name": "NACIONAL",
       "icon": "💎",
       "color": "#6366f1",
-      "cost": 402601.59,
-      "availableGrams": 712.91,
+      "cost": 402590.07,
+      "availableGrams": 711.46,
       "itemsCount": 658,
-      "totalValuation": 287018699.56
+      "totalValuation": 286426732.25
     },
     {
       "id": "broches",
@@ -201,19 +413,19 @@
       "icon": "🔒",
       "color": "#10B981",
       "cost": 440000,
-      "availableGrams": 5.59,
-      "itemsCount": 1,
-      "totalValuation": 2459600
+      "availableGrams": 0,
+      "itemsCount": 0,
+      "totalValuation": 0
     },
     {
       "id": "roscas",
       "name": "ROSCA SEGURIDAD",
       "icon": "🔘",
-      "color": "#EC4899",
-      "cost": 440000,
-      "availableGrams": 3.4,
-      "itemsCount": 1,
-      "totalValuation": 1496000
+      "color": "#ec4899",
+      "cost": 400000,
+      "availableGrams": 0,
+      "itemsCount": 0,
+      "totalValuation": 0
     },
     {
       "id": "pircing",
@@ -231,12 +443,120 @@
       "icon": "🟡",
       "color": "#F97316",
       "cost": 392000,
-      "availableGrams": 37.12,
+      "availableGrams": 33.93,
       "itemsCount": 2,
-      "totalValuation": 14551040
+      "totalValuation": 13300560
     }
   ],
   "products": [
+    {
+      "id": "PRD-423",
+      "sku": "786",
+      "name": "dije cruz",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.2,
+      "weight": 1.2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "Calia joyería",
+      "cost": 410000,
+      "price": 0,
+      "stock": 0,
+      "minStock": 2,
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "monthlySales": {
+        "2026-09": {
+          "18": 1
+        }
+      }
+    },
+    {
+      "id": "PRD-787",
+      "sku": "785",
+      "name": "PULSO CUBANO",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.51,
+      "weight": 1.51,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "joyeria santa isabel",
+      "cost": 500000,
+      "price": 0,
+      "stock": 0,
+      "minStock": 2,
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "monthlySales": {
+        "2026-09": {
+          "18": 1
+        }
+      }
+    },
+    {
+      "id": "PRD-243",
+      "sku": "784",
+      "name": "cadena cubana 45cm",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.31,
+      "weight": 2.31,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "carlos andres garzon",
+      "cost": 415000,
+      "price": 0,
+      "stock": 1,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-821",
+      "sku": "783",
+      "name": "Cadena cubana 45cm",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.3,
+      "weight": 2.3,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "carlos andres garzon",
+      "cost": 415000,
+      "price": 0,
+      "stock": 1,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-424",
+      "sku": "782",
+      "name": "CADENA CUBANA 50CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.33,
+      "weight": 2.33,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 415000,
+      "price": 0,
+      "stock": 0,
+      "minStock": 2,
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "monthlySales": {
+        "2026-09": {
+          "17": 1
+        }
+      }
+    },
     {
       "id": "PRD-CJ-0001",
       "sku": "001",
@@ -249,7 +569,7 @@
       "category": "oro18k",
       "categoryName": "Oro 18K Italiano & Ley",
       "supplier": "Charles Joyas",
-      "cost": 443914.19,
+      "cost": 450000,
       "price": 0,
       "stock": 2.08,
       "minStock": 0.5,
@@ -269,7 +589,7 @@
       "category": "oro18k",
       "categoryName": "Oro 18K Italiano & Ley",
       "supplier": "Charles Joyas",
-      "cost": 443914.19,
+      "cost": 450000,
       "price": 0,
       "stock": 2.72,
       "minStock": 0.5,
@@ -2608,14 +2928,19 @@
       "weight": 1.23,
       "category": "oro18k",
       "categoryName": "Oro 18K Italiano & Ley",
-      "supplier": "Charles Joyas",
-      "cost": 443914.19,
+      "supplier": "joyeria santa isabel",
+      "cost": 44391419,
       "price": 0,
-      "stock": 1.23,
+      "stock": 1.51,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.923Z"
+      "sold30d": 1.23,
+      "createdAt": "2026-09-16T19:12:12.923Z",
+      "monthlySales": {
+        "2026-09": {
+          "17": 1.23
+        }
+      }
     },
     {
       "id": "PRD-CJ-0120",
@@ -3111,11 +3436,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 0.85,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.923Z"
+      "status": "out_of_stock",
+      "sold30d": 0.85,
+      "createdAt": "2026-09-16T19:12:12.923Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 0.85
+        }
+      }
     },
     {
       "id": "PRD-CJ-0145",
@@ -3751,11 +4081,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 0.62,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.924Z"
+      "status": "out_of_stock",
+      "sold30d": 0.62,
+      "createdAt": "2026-09-16T19:12:12.924Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 0.62
+        }
+      }
     },
     {
       "id": "PRD-CJ-0177",
@@ -8171,11 +8506,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 1.07,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.925Z"
+      "status": "out_of_stock",
+      "sold30d": 1.07,
+      "createdAt": "2026-09-16T19:12:12.925Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 1.07
+        }
+      }
     },
     {
       "id": "PRD-CJ-0398",
@@ -15284,14 +15624,14 @@
       "measureType": "Pesaje",
       "weightUnit": "g",
       "unit": "g",
-      "pieceWeight": 5.59,
-      "weight": 5.59,
-      "category": "broches",
-      "categoryName": "BROCHES",
-      "supplier": "Charles Joyas",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
       "cost": 440000,
       "price": 0,
-      "stock": 5.59,
+      "stock": 3.83,
       "minStock": 0.5,
       "status": "active",
       "sold30d": 0,
@@ -15304,18 +15644,23 @@
       "measureType": "Pesaje",
       "weightUnit": "g",
       "unit": "g",
-      "pieceWeight": 3.4,
-      "weight": 3.4,
-      "category": "roscas",
-      "categoryName": "ROSCA SEGURIDAD",
-      "supplier": "Charles Joyas",
-      "cost": 440000,
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "supplier": "ANONIMO",
+      "cost": 400000,
       "price": 0,
-      "stock": 3.4,
+      "stock": 3.15,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.929Z"
+      "sold30d": 0.25,
+      "createdAt": "2026-09-16T19:12:12.929Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 0.25
+        }
+      }
     },
     {
       "id": "PRD-CJ-0755",
@@ -15452,26 +15797,6 @@
       "cost": 402601.59,
       "price": 0,
       "stock": 1.26,
-      "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.929Z"
-    },
-    {
-      "id": "PRD-CJ-0762",
-      "sku": "763",
-      "name": "DIJE SAGRADO CORAZON",
-      "measureType": "Pesaje",
-      "weightUnit": "g",
-      "unit": "g",
-      "pieceWeight": 1.55,
-      "weight": 1.55,
-      "category": "nacional",
-      "categoryName": "NACIONAL",
-      "supplier": "Charles Joyas",
-      "cost": 402601.59,
-      "price": 0,
-      "stock": 1.55,
       "minStock": 0.5,
       "status": "active",
       "sold30d": 0,
@@ -15871,11 +16196,17 @@
       "supplier": "Charles Joyas",
       "cost": 392000,
       "price": 0,
-      "stock": 37.12,
+      "stock": 33.93,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.929Z"
+      "sold30d": 3.19,
+      "createdAt": "2026-09-16T19:12:12.929Z",
+      "monthlySales": {
+        "2026-09": {
+          "17": 0.91,
+          "18": 2.28
+        }
+      }
     },
     {
       "id": "PRD-CJ-0783",
@@ -15891,30 +16222,83 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 67,
+      "stock": 66.49,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.929Z"
+      "sold30d": 0.51,
+      "createdAt": "2026-09-16T19:12:12.929Z",
+      "monthlySales": {
+        "2026-09": {
+          "18": 0.51
+        }
+      }
     }
   ],
-  "assets": [],
+  "assets": [
+    {
+      "id": "ACT-81",
+      "name": "CAJA FUERTE",
+      "category": "SEGURIDAD",
+      "purchaseDate": "2026-09-17",
+      "costValue": 18000000,
+      "currentVal": 18000000,
+      "status": "Excelente"
+    }
+  ],
   "cashShiftLog": {
     "shiftId": "TURNO-001",
-    "openedAt": "08:00 AM",
-    "openingCash": 0,
-    "cashSales": 0,
-    "cardSales": 0,
+    "openedAt": "10:27 a. m.",
+    "openingCash": 2248000,
+    "cashSales": 2868996.57,
+    "cardSales": 912000,
     "qrSales": 0,
-    "cashExpenses": 0,
+    "cashExpenses": 76376042,
     "expectedCashInDrawer": 0,
     "actualCashInDrawer": 0,
     "discrepancy": 0,
-    "status": "Cerrado"
+    "status": "Abierto",
+    "closingCash": 0,
+    "openedBy": "ZHARICK CAROLINA",
+    "openedDate": "2026-09-18"
   },
-  "cashShiftsHistory": [],
+  "cashShiftsHistory": [
+    {
+      "id": "TRN-256034",
+      "status": "Cerrado",
+      "openingCash": 2008000,
+      "cashSales": 2239499.5,
+      "cashExpenses": 2000000,
+      "expectedCashInDrawer": 2247499.5,
+      "closingCash": 22474995,
+      "difference": 20227495.5,
+      "openedBy": "Santiago Muñoz",
+      "openedAt": "10:15 a.m.",
+      "closedBy": "ZHARICK CAROLINA",
+      "closedAt": "06:04 p. m.",
+      "date": "2026-09-17"
+    }
+  ],
   "abonosVentas": [],
-  "abonosCompras": [],
+  "abonosCompras": [
+    {
+      "id": "AB-C600191",
+      "date": "2026-09-18",
+      "supplier": "carlos andres garzon",
+      "poId": "OC-00191",
+      "amount": 912999,
+      "method": "Efectivo",
+      "status": "Confirmado"
+    },
+    {
+      "id": "AB-C963941",
+      "date": "2026-09-17",
+      "supplier": "ARISTIZABAL JOYERO",
+      "poId": "OC-63941",
+      "amount": 1000000,
+      "method": "Efectivo",
+      "status": "Confirmado"
+    }
+  ],
   "balanceSheet": {
     "assetsCurrent": 0,
     "assetsFixed": 0,
@@ -15957,7 +16341,287 @@
       0
     ]
   },
-  "recentTransactions": [],
+  "recentTransactions": [
+    {
+      "id": "TX-93921",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:04:16 p. m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.62,
+      "items": [
+        {
+          "id": "PRD-CJ-0176",
+          "sku": "176",
+          "name": "DIJE INICIAL M",
+          "qty": 0.62,
+          "quantity": 0.62,
+          "price": 450000,
+          "total": 279000
+        }
+      ],
+      "subtotal": 279000,
+      "tax": 0,
+      "total": 279000,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-91999",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "04:54:43 p. m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.25,
+      "items": [
+        {
+          "id": "PRD-CJ-0754",
+          "sku": "755",
+          "name": "ROSCAS SEGURIDAD",
+          "qty": 0.25,
+          "quantity": 0.25,
+          "price": 400000,
+          "total": 100000
+        }
+      ],
+      "subtotal": 100000,
+      "tax": 0,
+      "total": 100000,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-93294",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "04:05:59 p.m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.51,
+      "items": [
+        {
+          "id": "PRD-CJ-0783",
+          "sku": "02027",
+          "name": "HERRAJES",
+          "qty": 0.51,
+          "quantity": 0.51,
+          "price": 450980,
+          "total": 229999.80000000002
+        }
+      ],
+      "subtotal": 229999.80000000002,
+      "tax": 0,
+      "total": 229999.80000000002,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-90965",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "04:02:13 p.m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 3.4299999999999997,
+      "items": [
+        {
+          "id": "PRD-787",
+          "sku": "785",
+          "name": "PULSO CUBANO",
+          "qty": 1.51,
+          "quantity": 1.51,
+          "price": 562913,
+          "total": 849998.63
+        },
+        {
+          "id": "PRD-CJ-0144",
+          "sku": "144",
+          "name": "CANDONGA LAGRIMAS",
+          "qty": 0.85,
+          "quantity": 0.85,
+          "price": 447058,
+          "total": 379999.3
+        },
+        {
+          "id": "PRD-CJ-0397",
+          "sku": "398",
+          "name": "ANILLO CORAZON",
+          "qty": 1.07,
+          "quantity": 1.07,
+          "price": 439252,
+          "total": 469999.64
+        }
+      ],
+      "subtotal": 1699997.5699999998,
+      "tax": 0,
+      "total": 1699997.5699999998,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-97043",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "03:56:44 p.m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 1.2,
+      "items": [
+        {
+          "id": "PRD-423",
+          "sku": "786",
+          "name": "dije cruz",
+          "qty": 1.2,
+          "quantity": 1.2,
+          "price": 466666,
+          "total": 559999.2
+        }
+      ],
+      "subtotal": 559999.2,
+      "tax": 0,
+      "total": 559999.2,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-96351",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "12:17:26 p.m.",
+      "date": "18/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 2.28,
+      "items": [
+        {
+          "id": "PRD-CJ-0782",
+          "sku": "02026",
+          "name": "BOLAS",
+          "qty": 2.28,
+          "quantity": 2.28,
+          "price": 400000,
+          "total": 911999.9999999999
+        }
+      ],
+      "subtotal": 911999.9999999999,
+      "tax": 0,
+      "total": 911999.9999999999,
+      "paymentMethod": "Transferencia",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-97565",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:51:04 p. m.",
+      "date": "17/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.91,
+      "items": [
+        {
+          "id": "PRD-CJ-0782",
+          "sku": "02026",
+          "name": "BOLAS",
+          "qty": 0.91,
+          "quantity": 0.91,
+          "price": 450000,
+          "total": 409500
+        }
+      ],
+      "subtotal": 409500,
+      "tax": 0,
+      "total": 409500,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-95544",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:47:53 p. m.",
+      "date": "17/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 2.33,
+      "items": [
+        {
+          "id": "PRD-424",
+          "sku": "782",
+          "name": "CADENA CUBANA 50CM",
+          "qty": 2.33,
+          "quantity": 2.33,
+          "price": 500000,
+          "total": 1165000
+        }
+      ],
+      "subtotal": 1165000,
+      "tax": 0,
+      "total": 1165000,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-93972",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:15:28 p.m.",
+      "date": "17/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 1.23,
+      "items": [
+        {
+          "id": "PRD-CJ-0119",
+          "sku": "119",
+          "name": "PULSO CUBANO 18 CM",
+          "qty": 1.23,
+          "quantity": 1.23,
+          "price": 540650,
+          "total": 664999.5
+        }
+      ],
+      "subtotal": 664999.5,
+      "tax": 0,
+      "total": 664999.5,
+      "paymentMethod": "Efectivo",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    }
+  ],
   "financialLedger": [],
   "chartData": {
     "salesByDay": [
@@ -15975,6 +16639,6 @@
       0
     ]
   },
-  "updatedAt": "2026-09-17T00:09:09.804Z",
+  "updatedAt": "2026-09-18T22:36:05.246Z",
   "sales": []
 }

@@ -2050,19 +2050,35 @@
             </div>
           </div>
 
-          <div style="margin-bottom:1.5rem;">
+          <div style="margin-bottom:1.25rem;">
             <label style="font-size:0.8rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Método de Pago *</label>
-            <select id="abono-method-select" class="form-select" style="width:100%;">
-              <option value="Efectivo">💵 Efectivo</option>
+            <select id="abono-method-select" class="form-select" style="width:100%;" onchange="app.updateAbonoCashPreview()">
+              <option value="Efectivo" selected>💵 Efectivo (Dinero en Caja)</option>
               <option value="Transferencia">🏦 Transferencia Bancaria</option>
               <option value="Tarjeta">💳 Tarjeta Débito / Crédito</option>
               <option value="Bizum / Pago QR">📱 Bizum / Pago QR</option>
             </select>
           </div>
 
+          <!-- CAJA INFORMATIVA: DESCUENTO DE CAJA (PARA PROVEEDORES) -->
+          <div id="abono-cash-preview-box" style="display:none; background:rgba(16, 185, 129, 0.08); border:1px solid rgba(16, 185, 129, 0.25); padding:0.85rem 1rem; border-radius:var(--radius-md); margin-bottom:1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+              <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">💵 Efectivo Actual en Caja:</span>
+              <span id="abono-cash-current-val" style="font-weight:700; font-size:0.95rem; color:var(--text-main);">$ 0 COP</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">📉 Saldo en Caja tras este Pago:</span>
+              <span id="abono-cash-after-val" style="font-weight:800; font-size:1rem; color:var(--emerald-text, #10B981);">$ 0 COP</span>
+            </div>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin-top:0.6rem; padding-top:0.5rem; border-top:1px dashed rgba(16, 185, 129, 0.25); cursor:pointer; font-size:0.8rem; font-weight:600; color:var(--text-main);">
+              <input type="checkbox" id="abono-deduct-cash-check" checked onchange="app.updateAbonoCashPreview()">
+              <span>Descontar este valor del dinero en caja (Arqueo de Turno)</span>
+            </label>
+          </div>
+
           <div style="display:flex; gap:0.75rem; justify-content:flex-end;">
             <button type="button" class="btn btn-secondary" style="flex:1;" onclick="app.closeModal('abono-modal')">Cancelar</button>
-            <button type="submit" class="btn btn-primary" style="flex:1.5;">Confirmar y Registrar Abono</button>
+            <button type="submit" id="abono-submit-btn" class="btn btn-primary" style="flex:1.5;">Confirmar y Registrar Abono</button>
           </div>
         </form>
       </div>
@@ -3044,33 +3060,72 @@
 
   <!-- ADD CATEGORY MODAL -->
   <div class="modal-backdrop" id="category-modal">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width: 520px;">
       <div class="modal-header">
         <h3 class="modal-title">Crear Nueva Categoría</h3>
         <button class="modal-close-btn" onclick="app.closeModal('category-modal')">&times;</button>
       </div>
       <form id="add-category-form">
         <div class="modal-body">
+          <!-- SELECTOR DE TIPO: SERVICIOS GENERALES VS SERVICIOS EXTRAS -->
           <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label">Nombre de Categoría *</label>
+            <label class="form-label" style="font-weight:700;">Tipo de Servicio / Categoría *</label>
+            <select id="cat-type-select" class="form-select" onchange="app.onCategoryTypeChange()" style="font-weight:700; width:100%;">
+              <option value="general" selected>💎 Servicios Generales (Joyería & Metales Preciosos)</option>
+              <option value="extras">🧵 Servicios Extras (Manillas & Accesorios)</option>
+            </select>
+            <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Selecciona si la categoría gestiona metales con gramaje o manillas/servicios extras por unidades.</small>
+          </div>
+
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label class="form-label" id="cat-name-label">Nombre de Categoría *</label>
             <input type="text" id="cat-name-input" class="form-input" placeholder="ej. Oro 18K Italiano & Ley" required>
           </div>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label">Gramaje Disponible Inicial (g)</label>
-            <div style="position:relative;">
-              <input type="text" inputmode="decimal" id="cat-grams-input" class="form-input" placeholder="0.00" value="0.00" style="padding-left:36px; font-weight:700;">
-              <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem;">⚖️</span>
+
+          <!-- BLOQUE 1: SERVICIOS GENERALES (METALES & GRAMAJE) -->
+          <div id="cat-general-fields">
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Gramaje Disponible Inicial (g)</label>
+              <div style="position:relative;">
+                <input type="text" inputmode="decimal" id="cat-grams-input" class="form-input" placeholder="0.00" value="0.00" style="padding-left:36px; font-weight:700;">
+                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem;">⚖️</span>
+              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Establece los gramos iniciales disponibles en esta categoría.</small>
             </div>
-            <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Establece los gramos iniciales disponibles en esta categoría.</small>
-          </div>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label">Costo por Gramo Base Inicial ($ COP)</label>
-            <div style="position:relative;">
-              <input type="text" inputmode="numeric" id="cat-cost-input" class="form-input" placeholder="0" value="0" style="padding-left:36px; font-weight:700;">
-              <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem;">💰</span>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Costo por Gramo Base Inicial ($ COP)</label>
+              <div style="position:relative;">
+                <input type="text" inputmode="numeric" id="cat-cost-input" class="form-input" placeholder="0" value="0" style="padding-left:36px; font-weight:700;">
+                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem;">💰</span>
+              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Costo base inicial. Al ingresar productos, se calculará automáticamente el costo promedio ponderado (∑ costos ÷ ∑ gramos).</small>
             </div>
-            <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Costo base inicial. Al ingresar productos, se calculará automáticamente el costo promedio ponderado (∑ costos ÷ ∑ gramos).</small>
           </div>
+
+          <!-- BLOQUE 2: SERVICIOS EXTRAS (MANILLAS & ACCESORIOS SIN GRAMAJE) -->
+          <div id="cat-extras-fields" style="display:none;">
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Unidades de Manillas (Cantidad Inicial) *</label>
+              <div style="position:relative;">
+                <input type="text" inputmode="numeric" id="cat-units-input" class="form-input" placeholder="0" value="0" style="padding-left:36px; font-weight:700;">
+                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem;">🧵</span>
+              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Cantidad inicial de manillas en unidades (piezas). No pide gramaje.</small>
+            </div>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Costo de Compra Unitario ($ COP) *</label>
+              <div style="position:relative;">
+                <input type="text" inputmode="numeric" id="cat-unit-cost-input" class="form-input" placeholder="0" value="0" style="padding-left:36px; font-weight:700;">
+                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1rem;">💵</span>
+              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Costo al que se adquiere cada manilla. En la venta POS se fijará el precio de venta para generar utilidad.</small>
+            </div>
+            <div style="background:rgba(99, 102, 241, 0.08); border:1px solid rgba(99, 102, 241, 0.25); border-radius:var(--radius-md); padding:0.75rem 1rem; margin-bottom:1rem; font-size:0.78rem; color:var(--text-main); display:flex; align-items:flex-start; gap:8px;">
+              <span style="font-size:1.1rem; line-height:1;">🛡️</span>
+              <span><strong>Sin afectación de inventario ni gramaje:</strong> Las manillas se gestionan por unidades y no inflan los gramos ni la valorización del oro de la joyería.</span>
+            </div>
+          </div>
+
           <div class="form-group" style="margin-bottom:1rem;">
             <label class="form-label">Color Distintivo *</label>
             <div style="display:flex; align-items:center; gap:12px;">
@@ -3105,35 +3160,59 @@
             <label class="form-label">Nombre de Categoría *</label>
             <input type="text" id="edit-cat-name-input" class="form-input" placeholder="ej. Oro 18K Italiano & Ley" required>
           </div>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label">Gramaje Disponible en Categoría (g) *</label>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="position:relative; flex:1;">
-                <input type="text" inputmode="decimal" id="edit-cat-grams-input" class="form-input" placeholder="0.00" required style="padding-left:36px; font-weight:800; font-size:1.05rem; color:var(--text-main);" oninput="if(document.getElementById('edit-cat-grams-badge')) document.getElementById('edit-cat-grams-badge').textContent = '⚖️ ' + (app.parseCleanNumber(this.value)||0).toFixed(2) + ' g'; app.updateEditCategoryValuationPreview();">
-                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1.1rem;">⚖️</span>
+
+          <!-- EDIT GENERAL FIELDS -->
+          <div id="edit-cat-general-fields">
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Gramaje Disponible en Categoría (g) *</label>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="position:relative; flex:1;">
+                  <input type="text" inputmode="decimal" id="edit-cat-grams-input" class="form-input" placeholder="0.00" style="padding-left:36px; font-weight:800; font-size:1.05rem; color:var(--text-main);" oninput="if(document.getElementById('edit-cat-grams-badge')) document.getElementById('edit-cat-grams-badge').textContent = '⚖️ ' + (app.parseCleanNumber(this.value)||0).toFixed(2) + ' g'; app.updateEditCategoryValuationPreview();">
+                  <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1.1rem;">⚖️</span>
+                </div>
+                <div style="display:flex; gap:4px;">
+                  <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(-10)" title="Bajar 10 gramos">-10g</button>
+                  <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(-1)" title="Bajar 1 gramo">-1g</button>
+                  <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(1)" title="Subir 1 gramo">+1g</button>
+                  <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(10)" title="Subir 10 gramos">+10g</button>
+                </div>
               </div>
-              <div style="display:flex; gap:4px;">
-                <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(-10)" title="Bajar 10 gramos">-10g</button>
-                <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(-1)" title="Bajar 1 gramo">-1g</button>
-                <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(1)" title="Subir 1 gramo">+1g</button>
-                <button type="button" class="btn btn-secondary" style="padding:6px 9px; font-weight:700; font-size:0.8rem;" onclick="app.adjustCategoryGramsInput(10)" title="Subir 10 gramos">+10g</button>
-              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Edita, sube o baja los gramos para tener total claridad de la disponibilidad.</small>
             </div>
-            <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Edita, sube o baja los gramos para tener total claridad de la disponibilidad.</small>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Costo Promedio Ponderado por Gramo ($ COP) *</label>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="position:relative; flex:1;">
+                  <input type="text" inputmode="numeric" id="edit-cat-cost-input" class="form-input" placeholder="0" style="padding-left:36px; font-weight:800; font-size:1.05rem; color:var(--text-main);" oninput="app.updateEditCategoryValuationPreview()">
+                  <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1.1rem;">💰</span>
+                </div>
+                <div style="display:flex; gap:4px;">
+                  <button type="button" class="btn btn-secondary" style="padding:6px 8px; font-weight:700; font-size:0.75rem;" onclick="app.adjustCategoryCostInput(-10000)" title="Bajar $10.000">-$10k</button>
+                  <button type="button" class="btn btn-secondary" style="padding:6px 8px; font-weight:700; font-size:0.75rem;" onclick="app.adjustCategoryCostInput(10000)" title="Subir $10.000">+$10k</button>
+                </div>
+              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Calculado automáticamente: sumatoria de valores de productos ingresados ÷ gramos totales de la categoría.</small>
+            </div>
           </div>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label">Costo Promedio Ponderado por Gramo ($ COP) *</label>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="position:relative; flex:1;">
-                <input type="text" inputmode="numeric" id="edit-cat-cost-input" class="form-input" placeholder="0" required style="padding-left:36px; font-weight:800; font-size:1.05rem; color:var(--text-main);" oninput="app.updateEditCategoryValuationPreview()">
-                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1.1rem;">💰</span>
+
+          <!-- EDIT EXTRAS FIELDS (MANILLAS) -->
+          <div id="edit-cat-extras-fields" style="display:none;">
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Unidades Disponibles de Manillas *</label>
+              <div style="position:relative;">
+                <input type="text" inputmode="numeric" id="edit-cat-units-input" class="form-input" placeholder="0" style="padding-left:36px; font-weight:800; font-size:1.05rem; color:var(--text-main);" oninput="app.updateEditCategoryValuationPreview()">
+                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1.1rem;">🧵</span>
               </div>
-              <div style="display:flex; gap:4px;">
-                <button type="button" class="btn btn-secondary" style="padding:6px 8px; font-weight:700; font-size:0.75rem;" onclick="app.adjustCategoryCostInput(-10000)" title="Bajar $10.000">-$10k</button>
-                <button type="button" class="btn btn-secondary" style="padding:6px 8px; font-weight:700; font-size:0.75rem;" onclick="app.adjustCategoryCostInput(10000)" title="Subir $10.000">+$10k</button>
-              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Stock actual de manillas en unidades (no pide gramaje).</small>
             </div>
-            <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Calculado automáticamente: sumatoria de valores de productos ingresados ÷ gramos totales de la categoría.</small>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label class="form-label">Costo de Compra Unitario ($ COP) *</label>
+              <div style="position:relative;">
+                <input type="text" inputmode="numeric" id="edit-cat-unit-cost-input" class="form-input" placeholder="0" style="padding-left:36px; font-weight:800; font-size:1.05rem; color:var(--text-main);" oninput="app.updateEditCategoryValuationPreview()">
+                <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:1.1rem;">💵</span>
+              </div>
+              <small style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px; display:block;">Costo unitario de compra de cada manilla.</small>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom:1rem;">
             <label class="form-label">Color Distintivo *</label>
@@ -3212,19 +3291,27 @@
             <input type="hidden" id="po-product-id">
           </div>
 
-          <!-- 2. CÓDIGO DE PRODUCTO Y TIPO DE MEDIDA -->
+          <!-- 2. CATEGORÍA Y CÓDIGO DE PRODUCTO -->
           <div class="grid-2" style="margin-bottom: 0.75rem;">
+            <div class="form-group">
+              <label class="form-label" for="po-category-select">Categoría del producto *</label>
+              <select id="po-category-select" class="form-select" onchange="app.onPurchaseCategoryChange()" style="font-weight:600;">
+                <option value="oro18k" selected>Oro 18K Italiano & Ley</option>
+              </select>
+            </div>
             <div class="form-group">
               <label class="form-label" for="po-product-sku">Código de producto *</label>
               <input type="text" id="po-product-sku" class="form-input" placeholder="ej. 200 / PRD-001" required style="font-family: monospace; font-weight: 700; letter-spacing: 0.5px;">
             </div>
-            <div class="form-group">
-              <label class="form-label" for="po-measure-type">Tipo de medida *</label>
-              <select id="po-measure-type" class="form-select" onchange="app.onPurchaseMeasureTypeChange()" style="font-weight:600;">
-                <option value="Pesaje" selected>Pesaje (Gramos)</option>
-                <option value="Unidades">Unidades (Piezas)</option>
-              </select>
-            </div>
+          </div>
+
+          <!-- 3. TIPO DE MEDIDA -->
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label" for="po-measure-type">Tipo de medida *</label>
+            <select id="po-measure-type" class="form-select" onchange="app.onPurchaseMeasureTypeChange()" style="font-weight:600;">
+              <option value="Pesaje" selected>Pesaje (Gramos)</option>
+              <option value="Unidades">Unidades (Piezas)</option>
+            </select>
           </div>
 
           <!-- 3. CANTIDAD Y 4. COSTO EN 2 COLUMNAS -->
