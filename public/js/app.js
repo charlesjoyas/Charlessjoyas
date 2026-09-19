@@ -6058,8 +6058,9 @@ class NexusApp {
       };
     }
 
-    let totalGrams = 0;
-    let totalUnits = 0;
+    let pesajeGrams = 0;
+    let unidadesCount = 0;
+    let unidadesGrams = 0;
     let pesajeItemCount = 0;
     let unidadesItemCount = 0;
 
@@ -6072,38 +6073,46 @@ class NexusApp {
 
       if (isPesaje) {
         pesajeItemCount++;
-        totalGrams += qty;
+        pesajeGrams += qty;
       } else {
         unidadesItemCount++;
         const pWeight = Number(it.pieceWeight || p?.pieceWeight || p?.weight) || 0;
         const u = (pWeight > 0 && qty >= pWeight) 
           ? Math.round((qty / pWeight) * 100) / 100 
           : (qty || 1);
-        totalUnits += u;
+        unidadesCount += u;
+        if (pWeight > 0) {
+          unidadesGrams += (u * pWeight);
+        } else if (qty > 0 && qty !== u) {
+          unidadesGrams += qty;
+        }
       }
     });
 
-    totalGrams = Math.round(totalGrams * 100) / 100;
-    totalUnits = Math.round(totalUnits * 100) / 100;
+    pesajeGrams = Math.round(pesajeGrams * 100) / 100;
+    unidadesCount = Math.round(unidadesCount * 100) / 100;
+    unidadesGrams = Math.round(unidadesGrams * 100) / 100;
     const totalArticulos = items.length;
     const subText = totalArticulos === 1 ? '1 artículo' : `${totalArticulos} artículos`;
 
     if (pesajeItemCount > 0 && unidadesItemCount === 0) {
       return {
-        main: `${totalGrams} g`,
+        main: `${pesajeGrams} g`,
         sub: subText
       };
     }
 
     if (unidadesItemCount > 0 && pesajeItemCount === 0) {
+      const gramsStr = unidadesGrams > 0 ? ` (${unidadesGrams} g)` : '';
       return {
-        main: `${totalUnits} u.`,
+        main: `${unidadesCount} u.${gramsStr}`,
         sub: subText
       };
     }
 
+    const uGramsStr = unidadesGrams > 0 ? ` (${unidadesGrams} g)` : '';
     return {
-      main: `${totalUnits} u. · ${totalGrams} g`,
+      main: `${unidadesCount} u.${uGramsStr} · ${pesajeGrams} g`,
       sub: subText
     };
   }
