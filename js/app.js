@@ -6044,6 +6044,70 @@ class NexusApp {
     }).join('');
   }
 
+  formatTransactionQty(tx) {
+    if (!tx) return { main: '0 art.', sub: '' };
+    const items = tx.items || [];
+    const products = (this.data && this.data.products) || [];
+
+    if (items.length === 0) {
+      const raw = Number(tx.itemsCount) || 1;
+      const rounded = Math.round(raw * 100) / 100;
+      return {
+        main: rounded % 1 !== 0 ? `${rounded} g` : `${rounded} u.`,
+        sub: '1 artículo'
+      };
+    }
+
+    let totalGrams = 0;
+    let totalUnits = 0;
+    let pesajeItemCount = 0;
+    let unidadesItemCount = 0;
+
+    items.forEach(it => {
+      const p = products.find(x => x.id === it.id || x.sku === it.sku);
+      const isPesaje = it.measureType 
+        ? (it.measureType === 'Pesaje') 
+        : (p ? (p.measureType || 'Pesaje') === 'Pesaje' : (Number(it.qty) % 1 !== 0));
+      const qty = Number(it.qty) || 0;
+
+      if (isPesaje) {
+        pesajeItemCount++;
+        totalGrams += qty;
+      } else {
+        unidadesItemCount++;
+        const pWeight = Number(it.pieceWeight || p?.pieceWeight || p?.weight) || 0;
+        const u = (pWeight > 0 && qty >= pWeight) 
+          ? Math.round((qty / pWeight) * 100) / 100 
+          : (qty || 1);
+        totalUnits += u;
+      }
+    });
+
+    totalGrams = Math.round(totalGrams * 100) / 100;
+    totalUnits = Math.round(totalUnits * 100) / 100;
+    const totalArticulos = items.length;
+    const subText = totalArticulos === 1 ? '1 artículo' : `${totalArticulos} artículos`;
+
+    if (pesajeItemCount > 0 && unidadesItemCount === 0) {
+      return {
+        main: `${totalGrams} g`,
+        sub: subText
+      };
+    }
+
+    if (unidadesItemCount > 0 && pesajeItemCount === 0) {
+      return {
+        main: `${totalUnits} u.`,
+        sub: subText
+      };
+    }
+
+    return {
+      main: `${totalUnits} u. · ${totalGrams} g`,
+      sub: subText
+    };
+  }
+
   renderFinVentasTable() {
     const tbody = document.getElementById('fin-ventas-tbody');
     if (!tbody) return;
@@ -6058,6 +6122,8 @@ class NexusApp {
         <div class="text-xs" style="color:var(--text-muted); font-family:monospace; margin-top:2px;">${this.escapeHtml(tx.time || '')}</div>
       ` : `<span style="font-weight:600; color:var(--text-main);">${this.escapeHtml(tx.time || '—')}</span>`;
 
+      const qtyInfo = this.formatTransactionQty(tx);
+
       return `
       <tr>
         <td><b>${this.escapeHtml(tx.id)}</b></td>
@@ -6070,7 +6136,10 @@ class NexusApp {
         </td>
         <td>${this.escapeHtml(tx.customer || 'Cliente Mostrador')}</td>
         <td><span class="badge badge-active">${this.escapeHtml(tx.type || 'Venta POS')}</span></td>
-        <td>${Number(tx.itemsCount) || 1} art.</td>
+        <td>
+          <div style="font-weight:700; color:var(--text-main); font-size:0.9rem;">${qtyInfo.main}</div>
+          <div class="text-xs" style="color:var(--text-muted); margin-top:2px;">${qtyInfo.sub}</div>
+        </td>
         <td>${this.escapeHtml(tx.paymentMethod || 'Efectivo')}</td>
         <td><span class="font-bold">${this.formatCurrency(Math.abs(tx.total))}</span></td>
         <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span></td>
@@ -7981,18 +8050,21 @@ class NexusApp {
       this.showToast('No hay transacciones registradas para exportar', 'warning');
       return;
     }
-    const headers = ['N° Ticket/ID', 'Fecha/Hora', 'Atendido por (Cajero)', 'Cliente', 'Tipo', 'Artículos', 'Método Pago', 'Total COP', 'Estado'];
-    const rows = txs.map(t => [
-      t.id,
-      `${t.date ? t.date + ' ' : ''}${t.time || ''}`.trim(),
-      t.cashier || 'Cajero',
-      t.customer || '',
-      t.type || 'Venta POS',
-      t.itemsCount || 1,
-      t.paymentMethod || 'Efectivo',
-      Math.abs(t.total || 0),
-      t.status || 'Completado'
-    ]);
+    const headers = ['N° Ticket/ID', 'Fecha/Hora', 'Atendido por (Cajero)', 'Cliente', 'Tipo', 'Cantidad / Gramaje', 'Método Pago', 'Total COP', 'Estado'];
+    const rows = txs.map(t => {
+      const q = this.formatTransactionQty(t);
+      return [
+        t.id,
+        `${t.date ? t.date + ' ' : ''}${t.time || ''}`.trim(),
+        t.cashier || 'Cajero',
+        t.customer || '',
+        t.type || 'Venta POS',
+        `${q.main} (${q.sub})`,
+        t.paymentMethod || 'Efectivo',
+        Math.abs(t.total || 0),
+        t.status || 'Completado'
+      ];
+    });
     const csvContent = "\uFEFF" + [
       headers.join(';'), 
       ...rows.map(r => r.map(c => `"${String(c !== null && c !== undefined ? c : '').replace(/"/g, '""')}"`).join(';'))
@@ -11517,12 +11589,17 @@ class NexusApp {
       itemsCount: this.cart.reduce((acc, i) => acc + i.qty, 0),
       items: this.cart.map(i => {
         const pPrice = this.getCartItemPrice(i);
+        const isPesaje = (i.product?.measureType || 'Pesaje') === 'Pesaje';
+        const unit = isPesaje ? (i.product?.weightUnit || 'g') : 'u.';
         return {
           id: i.product.id,
           sku: i.product.sku || i.product.id || '',
           name: i.product.name,
           qty: i.qty,
           quantity: i.qty,
+          unit: unit,
+          measureType: i.product?.measureType || 'Pesaje',
+          pieceWeight: Number(i.product?.pieceWeight || i.product?.weight) || 0,
           price: pPrice,
           total: pPrice * i.qty
         };
