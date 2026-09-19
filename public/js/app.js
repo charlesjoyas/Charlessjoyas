@@ -2552,11 +2552,10 @@ class NexusApp {
         const name = document.getElementById('srv-name-input').value;
         const cat = document.getElementById('srv-cat-input').value;
         const price = this.parseCleanNumber(document.getElementById('srv-price-input')?.value);
-        const dur = document.getElementById('srv-dur-input').value;
 
         const newSrv = {
           id: `SRV-${Math.floor(10 + Math.random() * 90)}`,
-          name, category: cat, price, duration: dur, status: "Active"
+          name, category: cat, price, status: "Active"
         };
         this.data.services.unshift(newSrv);
         await this.savePersistence();
@@ -2582,7 +2581,6 @@ class NexusApp {
           srv.name = document.getElementById('edit-srv-name').value;
           srv.category = document.getElementById('edit-srv-cat').value;
           srv.price = this.parseCleanNumber(document.getElementById('edit-srv-price')?.value);
-          srv.duration = document.getElementById('edit-srv-dur').value;
 
           await this.savePersistence();
           this.renderInvServiciosTable();
@@ -4844,7 +4842,6 @@ class NexusApp {
     document.getElementById('edit-srv-name').value = srv.name;
     document.getElementById('edit-srv-cat').value = srv.category;
     document.getElementById('edit-srv-price').value = this.formatNumberWithCommas(srv.price);
-    document.getElementById('edit-srv-dur').value = srv.duration;
 
     this.openModal('edit-service-modal');
   }
@@ -6359,7 +6356,7 @@ class NexusApp {
     const tbody = document.getElementById('inv-servicios-tbody');
     if (!tbody) return;
     if (!this.data.services || this.data.services.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">🛠️</div><div style="font-weight:600;">No hay servicios de taller registrados</div><div style="font-size:0.8rem; margin-top:0.25rem;">Haga clic en "+ Nuevo Servicio" para registrar reparaciones o mantenimiento.</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">🛠️</div><div style="font-weight:600;">No hay servicios de taller registrados</div><div style="font-size:0.8rem; margin-top:0.25rem;">Haga clic en "+ Nuevo Servicio" para registrar reparaciones o mantenimiento.</div></td></tr>`;
       return;
     }
     tbody.innerHTML = this.data.services.map(s => `
@@ -6368,7 +6365,6 @@ class NexusApp {
         <td><span class="font-bold">${this.escapeHtml(s.name)}</span></td>
         <td>${this.escapeHtml(s.category)}</td>
         <td><span class="font-bold" style="color:var(--primary-indigo);">${this.formatCurrency(s.price)}</span></td>
-        <td>${this.escapeHtml(s.duration)}</td>
         <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(s.status)}</span></td>
         <td>
           <div class="action-btn-group">
