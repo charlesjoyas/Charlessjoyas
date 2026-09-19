@@ -8053,6 +8053,142 @@ class NexusApp {
     `;
   }
 
+  exportReportExcel() {
+    const txs = this.data.recentTransactions || [];
+    if (txs.length === 0) {
+      this.showToast('No hay transacciones registradas para exportar', 'warning');
+      return;
+    }
+
+    const escapeXml = (str) => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const rowsXml = txs.map(t => {
+      const q = this.formatTransactionQty(t);
+      const dateTime = `${t.date ? t.date + ' ' : ''}${t.time || ''}`.trim();
+      const totalNum = Math.round(Math.abs(t.total || 0));
+
+      return `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(dateTime)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(t.cashier || 'Cajero')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(t.customer || 'Cliente Mostrador')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.type || 'Venta POS')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(q.main + ' (' + q.sub + ')')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.paymentMethod || 'Efectivo')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${totalNum}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.status || 'Completado')}</Data></Cell>
+    </Row>`;
+    }).join('');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <NumberFormat ss:Format="&quot;$&quot;\ #,##0"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Historial de Ventas">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="85"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="135"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="95"/>
+   <Row ss:Height="26">
+    <Cell ss:StyleID="Header"><Data ss:Type="String">N° Ticket/ID</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Fecha y Hora</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Atendido por</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Cliente</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Tipo</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Cantidad / Gramaje</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Método Pago</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Total COP</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Estado</Data></Cell>
+   </Row>
+   ${rowsXml}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <Selected/>
+   <ProtectObjects>False</ProtectObjects>
+   <ProtectScenarios>False</ProtectScenarios>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Reporte_Ventas_Nexus_${dateStr}.xls`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    this.showToast('Reporte de Ventas exportado en Excel (.xls)', 'success');
+  }
+
   exportReportCSV() {
     const txs = this.data.recentTransactions || [];
     if (txs.length === 0) {
@@ -8070,7 +8206,7 @@ class NexusApp {
         t.type || 'Venta POS',
         `${q.main} (${q.sub})`,
         t.paymentMethod || 'Efectivo',
-        Math.abs(t.total || 0),
+        Math.round(Math.abs(t.total || 0)),
         t.status || 'Completado'
       ];
     });
@@ -11432,9 +11568,9 @@ class NexusApp {
     }
 
     const modal = document.getElementById('checkout-modal');
-    const subtotal = this.getCartSubtotal();
-    const tax = subtotal * (this.data.store.taxRate / 100);
-    const grandTotal = subtotal + tax;
+    const subtotal = Math.round(this.getCartSubtotal());
+    const tax = Math.round(subtotal * (this.data.store.taxRate / 100));
+    const grandTotal = Math.round(subtotal + tax);
 
     const selectedCustomer = document.getElementById('checkout-customer-select')?.value || "Cliente Mostrador";
     const isMostrador = selectedCustomer === 'Cliente Mostrador';
@@ -11610,7 +11746,7 @@ class NexusApp {
           measureType: i.product?.measureType || 'Pesaje',
           pieceWeight: Number(i.product?.pieceWeight || i.product?.weight) || 0,
           price: pPrice,
-          total: pPrice * i.qty
+          total: Math.round(pPrice * i.qty)
         };
       }),
       subtotal: subtotal,

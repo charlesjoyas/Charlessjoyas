@@ -16579,12 +16579,12 @@
           "qty": 0.51,
           "quantity": 0.51,
           "price": 450980,
-          "total": 229999.80000000002
+          "total": 230000
         }
       ],
-      "subtotal": 229999.80000000002,
+      "subtotal": 230000,
       "tax": 0,
-      "total": 229999.80000000002,
+      "total": 230000,
       "paymentMethod": "Efectivo",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16608,7 +16608,7 @@
           "qty": 1.51,
           "quantity": 1.51,
           "price": 562913,
-          "total": 849998.63
+          "total": 849999
         },
         {
           "id": "PRD-CJ-0144",
@@ -16617,7 +16617,7 @@
           "qty": 0.85,
           "quantity": 0.85,
           "price": 447058,
-          "total": 379999.3
+          "total": 379999
         },
         {
           "id": "PRD-CJ-0397",
@@ -16626,12 +16626,12 @@
           "qty": 1.07,
           "quantity": 1.07,
           "price": 439252,
-          "total": 469999.64
+          "total": 470000
         }
       ],
-      "subtotal": 1699997.5699999998,
+      "subtotal": 1699998,
       "tax": 0,
-      "total": 1699997.5699999998,
+      "total": 1699998,
       "paymentMethod": "Efectivo",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16655,12 +16655,12 @@
           "qty": 1.2,
           "quantity": 1.2,
           "price": 466666,
-          "total": 559999.2
+          "total": 559999
         }
       ],
-      "subtotal": 559999.2,
+      "subtotal": 559999,
       "tax": 0,
-      "total": 559999.2,
+      "total": 559999,
       "paymentMethod": "Efectivo",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16684,12 +16684,12 @@
           "qty": 2.28,
           "quantity": 2.28,
           "price": 400000,
-          "total": 911999.9999999999
+          "total": 912000
         }
       ],
-      "subtotal": 911999.9999999999,
+      "subtotal": 912000,
       "tax": 0,
-      "total": 911999.9999999999,
+      "total": 912000,
       "paymentMethod": "Transferencia",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16771,12 +16771,12 @@
           "qty": 1.23,
           "quantity": 1.23,
           "price": 540650,
-          "total": 664999.5
+          "total": 665000
         }
       ],
-      "subtotal": 664999.5,
+      "subtotal": 665000,
       "tax": 0,
-      "total": 664999.5,
+      "total": 665000,
       "paymentMethod": "Efectivo",
       "cashier": "Santiago Muñoz",
       "status": "completed"
