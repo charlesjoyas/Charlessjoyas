@@ -89,11 +89,9 @@ class NexusApp {
       return formattedInt;
     } else {
       const isNegative = str.startsWith('-');
-      let digits = str.replace(/\D/g, '');
-      if (digits === '') return '';
-      if (digits.length > 1 && digits.startsWith('0')) {
-        digits = digits.replace(/^0+/, '') || '0';
-      }
+      const cleanNum = parseFloat(str.replace(/,/g, ''));
+      if (isNaN(cleanNum)) return '';
+      let digits = String(Math.abs(Math.round(cleanNum)));
       return (isNegative ? '-' : '') + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
   }
@@ -2856,11 +2854,12 @@ class NexusApp {
             }
           }
 
-          const totalCost = Math.round(quantity * unitCost);
           // Si la categoría es de extras/manillas, no suma gramos de metal a la categoría ni a inventario
           const totalGramsAdded = isExtras 
             ? 0 
             : (isPesaje ? quantity : (productGrams > 0 ? Math.round(quantity * productGrams * 100) / 100 : 0));
+          // En joyería fina, si el lote tiene gramaje, el costo unitario ingresado corresponde al gramo ($/g)
+          const totalCost = totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost);
 
           // 1. Actualizar producto en inventario numéricamente seguro
           const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
@@ -3389,13 +3388,13 @@ class NexusApp {
     const pieceGrams = this.parseCleanNumber(document.getElementById('po-product-grams')?.value);
 
     let totalGrams = 0;
-    let totalCost = Math.round(quantity * unitCost);
-
     if (isPesaje) {
       totalGrams = quantity;
     } else {
       totalGrams = pieceGrams > 0 ? Math.round(quantity * pieceGrams * 100) / 100 : 0;
     }
+
+    const totalCost = totalGrams > 0 ? Math.round(totalGrams * unitCost) : Math.round(quantity * unitCost);
 
     const totalPreview = document.getElementById('po-preview-total');
     const gramsPreview = document.getElementById('po-preview-grams');
@@ -4027,6 +4026,10 @@ class NexusApp {
     document.getElementById('edit-prod-name').value = p.name;
     document.getElementById('edit-prod-cost').value = p.cost !== undefined ? this.formatNumberWithCommas(p.cost) : '';
     document.getElementById('edit-prod-stock').value = p.stock !== undefined ? this.formatNumberWithCommas(p.stock, true) : 0;
+    const stockHint = document.getElementById('edit-prod-stock-hint');
+    if (stockHint) {
+      stockHint.style.display = (Number(p.stock) || 0) <= 0 ? 'block' : 'none';
+    }
 
     const measureSelect = document.getElementById('edit-prod-measure-type');
     if (measureSelect) measureSelect.value = p.measureType || 'Pesaje';
@@ -6011,10 +6014,16 @@ class NexusApp {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--text-muted);">No hay ventas registradas aún. Registre una venta en el Punto de Venta (POS).</td></tr>`;
       return;
     }
-    tbody.innerHTML = txs.map(tx => `
+    tbody.innerHTML = txs.map(tx => {
+      const dateDisplay = tx.date ? `
+        <div style="font-weight:600; color:var(--text-main); font-size:0.86rem; line-height:1.2;">${this.escapeHtml(tx.date)}</div>
+        <div class="text-xs" style="color:var(--text-muted); font-family:monospace; margin-top:2px;">${this.escapeHtml(tx.time || '')}</div>
+      ` : `<span style="font-weight:600; color:var(--text-main);">${this.escapeHtml(tx.time || '—')}</span>`;
+
+      return `
       <tr>
         <td><b>${this.escapeHtml(tx.id)}</b></td>
-        <td>${this.escapeHtml(tx.time || '')}</td>
+        <td>${dateDisplay}</td>
         <td>
           <span class="badge" style="background:rgba(99, 102, 241, 0.12); color:#4F46E5; font-weight:600; display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:12px;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -6031,7 +6040,8 @@ class NexusApp {
           </button>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 
   renderFinVentasTable() {
@@ -6042,10 +6052,16 @@ class NexusApp {
       tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:2rem; color:var(--text-muted);">No hay ventas registradas en el sistema.</td></tr>`;
       return;
     }
-    tbody.innerHTML = txs.map(tx => `
+    tbody.innerHTML = txs.map(tx => {
+      const dateDisplay = tx.date ? `
+        <div style="font-weight:600; color:var(--text-main); font-size:0.86rem; line-height:1.2;">${this.escapeHtml(tx.date)}</div>
+        <div class="text-xs" style="color:var(--text-muted); font-family:monospace; margin-top:2px;">${this.escapeHtml(tx.time || '')}</div>
+      ` : `<span style="font-weight:600; color:var(--text-main);">${this.escapeHtml(tx.time || '—')}</span>`;
+
+      return `
       <tr>
         <td><b>${this.escapeHtml(tx.id)}</b></td>
-        <td>${this.escapeHtml(tx.time || '')}</td>
+        <td>${dateDisplay}</td>
         <td>
           <span class="badge" style="background:rgba(99, 102, 241, 0.12); color:#4F46E5; font-weight:600; display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:12px;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -6066,7 +6082,8 @@ class NexusApp {
           </div>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 
   renderFinComprasTable() {
@@ -6093,7 +6110,22 @@ class NexusApp {
       ` : `<div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(po.supplier || 'Proveedor')}</div>`;
 
       const qty = po.quantity !== undefined ? po.quantity : (po.itemsCount || 1);
-      const gramsDisplay = po.totalGrams ? ` <span class="badge" style="background:#FEF3C7; color:#D97706; font-size:0.72rem; padding:1px 5px; font-weight:700; margin-left:2px;">⚖️ ${po.totalGrams}g</span>` : '';
+      const totalGrams = Number(po.totalGrams) || 0;
+      const unitCost = Number(po.unitCost) || 0;
+
+      // Conciliación automática de órdenes donde el total se había calculado solo por unidades sin multiplicar gramos
+      if (totalGrams > 0 && unitCost > 0) {
+        const expectedTotal = Math.round(totalGrams * unitCost);
+        if (po.total < expectedTotal && Math.round(qty * unitCost) === po.total) {
+          po.total = expectedTotal;
+          if (po.paymentStatus === 'Pagado Total') {
+            po.paidAmount = expectedTotal;
+          }
+        }
+      }
+
+      const gramsDisplay = totalGrams > 0 ? ` <span class="badge" style="background:#FEF3C7; color:#D97706; font-size:0.72rem; padding:1px 5px; font-weight:700; margin-left:2px;">⚖️ ${totalGrams}g</span>` : '';
+      const costLabel = totalGrams > 0 ? `Costo / g: ${this.formatCurrency(unitCost)}` : `Costo / u.: ${this.formatCurrency(unitCost)}`;
 
       return `
         <tr>
@@ -6105,7 +6137,7 @@ class NexusApp {
               <span class="font-bold">${qty} ítems</span>
               ${gramsDisplay}
             </div>
-            ${po.unitCost ? `<div class="text-xs" style="color:var(--text-muted); margin-top:2px;">Costo u.: ${this.formatCurrency(po.unitCost)}</div>` : ''}
+            ${unitCost ? `<div class="text-xs" style="color:var(--text-muted); margin-top:2px;">${costLabel}</div>` : ''}
           </td>
           <td><span class="font-bold" style="color:var(--text-main);">${this.formatCurrency(po.total)}</span></td>
           <td><span class="badge badge-active">${this.escapeHtml(po.status)}</span></td>
@@ -7952,7 +7984,7 @@ class NexusApp {
     const headers = ['N° Ticket/ID', 'Fecha/Hora', 'Atendido por (Cajero)', 'Cliente', 'Tipo', 'Artículos', 'Método Pago', 'Total COP', 'Estado'];
     const rows = txs.map(t => [
       t.id,
-      t.time || '',
+      `${t.date ? t.date + ' ' : ''}${t.time || ''}`.trim(),
       t.cashier || 'Cajero',
       t.customer || '',
       t.type || 'Venta POS',
@@ -8285,11 +8317,15 @@ class NexusApp {
     const supplier = (this.data.suppliers || []).find(s => s.name === po.supplier);
     const prod = (this.data.products || []).find(p => p.id === po.productId || p.sku === po.productSku || p.name === po.productName);
 
-    const isPesaje = prod ? (prod.measureType || 'Pesaje') === 'Pesaje' : (po.totalGrams > 0);
+    const hasGrams = (Number(po.totalGrams) || 0) > 0;
     const unitLabel = isPesaje ? 'g' : (prod?.weightUnit || 'u.');
     const qtyVal = isPesaje ? (po.totalGrams || po.quantity || 1) : (po.quantity || po.itemsCount || 1);
-    const formattedQty = `${this.formatNumberWithCommas(qtyVal, isPesaje)} ${unitLabel}`;
-    const formattedUnitPrice = `${this.formatCurrency(po.unitCost || 0)}/${unitLabel === 'u.' ? 'u' : 'g'}`;
+    const formattedQty = (hasGrams && !isPesaje)
+      ? `${this.formatNumberWithCommas(qtyVal, false)} u. (${this.formatNumberWithCommas(po.totalGrams, true)} g)`
+      : `${this.formatNumberWithCommas(qtyVal, isPesaje)} ${unitLabel}`;
+    const formattedUnitPrice = (hasGrams || isPesaje)
+      ? `${this.formatCurrency(po.unitCost || 0)}/g`
+      : `${this.formatCurrency(po.unitCost || 0)}/u`;
     const formattedTotal = this.formatCurrency(po.total || 0);
 
     const ticketItems = [{
