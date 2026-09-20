@@ -6798,16 +6798,183 @@ class NexusApp {
     }).join('');
   }
 
-  renderCashShiftExpensesSummary() {
+  getCashShiftTransactions() {
+    const shift = this.data.cashShiftLog;
     const today = new Date().toISOString().slice(0, 10);
+    const openedDate = shift?.openedDate || today;
+    const parts = openedDate.split('-');
+    const datePattern = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : openedDate;
+    const ddMm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '19/09';
+
+    return (this.data.recentTransactions || []).filter(tx => {
+      if (!tx.date) return false;
+      return tx.date === datePattern || tx.date.includes(datePattern) || tx.date.includes(openedDate) || tx.date.includes(ddMm);
+    });
+  }
+
+  getCashShiftCustomerPayments() {
+    const shift = this.data.cashShiftLog;
+    const today = new Date().toISOString().slice(0, 10);
+    const openedDate = shift?.openedDate || today;
+    const parts = openedDate.split('-');
+    const ddMm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '19/09';
+
+    return (this.data.abonosVentas || []).filter(a => {
+      if (!a.date) return false;
+      return a.date.includes(openedDate) || a.date.includes(ddMm);
+    });
+  }
+
+  renderCashShiftIncomesSummary() {
+    const txs = this.getCashShiftTransactions();
+    const abonos = this.getCashShiftCustomerPayments();
+
+    if (txs.length === 0 && abonos.length === 0) {
+      return `<div style="font-size:0.82rem; color:var(--text-muted); text-align:center; padding:1.25rem 0.5rem;">No se han registrado ventas ni ingresos en este turno.</div>`;
+    }
+
+    const getMethodKey = (m) => {
+      const lower = (m || '').toLowerCase();
+      if (lower.includes('efectivo') || lower.includes('cash')) return 'Efectivo';
+      if (lower.includes('transfer') || lower.includes('banco') || lower.includes('cta')) return 'Transferencia';
+      if (lower.includes('tarjeta') || lower.includes('card') || lower.includes('débito') || lower.includes('debito') || (lower.includes('crédito') && !lower.includes('cliente'))) return 'Tarjeta';
+      if (lower.includes('crédito cliente') || lower.includes('credito cliente')) return 'Crédito Cliente';
+      if (lower.includes('separe')) return 'Plan Separe';
+      return m || 'Otros';
+    };
+
+    const methodMeta = {
+      'Efectivo': { icon: '💵', color: 'var(--emerald-text, #059669)', badgeBg: 'rgba(16, 185, 129, 0.14)', badgeText: '#047857' },
+      'Transferencia': { icon: '🏦', color: '#4F46E5', badgeBg: 'rgba(99, 102, 241, 0.14)', badgeText: '#4338CA' },
+      'Tarjeta': { icon: '💳', color: '#9333EA', badgeBg: 'rgba(168, 85, 247, 0.14)', badgeText: '#7E22CE' },
+      'Crédito Cliente': { icon: '🏷️', color: '#D97706', badgeBg: 'rgba(245, 158, 11, 0.14)', badgeText: '#B45309' },
+      'Plan Separe': { icon: '📦', color: '#0284C7', badgeBg: 'rgba(14, 165, 233, 0.14)', badgeText: '#0369A1' },
+      'Otros': { icon: '💰', color: '#475569', badgeBg: 'rgba(100, 116, 139, 0.14)', badgeText: '#334155' }
+    };
+
+    const methodMap = {};
+    txs.forEach(t => {
+      const key = getMethodKey(t.paymentMethod);
+      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0 };
+      methodMap[key].total += Math.round(Math.abs(t.total || 0));
+      methodMap[key].count++;
+    });
+
+    abonos.forEach(a => {
+      const key = getMethodKey(a.method);
+      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0 };
+      methodMap[key].total += Math.round(Math.abs(a.amount || 0));
+      methodMap[key].count++;
+    });
+
+    const summaryCards = Object.entries(methodMap).map(([key, data]) => {
+      const meta = methodMeta[key] || methodMeta['Otros'];
+      return `
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.65rem 0.95rem; min-width:160px; flex:1;">
+          <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem; margin-bottom:0.25rem;">
+            <span>${meta.icon}</span> <span style="font-weight:700; color:var(--text-main);">${this.escapeHtml(key)}</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.25rem; font-weight:800; color:${meta.color};">
+            ${this.formatCurrency(data.total)}
+          </div>
+          <div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">
+            ${data.count} ${data.count === 1 ? 'operación' : 'operaciones'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const txRows = txs.map(t => {
+      const key = getMethodKey(t.paymentMethod);
+      const meta = methodMeta[key] || methodMeta['Otros'];
+      const amt = Math.round(Math.abs(t.total || 0));
+      const q = this.formatTransactionQty(t);
+
+      return `
+        <tr style="border-bottom:1px solid var(--border-color);">
+          <td style="padding:7px 10px; font-size:0.82rem;"><b>${this.escapeHtml(t.id)}</b></td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(t.time || '')}</td>
+          <td style="padding:7px 10px; font-size:0.82rem;">${this.escapeHtml(t.customer || 'Cliente Mostrador')}</td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">${q.main}</td>
+          <td style="padding:7px 10px; font-size:0.82rem;">
+            <span class="badge" style="background:${meta.badgeBg}; color:${meta.badgeText}; font-weight:700; font-size:0.74rem; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
+              <span>${meta.icon}</span> ${this.escapeHtml(t.paymentMethod || 'Efectivo')}
+            </span>
+          </td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted);">${this.escapeHtml(t.cashier || 'Cajero')}</td>
+          <td style="padding:7px 10px; font-size:0.88rem; font-weight:800; color:var(--emerald-text); text-align:right;">+${this.formatCurrency(amt)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const abonoRows = abonos.map(a => {
+      const key = getMethodKey(a.method);
+      const meta = methodMeta[key] || methodMeta['Otros'];
+      const amt = Math.round(Math.abs(a.amount || 0));
+
+      return `
+        <tr style="border-bottom:1px solid var(--border-color);">
+          <td style="padding:7px 10px; font-size:0.82rem;"><b>${this.escapeHtml(a.id)}</b></td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(a.date || '')}</td>
+          <td style="padding:7px 10px; font-size:0.82rem;">${this.escapeHtml(a.customer || 'Cliente')}</td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">Abono Crédito</td>
+          <td style="padding:7px 10px; font-size:0.82rem;">
+            <span class="badge" style="background:${meta.badgeBg}; color:${meta.badgeText}; font-weight:700; font-size:0.74rem; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
+              <span>${meta.icon}</span> ${this.escapeHtml(a.method || 'Efectivo')}
+            </span>
+          </td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted);">${this.escapeHtml(a.cashier || 'Cajero')}</td>
+          <td style="padding:7px 10px; font-size:0.88rem; font-weight:800; color:var(--emerald-text); text-align:right;">+${this.formatCurrency(amt)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <!-- RESUMEN EN TARJETAS POR MEDIO DE PAGO -->
+      <div style="display:flex; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
+        ${summaryCards}
+      </div>
+
+      <!-- TABLA DE INGRESOS DETALLADOS -->
+      <div style="max-height:260px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
+        <table style="width:100%; border-collapse:collapse;">
+          <thead style="position:sticky; top:0; background:var(--canvas-bg); z-index:1;">
+            <tr style="border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left;">
+              <th style="padding:6px 10px;">N° Ticket</th>
+              <th style="padding:6px 10px;">Hora</th>
+              <th style="padding:6px 10px;">Cliente</th>
+              <th style="padding:6px 10px;">Cant. / Gramaje</th>
+              <th style="padding:6px 10px;">Medio de Pago</th>
+              <th style="padding:6px 10px;">Atendido por</th>
+              <th style="padding:6px 10px; text-align:right;">Monto Ingresado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${txRows}
+            ${abonoRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  renderCashShiftExpensesSummary() {
+    const shift = this.data.cashShiftLog;
+    const today = new Date().toISOString().slice(0, 10);
+    const openedDate = shift?.openedDate || today;
+    const parts = openedDate.split('-');
+    const ddMm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '19/09';
+
     const expensesToday = (this.data.expenses || []).filter(e => {
-      const isToday = e.date && (e.date.includes(today) || e.date.includes('18/09'));
+      if (!e.date) return false;
+      const isToday = e.date.includes(today) || e.date.includes(openedDate) || e.date.includes(ddMm) || e.date.includes('18/09') || e.date.includes('19/09');
       const isCash = (e.method || '').toLowerCase().includes('efectivo');
       return isToday && isCash;
     });
 
     const abonosToday = (this.data.abonosCompras || []).filter(a => {
-      const isToday = a.date && (a.date.includes(today) || a.date.includes('18/09'));
+      if (!a.date) return false;
+      const isToday = a.date.includes(today) || a.date.includes(openedDate) || a.date.includes(ddMm) || a.date.includes('18/09') || a.date.includes('19/09');
       const isCash = (a.method || '').toLowerCase().includes('efectivo');
       return isToday && isCash;
     });
@@ -6863,35 +7030,106 @@ class NexusApp {
     if (!container) return;
     const shift = this.data.cashShiftLog || { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Cerrado' };
     const isOpen = shift.status === 'Abierto';
+
+    // Calculate shift revenue by payment method
+    const shiftTxs = this.getCashShiftTransactions();
+    const abonos = this.getCashShiftCustomerPayments();
+
+    let totalEfectivo = 0;
+    let totalTransferencia = 0;
+    let totalOtros = 0;
+    let totalFacturado = 0;
+
+    shiftTxs.forEach(t => {
+      const amt = Math.round(Math.abs(t.total || 0));
+      totalFacturado += amt;
+      const m = (t.paymentMethod || '').toLowerCase();
+      if (m.includes('efectivo')) totalEfectivo += amt;
+      else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) totalTransferencia += amt;
+      else totalOtros += amt;
+    });
+
+    abonos.forEach(a => {
+      const amt = Math.round(Math.abs(a.amount || 0));
+      totalFacturado += amt;
+      const m = (a.method || '').toLowerCase();
+      if (m.includes('efectivo')) totalEfectivo += amt;
+      else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) totalTransferencia += amt;
+      else totalOtros += amt;
+    });
+
+    // Fallback if shift.cashSales has recorded cash
+    if (totalEfectivo === 0 && Number(shift.cashSales) > 0) {
+      totalEfectivo = Math.round(Number(shift.cashSales));
+    }
+    if (totalTransferencia === 0 && Number(shift.cardSales) > 0) {
+      totalTransferencia = Math.round(Number(shift.cardSales));
+    }
+    if (totalFacturado === 0) {
+      totalFacturado = totalEfectivo + totalTransferencia + totalOtros;
+    }
+
+    const openingCash = Math.round(Number(shift.openingCash) || 0);
+    const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
+    const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
+    const expectedCashInDrawer = isOpen ? calculatedExpected : (Math.round(Number(shift.expectedCashInDrawer)) || calculatedExpected);
+
     container.innerHTML = `
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1.5rem;">
-        <div>
-          <div style="font-size:0.8rem; color:var(--text-muted);">Monto Apertura Caja</div>
-          <div style="font-family:var(--font-heading); font-size:1.5rem; font-weight:700;">${this.formatCurrency(shift.openingCash)}</div>
-          ${shift.openedBy ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : ''}
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0.75rem;">
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Monto Apertura (Base)</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700;">${this.formatCurrency(openingCash)}</div>
+          ${shift.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : ''}
         </div>
-        <div>
-          <div style="font-size:0.8rem; color:var(--text-muted);">Ventas en Efectivo</div>
-          <div style="font-family:var(--font-heading); font-size:1.5rem; font-weight:700; color:var(--emerald-text);">+${this.formatCurrency(shift.cashSales)}</div>
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas en Efectivo</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:var(--emerald-text);">+${this.formatCurrency(totalEfectivo)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💵 Entró a gaveta física</div>
         </div>
-        <div>
-          <div style="font-size:0.8rem; color:var(--text-muted);">Retiros, Compras & Egresos</div>
-          <div style="font-family:var(--font-heading); font-size:1.5rem; font-weight:700; color:var(--rose-text);">-${this.formatCurrency(shift.cashExpenses)}</div>
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas por Transferencia</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#4F46E5;">+${this.formatCurrency(totalTransferencia)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">🏦 Entró a banco</div>
         </div>
-        <div>
-          <div style="font-size:0.8rem; color:var(--text-muted);">Efectivo Esperado en Arqueo</div>
-          <div style="font-family:var(--font-heading); font-size:1.5rem; font-weight:800; color:var(--primary-indigo);">${this.formatCurrency(shift.expectedCashInDrawer)}</div>
-          ${shift.closedBy ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Cierre por: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : ''}
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Total Facturado Turno</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:800; color:var(--text-main);">+${this.formatCurrency(totalFacturado)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📊 Todos los medios</div>
+        </div>
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Retiros & Egresos</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:var(--rose-text);">-${this.formatCurrency(cashExpenses)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📋 Salidas en efectivo</div>
+        </div>
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Efectivo Esperado (Gaveta)</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:800; color:var(--primary-indigo);">${this.formatCurrency(expectedCashInDrawer)}</div>
+          ${shift.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem;">Cierre: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : ''}
         </div>
       </div>
 
+      <!-- DESGLOSE DETALLADO DE INGRESOS POR MEDIO DE PAGO -->
+      <div style="margin-top:1.5rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem; flex-wrap:wrap; gap:0.5rem;">
+          <h4 style="font-size:0.95rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.45rem; color:var(--text-main);">
+            <span>📥</span> Desglose de Ingresos por Medio de Pago en este Turno
+          </h4>
+          <span style="font-size:0.86rem; font-weight:800; color:var(--emerald-text); background:rgba(16,185,129,0.1); padding:3px 10px; border-radius:20px;">
+            Total Recaudado: +${this.formatCurrency(totalFacturado)}
+          </span>
+        </div>
+        ${this.renderCashShiftIncomesSummary()}
+      </div>
+
       <!-- DESGLOSE DETALLADO DE SALIDAS Y EGRESOS DE CAJA -->
-      <div style="margin-top:1.5rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap; gap:0.5rem;">
-          <h4 style="font-size:0.88rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.4rem; color:var(--text-main);">
+      <div style="margin-top:1.25rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
+          <h4 style="font-size:0.92rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.45rem; color:var(--text-main);">
             <span>📋</span> Salidas y Egresos de Efectivo Registrados en este Turno
           </h4>
-          <span style="font-size:0.82rem; font-weight:800; color:var(--rose-text);">Total Egresos: -${this.formatCurrency(shift.cashExpenses || 0)}</span>
+          <span style="font-size:0.84rem; font-weight:800; color:var(--rose-text); background:rgba(244,63,94,0.1); padding:3px 10px; border-radius:20px;">
+            Total Egresos: -${this.formatCurrency(cashExpenses)}
+          </span>
         </div>
         ${this.renderCashShiftExpensesSummary()}
       </div>
@@ -6928,34 +7166,37 @@ class NexusApp {
     const el = document.getElementById('open-cash-base-input');
     if (el) {
       el.value = this.formatNumberWithCommas(val);
-      el.dispatchEvent(new Event('input'));
       this.updateOpenCashBasePreview();
     }
   }
 
   updateOpenCashBasePreview() {
-    const input = document.getElementById('open-cash-base-input');
+    const el = document.getElementById('open-cash-base-input');
     const preview = document.getElementById('open-cash-base-preview');
-    if (!input) return;
-    const val = this.parseCleanNumber(input.value);
-    if (preview) {
-      preview.innerHTML = `💵 Base en Caja: <strong>${this.formatCurrency(val)}</strong>`;
+    if (el && preview) {
+      const val = this.parseCleanNumber(el.value);
+      preview.innerText = `Base Inicial: ${this.formatCurrency(val)}`;
     }
   }
 
   async submitCashShiftOpen() {
-    const openingVal = this.parseCleanNumber(document.getElementById('open-cash-base-input')?.value);
-    const opening = openingVal >= 0 ? openingVal : 500000;
+    if (!this.canPerformAction('create', 'cuadre_caja')) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para aperturar turnos de caja.', 'danger');
+      return;
+    }
+    const inputEl = document.getElementById('open-cash-base-input');
+    const opening = this.parseCleanNumber(inputEl?.value) || 0;
     const currentOperator = this.currentUser?.name || 'Cajero';
     const now = new Date();
 
     this.data.cashShiftLog = {
-      status: 'Abierto',
+      shiftId: `TURNO-${String(Math.floor(100 + Math.random() * 900))}`,
       openingCash: opening,
       cashSales: 0,
+      cardSales: 0,
       cashExpenses: 0,
       expectedCashInDrawer: opening,
-      closingCash: 0,
+      status: "Abierto",
       openedBy: currentOperator,
       openedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       openedDate: now.toISOString().slice(0, 10)
@@ -6969,13 +7210,42 @@ class NexusApp {
 
   openCashCloseModal() {
     const shift = this.data.cashShiftLog || { expectedCashInDrawer: 0, cashSales: 0 };
+    const shiftTxs = this.getCashShiftTransactions();
+    let totalCash = 0;
+    let totalTransfer = 0;
+    let totalSales = 0;
+
+    shiftTxs.forEach(t => {
+      const amt = Math.round(Math.abs(t.total || 0));
+      totalSales += amt;
+      const m = (t.paymentMethod || '').toLowerCase();
+      if (m.includes('efectivo')) totalCash += amt;
+      else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) totalTransfer += amt;
+    });
+
+    if (totalCash === 0 && Number(shift.cashSales) > 0) totalCash = Math.round(Number(shift.cashSales));
+    if (totalTransfer === 0 && Number(shift.cardSales) > 0) totalTransfer = Math.round(Number(shift.cardSales));
+    if (totalSales === 0) totalSales = totalCash + totalTransfer;
+
+    const openingCash = Math.round(Number(shift.openingCash) || 0);
+    const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
+    const calculatedExpected = openingCash + totalCash - cashExpenses;
+    shift.expectedCashInDrawer = calculatedExpected;
+    shift.cashSales = totalCash;
+    shift.cardSales = totalTransfer;
+
     const theoEl = document.getElementById('cash-theoretical-amount');
     const salesEl = document.getElementById('cash-shift-sales');
+    const transfersEl = document.getElementById('cash-shift-transfers');
+    const totalSalesEl = document.getElementById('cash-shift-total-sales');
     const countedEl = document.getElementById('cash-physical-counted');
-    if (theoEl) theoEl.innerText = this.formatCurrency(shift.expectedCashInDrawer);
-    if (salesEl) salesEl.innerText = this.formatCurrency(shift.cashSales);
+
+    if (theoEl) theoEl.innerText = this.formatCurrency(calculatedExpected);
+    if (salesEl) salesEl.innerText = '+' + this.formatCurrency(totalCash);
+    if (transfersEl) transfersEl.innerText = '+' + this.formatCurrency(totalTransfer);
+    if (totalSalesEl) totalSalesEl.innerText = '+' + this.formatCurrency(totalSales);
     if (countedEl) {
-      countedEl.value = this.formatNumberWithCommas(shift.expectedCashInDrawer);
+      countedEl.value = this.formatNumberWithCommas(calculatedExpected);
     }
     this.attachGlobalNumberMasks();
     this.updateCashCloseDiff();

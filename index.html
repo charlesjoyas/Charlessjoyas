@@ -3782,13 +3782,15 @@
   <div class="modal-backdrop" id="close-cash-modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 class="modal-title">Cuadre & Arqueo de Caja Chic</h3>
+        <h3 class="modal-title">Cuadre & Arqueo de Turno de Caja</h3>
         <button class="modal-close-btn" onclick="app.closeModal('close-cash-modal')">&times;</button>
       </div>
       <div class="modal-body">
-        <div style="background:var(--canvas-bg); padding:1rem; border-radius:var(--radius-md); margin-bottom:1rem;">
-          <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;"><span>Efectivo Teórico en Caja:</span><strong id="cash-theoretical-amount">$0.00</strong></div>
-          <div style="display:flex; justify-content:space-between;"><span>Ventas Totales del Turno:</span><strong id="cash-shift-sales">$0.00</strong></div>
+        <div style="background:var(--canvas-bg); padding:1rem; border-radius:var(--radius-md); margin-bottom:1rem; border:1px solid var(--border-color);">
+          <div style="display:flex; justify-content:space-between; margin-bottom:0.45rem;"><span>Efectivo Teórico en Gaveta:</span><strong id="cash-theoretical-amount" style="color:var(--primary-indigo); font-size:1.05rem;">$0.00</strong></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💵 Ventas en Efectivo:</span><strong id="cash-shift-sales" style="color:var(--emerald-text);">+$0.00</strong></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏦 Ventas por Transferencia:</span><strong id="cash-shift-transfers" style="color:#4F46E5;">+$0.00</strong></div>
+          <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.9rem;"><span>📊 Total Facturado Turno:</span><strong id="cash-shift-total-sales" style="font-weight:800; color:var(--text-main);">$0.00</strong></div>
         </div>
         <div class="form-group">
           <label class="form-label">Efectivo Físico Contado en Caja ($)</label>
@@ -3977,7 +3979,7 @@
 
   <!-- App Scripts (Local, 100% Offline Compatible) -->
   <script src="js/chart.min.js"></script>
-  <script src="js/data.js?v=44"></script>
-  <script src="js/app.js?v=44"></script>
+  <script src="js/data.js?v=46"></script>
+  <script src="js/app.js?v=46"></script>
 </body>
 </html>
