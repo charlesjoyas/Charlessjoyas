@@ -12,7 +12,7 @@
     "cashier": "Carlos Garzon",
     "shiftStatus": "Cerrado",
     "shiftStartTime": "08:00 AM",
-    "cashInBox": 2934197.57,
+    "cashInBox": 4821699.64,
     "taxRate": 0,
     "branding": {
       "appName": "CHARLES JOYAS",
@@ -31,15 +31,15 @@
     }
   },
   "kpis": {
-    "salesToday": 5347196.569999999,
+    "salesToday": 6144389.640000001,
     "salesTrend": "0%",
-    "transactionsToday": 7,
+    "transactionsToday": 8,
     "txTrend": "0%",
-    "inventoryValue": 402737081.26,
-    "avgCostPerGram": 408991,
-    "avgCostGrams": 984.71,
-    "skusCount": 787,
-    "totalGrams": 984.71,
+    "inventoryValue": 422417727.41999984,
+    "avgCostPerGram": 410141,
+    "avgCostGrams": 1029.42,
+    "skusCount": 818,
+    "totalGrams": 1028.68,
     "netMargin": "0%",
     "marginTrend": "0%",
     "totalCustomers": 0,
@@ -168,6 +168,20 @@
   ],
   "suppliers": [
     {
+      "id": "PRV-855",
+      "docType": "CC",
+      "nit": "11433367",
+      "name": "santiago rosita",
+      "phone": "32000000",
+      "email": "santi@gmail.com",
+      "address": "centro",
+      "accountType": "Ahorros",
+      "accountNumber": "000000",
+      "bank": "BANCOLOMBIA",
+      "creditBalance": 21328000,
+      "status": "Active"
+    },
+    {
       "id": "PRV-460",
       "docType": "NIT",
       "nit": "000000",
@@ -233,7 +247,7 @@
       "accountType": "Ahorros",
       "accountNumber": "6780077026",
       "bank": "bancolombia",
-      "creditBalance": 94904001,
+      "creditBalance": 93904001,
       "status": "Active",
       "docType": "NIT"
     }
@@ -255,7 +269,25 @@
       "permissions": "Acceso total a finanzas y reportes",
       "usersCount": 0,
       "allowedModules": [
-        "*"
+        "dashboard",
+        "pos",
+        "ventas",
+        "clientes",
+        "creditos_clientes",
+        "comprar",
+        "proveedores",
+        "creditos_proveedores",
+        "productos",
+        "servicios",
+        "categorias",
+        "gastos",
+        "formas_pago",
+        "cuadre_caja",
+        "abonos_ventas",
+        "abonos_compras",
+        "reports",
+        "perfiles",
+        "config"
       ]
     },
     {
@@ -276,51 +308,6 @@
     }
   ],
   "expenses": [
-    {
-      "id": "EXP-2318",
-      "date": "2026-09-18",
-      "description": "Pago/Abono a Proveedor: carlos andres garzon (CP-773)",
-      "category": "Pago a Proveedor",
-      "amount": 50000,
-      "status": "Pagado",
-      "method": "Efectivo (Caja)"
-    },
-    {
-      "id": "EXP-0191",
-      "date": "2026-09-18",
-      "description": "Pago/Abono a Proveedor: carlos andres garzon (OC-00191)",
-      "category": "Pago a Proveedor",
-      "amount": 912999,
-      "status": "Pagado",
-      "method": "Efectivo (Caja)"
-    },
-    {
-      "id": "EXP-3773",
-      "date": "2026-09-18",
-      "description": "Pago/Abono a Proveedor: joyeria santa isabel (OC-13773)",
-      "category": "Pago a Proveedor",
-      "amount": 750000,
-      "status": "Pagado",
-      "method": "Efectivo (Caja)"
-    },
-    {
-      "id": "EXP-4978",
-      "date": "2026-09-18",
-      "description": "Pago/Abono a Proveedor: Calia joyería (OC-64978)",
-      "category": "Pago a Proveedor",
-      "amount": 492000,
-      "status": "Pagado",
-      "method": "Efectivo (Caja)"
-    },
-    {
-      "id": "EXP-9527",
-      "date": "2026-09-18",
-      "description": "Pago/Abono a Proveedor: ARISTIZABAL JOYERO (CP-402)",
-      "category": "Pago a Proveedor",
-      "amount": 1500000,
-      "status": "Pagado",
-      "method": "Efectivo (Caja)"
-    },
     {
       "id": "EXP-1456",
       "date": "2026-09-18",
@@ -395,6 +382,17 @@
   "customerCredits": [],
   "supplierCredits": [
     {
+      "id": "CP-414",
+      "supplier": "santiago rosita",
+      "supplierId": "PRV-855",
+      "totalOwed": 21328000,
+      "paidAmount": 0,
+      "pendingAmount": 21328000,
+      "date": "2026-09-19",
+      "dueDate": "2026-10-19",
+      "status": "Pendiente"
+    },
+    {
       "id": "CP-727",
       "supplier": "Calia joyería",
       "supplierId": "PRV-460",
@@ -421,8 +419,8 @@
       "supplier": "carlos andres garzon",
       "supplierId": "PRV-907",
       "totalOwed": 95867000,
-      "paidAmount": 50000,
-      "pendingAmount": 94904001,
+      "paidAmount": 1050000,
+      "pendingAmount": 93904001,
       "date": "2026-09-17",
       "dueDate": "2026-10-17",
       "status": "Pendiente"
@@ -457,20 +455,20 @@
       "name": "Oro 18K Italiano & Ley",
       "icon": "✨",
       "color": "#f59e0b",
-      "cost": 723249.85,
-      "availableGrams": 237.14,
-      "itemsCount": 122,
-      "totalValuation": 171511469.4
+      "cost": 438394.25,
+      "availableGrams": 286.49,
+      "itemsCount": 153,
+      "totalValuation": 125595567.74
     },
     {
       "id": "nacional",
       "name": "NACIONAL",
       "icon": "💎",
       "color": "#6366f1",
-      "cost": 402590.01,
-      "availableGrams": 707.64,
-      "itemsCount": 658,
-      "totalValuation": 284888794.18
+      "cost": 402589.94,
+      "availableGrams": 703.56,
+      "itemsCount": 659,
+      "totalValuation": 283246179.7
     },
     {
       "id": "broches",
@@ -508,12 +506,619 @@
       "icon": "🟡",
       "color": "#F97316",
       "cost": 392000,
-      "availableGrams": 33.93,
-      "itemsCount": 2,
-      "totalValuation": 13300560
+      "availableGrams": 32.63,
+      "itemsCount": 1,
+      "totalValuation": 12790960
     }
   ],
   "products": [
+    {
+      "id": "PRD-201",
+      "sku": "816",
+      "name": "CADENA PLANA 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.2,
+      "weight": 2.2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-138",
+      "sku": "815",
+      "name": "CADENA MINI ROLONG 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.74,
+      "weight": 0.74,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 0,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "monthlySales": {
+        "2026-09": {
+          "19": 1
+        }
+      }
+    },
+    {
+      "id": "PRD-293",
+      "sku": "814",
+      "name": "CADENA MINI ROLONG 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.75,
+      "weight": 0.75,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-175",
+      "sku": "813",
+      "name": "CADENA MINI ROLONG 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.74,
+      "weight": 0.74,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-401",
+      "sku": "812",
+      "name": "CADENA CHINA 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.77,
+      "weight": 1.77,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-548",
+      "sku": "811",
+      "name": "CADENA CHINA 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.36,
+      "weight": 2.36,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-843",
+      "sku": "810",
+      "name": "CADENA CHINA 50 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.35,
+      "weight": 2.35,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-764",
+      "sku": "809",
+      "name": "CADENA CHINA 45 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 3,
+      "weight": 3,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 0,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "monthlySales": {
+        "2026-09": {
+          "19": 1
+        }
+      }
+    },
+    {
+      "id": "PRD-902",
+      "sku": "808",
+      "name": "CADENA 3 X 1 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2,
+      "weight": 2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-987",
+      "sku": "807",
+      "name": "CADENA 3 X 1 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2,
+      "weight": 2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-523",
+      "sku": "806",
+      "name": "CADENA 3X1 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2,
+      "weight": 2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-905",
+      "sku": "805",
+      "name": "CADENA 3 X 1 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.95,
+      "weight": 1.95,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-487",
+      "sku": "804",
+      "name": "CADENA 3 X 1 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2,
+      "weight": 2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-513",
+      "sku": "803",
+      "name": "CADENA CUBANA 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2,
+      "weight": 2,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-253",
+      "sku": "802",
+      "name": "CADENA CUBANA 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.95,
+      "weight": 1.95,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-455",
+      "sku": "801",
+      "name": "CADENA CUBANA 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 2.1,
+      "weight": 2.1,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-749",
+      "sku": "800",
+      "name": "CADENA CUBANA 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.95,
+      "weight": 1.95,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-486",
+      "sku": "799",
+      "name": "CADENA CUBANA 60 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 1.95,
+      "weight": 1.95,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-940",
+      "sku": "798",
+      "name": "PULSO 3 X 1",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.77,
+      "weight": 0.77,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-384",
+      "sku": "797",
+      "name": "PULSO 3 X1  19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.74,
+      "weight": 0.74,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-402",
+      "sku": "796",
+      "name": "PULSO 3 X 1   19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.75,
+      "weight": 0.75,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-473",
+      "sku": "795",
+      "name": "PULSO CUBANO 19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.77,
+      "weight": 0.77,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 0,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "monthlySales": {
+        "2026-09": {
+          "19": 1
+        }
+      }
+    },
+    {
+      "id": "PRD-249",
+      "sku": "794",
+      "name": "PULSO CUBANO 19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.75,
+      "weight": 0.75,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-149",
+      "sku": "793",
+      "name": "PULSO CUBANO 19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.76,
+      "weight": 0.76,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "low_stock"
+    },
+    {
+      "id": "PRD-981",
+      "sku": "792",
+      "name": "PULSO CORAZON 19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.89,
+      "weight": 0.89,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "low_stock"
+    },
+    {
+      "id": "PRD-645",
+      "sku": "791",
+      "name": "PULSO CORAZON 19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.88,
+      "weight": 0.88,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-228",
+      "sku": "790",
+      "name": "PULSO CORAZON 19 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0.89,
+      "weight": 0.89,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-137",
+      "sku": "789",
+      "name": "PULSO CUBANO 20 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 4.71,
+      "weight": 4.71,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-549",
+      "sku": "788",
+      "name": "PULSO 3 X 1 20 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 3.08,
+      "weight": 3.08,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-571",
+      "sku": "787",
+      "name": "PULSO CUBANO 20 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 3,
+      "weight": 3,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "isExtra": false,
+      "minStock": 2,
+      "status": "active"
+    },
+    {
+      "id": "PRD-526",
+      "sku": "20000",
+      "name": "manillas",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "pieceWeight": 0,
+      "weight": 0,
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "ANONIMO",
+      "cost": 7000,
+      "price": 0,
+      "stock": 30,
+      "isExtra": true,
+      "minStock": 2,
+      "status": "active"
+    },
     {
       "id": "PRD-423",
       "sku": "786",
@@ -523,8 +1128,8 @@
       "unit": "u.",
       "pieceWeight": 1.2,
       "weight": 1.2,
-      "category": "oro18k",
-      "categoryName": "Oro 18K Italiano & Ley",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
       "supplier": "Calia joyería",
       "cost": 410000,
       "price": 0,
@@ -536,7 +1141,8 @@
         "2026-09": {
           "18": 1
         }
-      }
+      },
+      "isExtra": false
     },
     {
       "id": "PRD-787",
@@ -578,7 +1184,8 @@
       "price": 0,
       "stock": 1,
       "minStock": 2,
-      "status": "active"
+      "status": "low_stock",
+      "isExtra": false
     },
     {
       "id": "PRD-821",
@@ -612,15 +1219,16 @@
       "supplier": "ANONIMO",
       "cost": 415000,
       "price": 0,
-      "stock": 0,
+      "stock": 1,
       "minStock": 2,
-      "status": "out_of_stock",
+      "status": "low_stock",
       "sold30d": 1,
       "monthlySales": {
         "2026-09": {
           "17": 1
         }
-      }
+      },
+      "isExtra": false
     },
     {
       "id": "PRD-CJ-0001",
@@ -1956,11 +2564,16 @@
       "supplier": "Charles Joyas",
       "cost": 443914.19,
       "price": 0,
-      "stock": 3.27,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.923Z"
+      "status": "out_of_stock",
+      "sold30d": 3.27,
+      "createdAt": "2026-09-16T19:12:12.923Z",
+      "monthlySales": {
+        "2026-09": {
+          "19": 3.27
+        }
+      }
     },
     {
       "id": "PRD-CJ-0068",
@@ -2989,8 +3602,8 @@
       "measureType": "Pesaje",
       "weightUnit": "g",
       "unit": "g",
-      "pieceWeight": 1.23,
-      "weight": 1.23,
+      "pieceWeight": 0,
+      "weight": 0,
       "category": "oro18k",
       "categoryName": "Oro 18K Italiano & Ley",
       "supplier": "joyeria santa isabel",
@@ -3005,7 +3618,8 @@
         "2026-09": {
           "17": 1.23
         }
-      }
+      },
+      "isExtra": false
     },
     {
       "id": "PRD-CJ-0120",
@@ -3806,11 +4420,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 1,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.924Z"
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "createdAt": "2026-09-16T19:12:12.924Z",
+      "monthlySales": {
+        "2026-09": {
+          "19": 1
+        }
+      }
     },
     {
       "id": "PRD-CJ-0160",
@@ -3866,11 +4485,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 1.65,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.924Z"
+      "status": "out_of_stock",
+      "sold30d": 1.65,
+      "createdAt": "2026-09-16T19:12:12.924Z",
+      "monthlySales": {
+        "2026-09": {
+          "19": 1.65
+        }
+      }
     },
     {
       "id": "PRD-CJ-0163",
@@ -4571,11 +5195,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 0.73,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.924Z"
+      "status": "out_of_stock",
+      "sold30d": 0.73,
+      "createdAt": "2026-09-16T19:12:12.924Z",
+      "monthlySales": {
+        "2026-09": {
+          "19": 0.73
+        }
+      }
     },
     {
       "id": "PRD-CJ-0198",
@@ -11566,11 +12195,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 0.7,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.927Z"
+      "status": "out_of_stock",
+      "sold30d": 0.7,
+      "createdAt": "2026-09-16T19:12:12.927Z",
+      "monthlySales": {
+        "2026-09": {
+          "19": 0.7
+        }
+      }
     },
     {
       "id": "PRD-CJ-0547",
@@ -16238,26 +16872,6 @@
       "createdAt": "2026-09-16T19:12:12.929Z"
     },
     {
-      "id": "PRD-CJ-0781",
-      "sku": "2026",
-      "name": "Balineria",
-      "measureType": "Pesaje",
-      "weightUnit": "g",
-      "unit": "g",
-      "pieceWeight": 0,
-      "weight": 0,
-      "category": "bolas",
-      "categoryName": "Bolas",
-      "supplier": "Charles Joyas",
-      "cost": 392000,
-      "price": 0,
-      "stock": 0,
-      "minStock": 0.5,
-      "status": "out_of_stock",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.929Z"
-    },
-    {
       "id": "PRD-CJ-0782",
       "sku": "02026",
       "name": "BOLAS",
@@ -16271,15 +16885,16 @@
       "supplier": "Charles Joyas",
       "cost": 392000,
       "price": 0,
-      "stock": 33.93,
+      "stock": 32.63,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 3.19,
+      "sold30d": 4.49,
       "createdAt": "2026-09-16T19:12:12.929Z",
       "monthlySales": {
         "2026-09": {
           "17": 0.91,
-          "18": 2.28
+          "18": 2.28,
+          "19": 1.3
         }
       }
     },
@@ -16307,6 +16922,24 @@
           "18": 0.51
         }
       }
+    },
+    {
+      "id": "PRD-5066",
+      "sku": "787",
+      "name": "PULSO CUBANO 20 CM",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "category": "oro18k",
+      "categoryName": "Oro 18K Italiano & Ley",
+      "supplier": "santiago rosita",
+      "cost": 412000,
+      "price": 0,
+      "stock": 1,
+      "pieceWeight": 3,
+      "weight": 3,
+      "minStock": 2,
+      "status": "low_stock"
     }
   ],
   "assets": [
@@ -16321,22 +16954,63 @@
     }
   ],
   "cashShiftLog": {
-    "shiftId": "TURNO-001",
-    "openedAt": "10:27 a. m.",
-    "openingCash": 2248000,
-    "cashSales": 4435196.57,
-    "cardSales": 912000,
-    "qrSales": 0,
-    "cashExpenses": 3748999,
-    "expectedCashInDrawer": 2934197.57,
-    "actualCashInDrawer": 0,
-    "discrepancy": 0,
     "status": "Abierto",
+    "openingCash": 500000,
+    "cashSales": 0,
+    "cashExpenses": 0,
+    "expectedCashInDrawer": 500000,
     "closingCash": 0,
-    "openedBy": "ZHARICK CAROLINA",
-    "openedDate": "2026-09-18"
+    "openedBy": "Carlos Garzon",
+    "openedAt": "18:19",
+    "openedDate": "2026-09-19",
+    "cardSales": 304880
   },
   "cashShiftsHistory": [
+    {
+      "id": "TRN-852689",
+      "status": "Cerrado",
+      "openingCash": 500000,
+      "cashSales": 0,
+      "cashExpenses": 0,
+      "expectedCashInDrawer": 500000,
+      "closingCash": 500000,
+      "difference": 0,
+      "openedBy": "Carlos Garzon",
+      "openedAt": "18:14",
+      "closedBy": "Carlos Garzon",
+      "closedAt": "18:17",
+      "date": "2026-09-19"
+    },
+    {
+      "id": "TRN-939541",
+      "status": "Cerrado",
+      "openingCash": 3884200,
+      "cashSales": 1349499.64,
+      "cashExpenses": 412000,
+      "expectedCashInDrawer": 4821699.64,
+      "closingCash": 7114000,
+      "difference": 2292300.3600000003,
+      "openedBy": "ZHARICK CAROLINA",
+      "openedAt": "10:21 a. m.",
+      "closedBy": "ZHARICK CAROLINA",
+      "closedAt": "05:45 p. m.",
+      "date": "2026-09-19"
+    },
+    {
+      "id": "TRN-391170",
+      "status": "Cerrado",
+      "openingCash": 2248000,
+      "cashSales": 4435196.57,
+      "cashExpenses": 4198999,
+      "expectedCashInDrawer": 2484197.57,
+      "closingCash": 248419757,
+      "difference": 245935559.43,
+      "openedBy": "ZHARICK CAROLINA",
+      "openedAt": "10:27 a. m.",
+      "closedBy": "Carlos Garzon",
+      "closedAt": "20:46",
+      "date": "2026-09-19"
+    },
     {
       "id": "TRN-256034",
       "status": "Cerrado",
@@ -16355,6 +17029,16 @@
   ],
   "abonosVentas": [],
   "abonosCompras": [
+    {
+      "id": "AB-C528733",
+      "date": "2026-09-19",
+      "supplier": "carlos andres garzon",
+      "poId": "CP-773",
+      "amount": 1000000,
+      "method": "Efectivo (Caja)",
+      "cashier": "Carlos Garzon",
+      "status": "Confirmado"
+    },
     {
       "id": "AB-C012319",
       "date": "2026-09-18",
@@ -16464,6 +17148,259 @@
     ]
   },
   "recentTransactions": [
+    {
+      "id": "TX-96101",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "18:26:52",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.74,
+      "items": [
+        {
+          "id": "PRD-138",
+          "sku": "815",
+          "name": "CADENA MINI ROLONG 50 CM",
+          "qty": 0.74,
+          "quantity": 0.74,
+          "unit": "u.",
+          "measureType": "Unidades",
+          "pieceWeight": 0.74,
+          "price": 412000,
+          "total": 304880
+        }
+      ],
+      "subtotal": 304880,
+      "tax": 0,
+      "total": 304880,
+      "paymentMethod": "Transferencia",
+      "cashier": "Carlos Garzon",
+      "status": "completed"
+    },
+    {
+      "id": "TX-89116",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:45:11 p. m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 4,
+      "items": [
+        {
+          "id": "PRD-CJ-0067",
+          "sku": "066",
+          "name": "Cadena cubana 60cm",
+          "qty": 3.27,
+          "quantity": 3.27,
+          "price": 520000,
+          "total": 1700400
+        },
+        {
+          "id": "PRD-CJ-0197",
+          "sku": "196",
+          "name": "DIJE CRUZ",
+          "qty": 0.73,
+          "quantity": 0.73,
+          "price": 657000,
+          "total": 479610
+        }
+      ],
+      "subtotal": 2180010,
+      "tax": 0,
+      "total": 2180010,
+      "paymentMethod": "Transferencia",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-96390",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "05:13:10 p.m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 1,
+      "items": [
+        {
+          "id": "PRD-CJ-0159",
+          "sku": "159",
+          "name": "CANDONGA LISA",
+          "qty": 1,
+          "quantity": 1,
+          "unit": "g",
+          "measureType": "Pesaje",
+          "pieceWeight": 1,
+          "price": 410000,
+          "total": 410000
+        }
+      ],
+      "subtotal": 410000,
+      "tax": 0,
+      "total": 410000,
+      "paymentMethod": "Transferencia",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
+    {
+      "id": "TX-90996",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "04:51:49 p.m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 1.3,
+      "items": [
+        {
+          "id": "PRD-CJ-0782",
+          "sku": "02026",
+          "name": "BOLAS",
+          "qty": 1.3,
+          "quantity": 1.3,
+          "unit": "g",
+          "measureType": "Pesaje",
+          "pieceWeight": 37.12,
+          "price": 400000,
+          "total": 520000
+        }
+      ],
+      "subtotal": 520000,
+      "tax": 0,
+      "total": 520000,
+      "paymentMethod": "Transferencia",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
+    {
+      "id": "TX-95743",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "04:26:47 p.m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.77,
+      "items": [
+        {
+          "id": "PRD-473",
+          "sku": "795",
+          "name": "PULSO CUBANO 19 CM",
+          "qty": 0.77,
+          "quantity": 0.77,
+          "unit": "u.",
+          "measureType": "Unidades",
+          "pieceWeight": 0.77,
+          "price": 467532,
+          "total": 359999.64
+        }
+      ],
+      "subtotal": 359999.64,
+      "tax": 0,
+      "total": 359999.64,
+      "paymentMethod": "Efectivo",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
+    {
+      "id": "TX-90753",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "03:03:50 p.m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 3,
+      "items": [
+        {
+          "id": "PRD-764",
+          "sku": "809",
+          "name": "CADENA CHINA 45 CM",
+          "qty": 3,
+          "quantity": 3,
+          "price": 460000,
+          "total": 1380000
+        }
+      ],
+      "subtotal": 1380000,
+      "tax": 0,
+      "total": 1380000,
+      "paymentMethod": "Transferencia",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
+    {
+      "id": "TX-94547",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "01:28:55 p.m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.7,
+      "items": [
+        {
+          "id": "PRD-CJ-0546",
+          "sku": "547",
+          "name": "TOPO CORAZON",
+          "qty": 0.7,
+          "quantity": 0.7,
+          "price": 400000,
+          "total": 280000
+        }
+      ],
+      "subtotal": 280000,
+      "tax": 0,
+      "total": 280000,
+      "paymentMethod": "Efectivo",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
+    {
+      "id": "TX-91115",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "12:26:02 p.m.",
+      "date": "19/09/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 1.65,
+      "items": [
+        {
+          "id": "PRD-CJ-0162",
+          "sku": "162",
+          "name": "CANDONGA MELCOCHA",
+          "qty": 1.65,
+          "quantity": 1.65,
+          "price": 430000,
+          "total": 709500
+        }
+      ],
+      "subtotal": 709500,
+      "tax": 0,
+      "total": 709500,
+      "paymentMethod": "Efectivo",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
     {
       "id": "TX-89752",
       "customer": "Cliente Mostrador",
@@ -16579,12 +17516,12 @@
           "qty": 0.51,
           "quantity": 0.51,
           "price": 450980,
-          "total": 230000
+          "total": 229999.80000000002
         }
       ],
-      "subtotal": 230000,
+      "subtotal": 229999.80000000002,
       "tax": 0,
-      "total": 230000,
+      "total": 229999.80000000002,
       "paymentMethod": "Efectivo",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16608,7 +17545,7 @@
           "qty": 1.51,
           "quantity": 1.51,
           "price": 562913,
-          "total": 849999
+          "total": 849998.63
         },
         {
           "id": "PRD-CJ-0144",
@@ -16617,7 +17554,7 @@
           "qty": 0.85,
           "quantity": 0.85,
           "price": 447058,
-          "total": 379999
+          "total": 379999.3
         },
         {
           "id": "PRD-CJ-0397",
@@ -16626,12 +17563,12 @@
           "qty": 1.07,
           "quantity": 1.07,
           "price": 439252,
-          "total": 470000
+          "total": 469999.64
         }
       ],
-      "subtotal": 1699998,
+      "subtotal": 1699997.5699999998,
       "tax": 0,
-      "total": 1699998,
+      "total": 1699997.5699999998,
       "paymentMethod": "Efectivo",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16655,12 +17592,12 @@
           "qty": 1.2,
           "quantity": 1.2,
           "price": 466666,
-          "total": 559999
+          "total": 559999.2
         }
       ],
-      "subtotal": 559999,
+      "subtotal": 559999.2,
       "tax": 0,
-      "total": 559999,
+      "total": 559999.2,
       "paymentMethod": "Efectivo",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16684,12 +17621,12 @@
           "qty": 2.28,
           "quantity": 2.28,
           "price": 400000,
-          "total": 912000
+          "total": 911999.9999999999
         }
       ],
-      "subtotal": 912000,
+      "subtotal": 911999.9999999999,
       "tax": 0,
-      "total": 912000,
+      "total": 911999.9999999999,
       "paymentMethod": "Transferencia",
       "cashier": "ZHARICK CAROLINA",
       "status": "completed"
@@ -16771,12 +17708,12 @@
           "qty": 1.23,
           "quantity": 1.23,
           "price": 540650,
-          "total": 665000
+          "total": 664999.5
         }
       ],
-      "subtotal": 665000,
+      "subtotal": 664999.5,
       "tax": 0,
-      "total": 665000,
+      "total": 664999.5,
       "paymentMethod": "Efectivo",
       "cashier": "Santiago Muñoz",
       "status": "completed"
@@ -16799,6 +17736,6 @@
       0
     ]
   },
-  "updatedAt": "2026-09-18T23:10:12.367Z",
+  "updatedAt": "2026-09-21T22:56:39.836Z",
   "sales": []
 }

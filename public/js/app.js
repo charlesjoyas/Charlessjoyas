@@ -543,7 +543,13 @@ class NexusApp {
     if (!this.data.supplierCredits || !Array.isArray(this.data.supplierCredits)) {
       this.data.supplierCredits = [];
     }
-    if (!this.data.expenses || !Array.isArray(this.data.expenses)) {
+    if (this.data.expenses && Array.isArray(this.data.expenses)) {
+      this.data.expenses = this.data.expenses.filter(e => {
+        const cat = (e.category || '').toLowerCase().trim();
+        const desc = (e.description || '').toLowerCase().trim();
+        return cat !== 'pago a proveedor' && !desc.startsWith('pago/abono a proveedor') && !desc.startsWith('pago orden de compra');
+      });
+    } else {
       this.data.expenses = [];
     }
     if (!this.data.purchases || !Array.isArray(this.data.purchases)) {
@@ -767,6 +773,13 @@ class NexusApp {
           existing.pendingAmount = bal;
           if ((Number(existing.totalOwed) || 0) < bal) existing.totalOwed = bal;
         }
+      } else {
+        this.data.supplierCredits.forEach(sc => {
+          if (sc.supplier?.toLowerCase().trim() === s.name?.toLowerCase().trim() || sc.supplierId === s.id) {
+            sc.pendingAmount = 0;
+            sc.status = "Pagado Total";
+          }
+        });
       }
     });
   }
@@ -5364,17 +5377,8 @@ class NexusApp {
           this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
         }
 
-        // Registrar comprobante de egreso en this.data.expenses para trazabilidad contable
-        if (!this.data.expenses) this.data.expenses = [];
-        this.data.expenses.unshift({
-          id: `EXP-${Date.now().toString().slice(-4)}`,
-          date: new Date().toISOString().slice(0, 10),
-          description: `Pago/Abono a Proveedor: ${cp.supplier} (${cp.id || 'Crédito'})`,
-          category: 'Pago a Proveedor',
-          amount: actualPay,
-          status: 'Pagado',
-          method: 'Efectivo (Caja)'
-        });
+        // Los pagos a proveedores no son gastos operativos: son egresos de caja que amortizan pasivo
+        // y se registran en this.data.abonosCompras para auditoría y arqueo sin distorsionar el P&L ni el balance.
       }
 
       // Sincronizar Orden de Compra asociada si existe
@@ -6244,16 +6248,7 @@ class NexusApp {
         this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
 
-      if (!this.data.expenses) this.data.expenses = [];
-      this.data.expenses.unshift({
-        id: `EXP-${Date.now().toString().slice(-4)}`,
-        date: new Date().toISOString().slice(0, 10),
-        description: `Pago Orden de Compra: ${po.id} (${po.supplier})`,
-        category: 'Pago a Proveedor',
-        amount: po.total,
-        status: 'Pagado',
-        method: 'Efectivo (Caja)'
-      });
+      // Los pagos a proveedores no son gastos operativos: son egresos de caja y van en abonosCompras
     }
 
     if (!this.data.abonosCompras) this.data.abonosCompras = [];
@@ -8959,8 +8954,9 @@ class NexusApp {
       .reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
     const supplierDebtVal = suppBalanceTotal > 0 ? (suppBalanceTotal + orphanCreditsTotal) : (this.data.supplierCredits || []).reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
 
-    const operatingExpensesVal = (this.data.expenses || []).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-    const liabilitiesShort = supplierDebtVal + operatingExpensesVal;
+    // En contabilidad pura, los pasivos son estrictamente las obligaciones y deudas pendientes con proveedores y créditos a largo plazo.
+    // Los gastos operativos pertenecen al Estado de Resultados (P&L) y no constituyen pasivos en el Balance General.
+    const liabilitiesShort = supplierDebtVal;
     const liabilitiesLong = Number(this.data.balanceSheet?.liabilitiesLong) || 0;
     const totalLiabilities = liabilitiesShort + liabilitiesLong;
     const netEquity = totalAssets - totalLiabilities;
@@ -9033,11 +9029,6 @@ class NexusApp {
               <tr>
                 <td style="padding-left:1.5rem;">• Cuentas por Pagar Proveedores de Oro y Gemas</td>
                 <td style="text-align:right;">${this.formatCurrency(supplierDebtVal)}</td>
-                <td></td>
-              </tr>
-              <tr>
-                <td style="padding-left:1.5rem;">• Gastos Operativos y Servicios Acumulados</td>
-                <td style="text-align:right;">${this.formatCurrency(operatingExpensesVal)}</td>
                 <td></td>
               </tr>
               <tr>
