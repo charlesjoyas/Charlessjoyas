@@ -201,6 +201,9 @@ h1, h2, h3, h4, .font-heading {
   overflow: hidden;
   /* Prevent any horizontal overflow */
   max-width: 100vw;
+  /* Isolate layout/style recalcs to this subtree so browser doesn't
+     re-layout the whole document on every table re-render */
+  contain: layout style;
 }
 
 /* --------------------------------------------------------------------------
@@ -218,6 +221,9 @@ h1, h2, h3, h4, .font-heading {
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
+  /* Promote sidebar to its own compositor layer so width transitions
+     don’t trigger main-thread layout of the content area */
+  will-change: width;
 }
 
 .sidebar-header {
@@ -1053,6 +1059,9 @@ button.subnav-tab.active,
   flex-direction: column;
   gap: 1.75rem;
   -webkit-overflow-scrolling: touch;
+  /* Contain paint/layout to this scroll container so table re-renders
+     don’t cause the browser to recalculate the entire page layout */
+  contain: content;
 }
 
 .view-container {
@@ -1972,6 +1981,8 @@ select.form-control, select.form-select {
   transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 1rem;
   overflow-y: auto;
+  /* GPU-composited opacity animation: no layout or paint cost */
+  will-change: opacity;
 }
 
 .modal-backdrop.open {
@@ -1994,6 +2005,8 @@ select.form-control, select.form-select {
   transform: scale(0.95);
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   margin: auto;
+  /* GPU-composited scale animation */
+  will-change: transform;
 }
 
 .modal-card > form {

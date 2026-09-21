@@ -43,12 +43,23 @@ class NexusApp {
     this.init();
   }
 
+  // Cached Intl.NumberFormat instances — created once, reused on every call
+  // Avoids creating a new formatter object on each of the ~183 formatCurrency calls per render.
+  _getIntlFmt(minDec) {
+    if (!this._intlFmtCache) this._intlFmtCache = {};
+    if (!this._intlFmtCache[minDec]) {
+      this._intlFmtCache[minDec] = new Intl.NumberFormat('es-CO', {
+        minimumFractionDigits: minDec,
+        maximumFractionDigits: 2
+      });
+    }
+    return this._intlFmtCache[minDec];
+  }
+
   formatCurrency(amount) {
     const val = Number(amount) || 0;
-    const formatted = Math.abs(val).toLocaleString('es-CO', {
-      minimumFractionDigits: val % 1 === 0 ? 0 : 2,
-      maximumFractionDigits: 2
-    });
+    const minDec = val % 1 === 0 ? 0 : 2;
+    const formatted = this._getIntlFmt(minDec).format(Math.abs(val));
     const prefix = val < 0 ? '-$ ' : '$ ';
     return `${prefix}${formatted} COP`;
   }
@@ -56,10 +67,7 @@ class NexusApp {
   formatCurrencyDecimals(amount, forceDecimals = true, includeCurrencyCode = false) {
     const val = Number(amount) || 0;
     const minDec = forceDecimals ? 2 : (val % 1 === 0 ? 0 : 2);
-    const formatted = Math.abs(val).toLocaleString('es-CO', {
-      minimumFractionDigits: minDec,
-      maximumFractionDigits: 2
-    });
+    const formatted = this._getIntlFmt(minDec).format(Math.abs(val));
     const prefix = val < 0 ? '-$ ' : '$ ';
     return includeCurrencyCode ? `${prefix}${formatted} COP` : `${prefix}${formatted}`;
   }
@@ -655,7 +663,9 @@ class NexusApp {
     if (this.currentSubView === 'inf_radar_stock') this.renderRadarStock();
     if (this.currentSubView === 'rep_compras') this.renderRepCompras();
     if (this.currentSubView === 'rep_finanzas') this.renderRepFinanzas();
-    if (typeof this.initCharts === 'function') this.initCharts();
+    // Only rebuild Chart.js instances when the dashboard is visible — avoids
+    // destroying/recreating 4 charts on every CRUD operation in other modules.
+    if (typeof this.initCharts === 'function' && this.currentSubView === 'inicio') this.initCharts();
   }
 
   getGramsFromProduct(p) {
@@ -878,12 +888,20 @@ class NexusApp {
       await this.syncRemoteDataIfChanged();
     });
 
-    // 3. Heartbeat live polling (every 10s if tab is visible)
+    // 3. Heartbeat live polling (every 30s if tab is visible)
+    // Reduced from 10s → 30s: the focus re-sync above already handles
+    // instant consistency when the user returns to the tab.
+    // Concurrency guard prevents overlapping fetch+fingerprint+render cycles.
     setInterval(async () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState !== 'visible') return;
+      if (this._heartbeatRunning) return;
+      this._heartbeatRunning = true;
+      try {
         await this.syncRemoteDataIfChanged();
+      } finally {
+        this._heartbeatRunning = false;
       }
-    }, 10000);
+    }, 30000);
   }
 
   async syncRemoteDataIfChanged() {
@@ -5598,6 +5616,7 @@ class NexusApp {
      TABLE & REPORT RENDERERS (ALL 28 MODULES)
      -------------------------------------------------------------------------- */
   renderAllTables() {
+    const sv = this.currentSubView;
     this.renderDashboardMetrics();
     this.renderUsersTable();
     this.renderCustomersTable();
@@ -5616,14 +5635,16 @@ class NexusApp {
     this.renderCuadreCajaCard();
     this.renderAbonosVentasTable();
     this.renderAbonosComprasTable();
-    this.renderRepFinanzas();
-    this.renderRepCompras();
-    this.renderRepGeneral();
-    this.renderInformesBalance();
-    this.renderInformesPeriodos();
-    this.renderInformesCarteraClientes();
-    this.renderInformesMargenReal();
-    this.renderRadarStock();
+    // Heavy financial reports: only render when the user is actually viewing them.
+    // renderSubViewContent() handles rendering them on navigation, so nothing is lost.
+    if (sv === 'rep_finanzas') this.renderRepFinanzas();
+    if (sv === 'rep_compras') this.renderRepCompras();
+    if (sv === 'rep_general') this.renderRepGeneral();
+    if (sv === 'inf_balance') this.renderInformesBalance();
+    if (sv === 'inf_listado_periodos') this.renderInformesPeriodos();
+    if (sv === 'inf_cartera_clientes') this.renderInformesCarteraClientes();
+    if (sv === 'inf_margen_real') this.renderInformesMargenReal();
+    if (sv === 'inf_radar_stock') this.renderRadarStock();
     this.renderDashboardRecentSales();
   }
 
@@ -5689,15 +5710,18 @@ class NexusApp {
     const pesajeCost = pesajeProducts.reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
     const liveAvgCostPerGram = totalGrams > 0 ? Math.round(pesajeCost / totalGrams) : 0;
 
-    const kpiSalesEl = document.getElementById('kpi-sales');
-    const kpiTxEl = document.getElementById('kpi-tx');
-    const kpiInvValEl = document.getElementById('kpi-inv-val');
-    const kpiSkusCntEl = document.getElementById('kpi-skus-cnt');
-    const kpiAvgCostEl = document.getElementById('kpi-avg-cost');
-    const kpiAvgCostSubEl = document.getElementById('kpi-avg-cost-sub');
-    const kpiTotalGramsEl = document.getElementById('kpi-total-grams');
-    const kpiGramsSubEl = document.getElementById('kpi-grams-sub');
-    const kpiNetMarginEl = document.getElementById('kpi-net-margin');
+    // Batch DOM lookups: single pass over the live DOM for all KPI slots.
+    // Using a helper to avoid 9 separate tree traversals.
+    const _q = (id) => document.getElementById(id);
+    const kpiSalesEl     = _q('kpi-sales');
+    const kpiTxEl        = _q('kpi-tx');
+    const kpiInvValEl    = _q('kpi-inv-val');
+    const kpiSkusCntEl   = _q('kpi-skus-cnt');
+    const kpiAvgCostEl   = _q('kpi-avg-cost');
+    const kpiAvgCostSubEl= _q('kpi-avg-cost-sub');
+    const kpiTotalGramsEl= _q('kpi-total-grams');
+    const kpiGramsSubEl  = _q('kpi-grams-sub');
+    const kpiNetMarginEl = _q('kpi-net-margin');
 
     const now = new Date();
     const todayTxs = (this.data.recentTransactions || []).filter(t => {

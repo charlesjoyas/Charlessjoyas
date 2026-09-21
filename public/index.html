@@ -2,19 +2,30 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <!-- SEO & Social -->
+  <meta name="description" content="Charles Joyas SAS — Sistema POS, Inventario, Taller y ERP para joyería. Control de ventas, compras, créditos y reportes financieros en tiempo real.">
+  <meta name="robots" content="noindex, nofollow">
   <!-- viewport-fit=cover handles iPhone notches + prevents Android Chrome from adding horizontal scroll -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0F172A">
-  <title>CHARLES JOYAS SAS - POS, Inventario & Taller de Joyería</title>
+  <title>CHARLES JOYAS SAS - POS, Inventario &amp; Taller de Joyería</title>
   
   <!-- Luxury Favicon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💎</text></svg>">
 
+  <!-- Resource Hints: establish connections to font servers before CSS needs them -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+
+  <!-- Preload critical stylesheet for faster first paint -->
+  <link rel="preload" href="css/styles.css?v=38" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="css/styles.css?v=38"></noscript>
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=37">
+  <link rel="stylesheet" href="css/styles.css?v=38">
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
@@ -3978,8 +3989,9 @@
   <div id="toast-container"></div>
 
   <!-- App Scripts (Local, 100% Offline Compatible) -->
-  <script src="js/chart.min.js"></script>
-  <script src="js/data.js?v=46"></script>
-  <script src="js/app.js?v=46"></script>
+  <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
+  <script src="js/chart.min.js" defer></script>
+  <script src="js/data.js?v=47" defer></script>
+  <script src="js/app.js?v=47" defer></script>
 </body>
 </html>
