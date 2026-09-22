@@ -1051,9 +1051,9 @@
                   <button type="button" class="finanzas-period-pill" onclick="app.setFinanzasPeriod('all', this)">Histórico</button>
                 </div>
 
-                <button class="btn btn-secondary text-sm" onclick="app.exportFinancesPAndLCSV()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+                <button class="btn btn-secondary text-sm" onclick="app.exportFinancesPAndLExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                  Exportar P&L (CSV)
+                  Exportar P&L (Excel)
                 </button>
 
                 <button class="btn btn-secondary text-sm" onclick="app.renderRepFinanzas(); app.showToast('Métricas financieras recalculadas', 'success')" title="Recalcular">
@@ -3993,6 +3993,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=48" defer></script>
+  <script src="js/app.js?v=49" defer></script>
 </body>
 </html>
