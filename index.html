@@ -1360,8 +1360,95 @@
           </div>
 
           <div class="sub-view-pane" id="pane-reports-cuadre_caja">
-            <div class="section-header"><div><h1 class="section-title">Cuadre de Caja & Arqueo de Turno</h1><p class="section-subtitle">Conciliación de dinero físico en gaveta vs reporte del sistema.</p></div></div>
-            <div class="card" id="cuadre-caja-card"></div>
+            <div class="section-header">
+              <div>
+                <h1 class="section-title">Cuadre de Caja & Arqueo de Turno</h1>
+                <p class="section-subtitle">Conciliación de dinero físico en gaveta vs reporte del sistema y control de turnos históricos.</p>
+              </div>
+            </div>
+
+            <!-- SWITCH TABS: TURNO ACTIVO VS HISTORIAL DE CUADRES -->
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:1.25rem;">
+              <div class="finanzas-period-selector" id="cash-shift-tab-btns" style="background:var(--card-bg); border:1px solid var(--border-color); padding:4px; border-radius:var(--radius-md); display:inline-flex;">
+                <button type="button" class="finanzas-period-pill active" id="btn-cash-tab-current" onclick="app.setCashShiftTab('current')" style="display:flex; align-items:center; gap:0.4rem; font-weight:700;">
+                  <span>🟢</span> Turno Activo (En Vivo)
+                </button>
+                <button type="button" class="finanzas-period-pill" id="btn-cash-tab-history" onclick="app.setCashShiftTab('history')" style="display:flex; align-items:center; gap:0.4rem; font-weight:700;">
+                  <span>📜</span> Historial de Cuadres & Arqueos
+                </button>
+              </div>
+
+              <div id="cash-shift-history-actions" style="display:none; gap:0.5rem;">
+                <button class="btn btn-secondary text-sm" onclick="app.exportCashShiftsHistoryExcel()" style="display:flex; align-items:center; gap:0.4rem; font-weight:700;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar Historial (Excel)
+                </button>
+              </div>
+            </div>
+
+            <!-- CONTENEDOR 1: TURNO ACTUAL -->
+            <div id="cash-shift-current-container">
+              <div class="card" id="cuadre-caja-card"></div>
+            </div>
+
+            <!-- CONTENEDOR 2: HISTORIAL DE CUADRES -->
+            <div id="cash-shift-history-container" style="display:none;">
+              <!-- BARRA DE FILTRO POR PERÍODO Y DÍA -->
+              <div class="card" style="margin-bottom:1.25rem; padding:1.25rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1rem;">
+                  <div>
+                    <h3 style="margin:0 0 0.25rem 0; font-size:1.05rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:0.5rem;">
+                      <span>📅</span> Filtrar Historial por Días y Períodos
+                    </h3>
+                    <p style="margin:0; font-size:0.82rem; color:var(--text-muted);">
+                      Selecciona un período rápido o consulta un día específico del calendario.
+                    </p>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:0.35rem; font-size:0.83rem; color:var(--text-muted);">
+                      <span>Desde:</span>
+                      <input type="date" id="cash-history-date-start" class="form-input" style="padding:0.35rem 0.5rem; font-size:0.82rem; width:135px;" onchange="app.onCashHistoryDateInputChange()">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.35rem; font-size:0.83rem; color:var(--text-muted);">
+                      <span>Hasta:</span>
+                      <input type="date" id="cash-history-date-end" class="form-input" style="padding:0.35rem 0.5rem; font-size:0.82rem; width:135px;" onchange="app.onCashHistoryDateInputChange()">
+                    </div>
+                    <button class="btn btn-primary text-xs" onclick="app.applyCashHistoryCustomRange()" style="padding:0.45rem 0.75rem; font-weight:700;">
+                      Filtrar Rango
+                    </button>
+                  </div>
+                </div>
+
+                <!-- BOTONES DE ACCESO RÁPIDO A DÍAS Y PERÍODOS -->
+                <div class="finanzas-period-selector" id="cash-history-period-pills" style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+                  <button type="button" class="finanzas-period-pill" data-period="today" onclick="app.setCashShiftHistoryPeriod('today', this)">Hoy</button>
+                  <button type="button" class="finanzas-period-pill" data-period="yesterday" onclick="app.setCashShiftHistoryPeriod('yesterday', this)">Ayer</button>
+                  <button type="button" class="finanzas-period-pill" data-period="this_week" onclick="app.setCashShiftHistoryPeriod('this_week', this)">Esta Semana</button>
+                  <button type="button" class="finanzas-period-pill" data-period="last_week" onclick="app.setCashShiftHistoryPeriod('last_week', this)">Semana Pasada</button>
+                  <button type="button" class="finanzas-period-pill" data-period="this_month" onclick="app.setCashShiftHistoryPeriod('this_month', this)">Este Mes</button>
+                  <button type="button" class="finanzas-period-pill" data-period="last_month" onclick="app.setCashShiftHistoryPeriod('last_month', this)">Mes Pasado</button>
+                  <button type="button" class="finanzas-period-pill active" data-period="all" onclick="app.setCashShiftHistoryPeriod('all', this)">Histórico Completo</button>
+                </div>
+              </div>
+
+              <!-- TARJETAS DE RESUMEN DEL PERÍODO (KPIS) -->
+              <div id="cash-history-kpis-container" style="margin-bottom:1.25rem;"></div>
+
+              <!-- TABLA DE TURNOS HISTÓRICOS -->
+              <div class="card" style="padding:1.25rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+                  <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:0.5rem;">
+                    <span>📋</span> Registro Detallado de Turnos Cerrados
+                  </h3>
+                  <span id="cash-history-count-badge" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); font-size:0.8rem; font-weight:700; padding:4px 10px;">
+                    0 Turnos encontrados
+                  </span>
+                </div>
+                <div class="table-wrapper">
+                  <div class="table-container" id="cash-history-table-container"></div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="sub-view-pane" id="pane-reports-abonos_ventas">
@@ -3817,6 +3904,21 @@
     </div>
   </div>
 
+  <!-- MODAL DETALLE DE ARQUEO HISTÓRICO -->
+  <div class="modal-backdrop" id="history-shift-detail-modal">
+    <div class="modal-card" style="max-width:760px; width:95%;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="history-shift-detail-title">Comprobante de Arqueo y Cierre de Turno</h3>
+        <button class="modal-close-btn" onclick="app.closeModal('history-shift-detail-modal')">&times;</button>
+      </div>
+      <div class="modal-body" id="history-shift-detail-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="app.closeModal('history-shift-detail-modal')">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="btn-export-single-shift" onclick="app.exportCurrentModalShiftExcel()">📊 Descargar Arqueo (Excel)</button>
+      </div>
+    </div>
+  </div>
+
 
 
   <!-- ADD PAYMENT METHOD MODAL -->
@@ -3993,6 +4095,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=49" defer></script>
+  <script src="js/app.js?v=50" defer></script>
 </body>
 </html>

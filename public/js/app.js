@@ -14,6 +14,11 @@ class NexusApp {
     this.currentRadarFilter = 'todos';
     this.radarSearchTerm = '';
     this.inventoryStockFilter = 'all';
+    this.activeCashShiftTab = 'current';
+    this.cashShiftHistoryPeriod = 'all';
+    this.cashShiftHistoryCustomStart = '';
+    this.cashShiftHistoryCustomEnd = '';
+    this.currentModalShift = null;
 
     this.MODULES_LIST = [
       { id: 'dashboard', label: '📊 Dashboard / Inicio' },
@@ -7054,6 +7059,7 @@ class NexusApp {
   renderCuadreCajaCard() {
     const container = document.getElementById('cuadre-caja-card');
     if (!container) return;
+    this.renderCashShiftHistory();
     const shift = this.data.cashShiftLog || { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Cerrado' };
     const isOpen = shift.status === 'Abierto';
 
@@ -7425,6 +7431,983 @@ class NexusApp {
     } else {
       this.switchSubView('reports', 'cuadre_caja');
     }
+  }
+
+  setCashShiftTab(tab) {
+    this.activeCashShiftTab = tab;
+    const btnCurrent = document.getElementById('btn-cash-tab-current');
+    const btnHistory = document.getElementById('btn-cash-tab-history');
+    const currentContainer = document.getElementById('cash-shift-current-container');
+    const historyContainer = document.getElementById('cash-shift-history-container');
+    const historyActions = document.getElementById('cash-shift-history-actions');
+
+    if (tab === 'history') {
+      if (btnCurrent) btnCurrent.classList.remove('active');
+      if (btnHistory) btnHistory.classList.add('active');
+      if (currentContainer) currentContainer.style.display = 'none';
+      if (historyContainer) historyContainer.style.display = 'block';
+      if (historyActions) historyActions.style.display = 'flex';
+      this.renderCashShiftHistory();
+    } else {
+      if (btnCurrent) btnCurrent.classList.add('active');
+      if (btnHistory) btnHistory.classList.remove('active');
+      if (currentContainer) currentContainer.style.display = 'block';
+      if (historyContainer) historyContainer.style.display = 'none';
+      if (historyActions) historyActions.style.display = 'none';
+      this.renderCuadreCajaCard();
+    }
+  }
+
+  setCashShiftHistoryPeriod(period, btnEl) {
+    this.cashShiftHistoryPeriod = period;
+    const pills = document.querySelectorAll('#cash-history-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    if (btnEl) {
+      btnEl.classList.add('active');
+    } else {
+      const target = document.querySelector(`#cash-history-period-pills [data-period="${period}"]`);
+      if (target) target.classList.add('active');
+    }
+    if (period !== 'custom') {
+      const startEl = document.getElementById('cash-history-date-start');
+      const endEl = document.getElementById('cash-history-date-end');
+      if (startEl) startEl.value = '';
+      if (endEl) endEl.value = '';
+      this.cashShiftHistoryCustomStart = '';
+      this.cashShiftHistoryCustomEnd = '';
+    }
+    this.renderCashShiftHistory();
+  }
+
+  onCashHistoryDateInputChange() {
+    const startEl = document.getElementById('cash-history-date-start');
+    const endEl = document.getElementById('cash-history-date-end');
+    if (startEl && startEl.value && endEl && !endEl.value) {
+      endEl.value = startEl.value;
+    }
+  }
+
+  applyCashHistoryCustomRange() {
+    const startVal = document.getElementById('cash-history-date-start')?.value;
+    const endVal = document.getElementById('cash-history-date-end')?.value;
+    if (!startVal && !endVal) {
+      this.showToast('Por favor selecciona una fecha o rango para filtrar', 'warning');
+      return;
+    }
+    this.cashShiftHistoryPeriod = 'custom';
+    this.cashShiftHistoryCustomStart = startVal || endVal;
+    this.cashShiftHistoryCustomEnd = endVal || startVal;
+
+    const pills = document.querySelectorAll('#cash-history-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+
+    this.renderCashShiftHistory();
+    this.showToast(`Filtrado por rango: ${this.cashShiftHistoryCustomStart} a ${this.cashShiftHistoryCustomEnd}`, 'info');
+  }
+
+  filterCashShiftsHistory() {
+    if (!Array.isArray(this.data.cashShiftsHistory)) {
+      this.data.cashShiftsHistory = [];
+    }
+    const shifts = this.data.cashShiftsHistory;
+    const period = this.cashShiftHistoryPeriod || 'all';
+
+    const pad = n => String(n).padStart(2, '0');
+    const now = new Date();
+    const toIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const todayStr = toIso(now);
+
+    const yDate = new Date(now);
+    yDate.setDate(yDate.getDate() - 1);
+    const yesterdayStr = toIso(yDate);
+
+    // Esta Semana (últimos 7 días)
+    const d7 = new Date(now);
+    d7.setDate(d7.getDate() - 6);
+    d7.setHours(0, 0, 0, 0);
+    const thisWeekStart = toIso(d7);
+
+    // Semana Pasada (lunes a domingo anterior)
+    const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
+    const lastSun = new Date(now);
+    lastSun.setDate(now.getDate() - dayOfWeek);
+    const lastMon = new Date(lastSun);
+    lastMon.setDate(lastSun.getDate() - 6);
+    const lastWeekStart = toIso(lastMon);
+    const lastWeekEnd = toIso(lastSun);
+
+    // Este Mes
+    const thisMonthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+    const thisMonthEndObj = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const thisMonthEnd = toIso(thisMonthEndObj);
+
+    // Mes Pasado
+    const lastMonthStartObj = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthStart = toIso(lastMonthStartObj);
+    const lastMonthEndObj = new Date(now.getFullYear(), now.getMonth(), 0);
+    const lastMonthEnd = toIso(lastMonthEndObj);
+
+    return shifts.filter(s => {
+      let sDate = s.date || '';
+      if (sDate.includes('/')) {
+        const parts = sDate.split('/');
+        if (parts.length === 3) sDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+
+      if (period === 'today') return sDate === todayStr;
+      if (period === 'yesterday') return sDate === yesterdayStr;
+      if (period === 'this_week') return sDate >= thisWeekStart && sDate <= todayStr;
+      if (period === 'last_week') return sDate >= lastWeekStart && sDate <= lastWeekEnd;
+      if (period === 'this_month') return sDate >= thisMonthStart && sDate <= thisMonthEnd;
+      if (period === 'last_month') return sDate >= lastMonthStart && sDate <= lastMonthEnd;
+      if (period === 'custom') {
+        const start = this.cashShiftHistoryCustomStart || '';
+        const end = this.cashShiftHistoryCustomEnd || this.cashShiftHistoryCustomStart || '';
+        if (start && end) return sDate >= start && sDate <= end;
+        if (start) return sDate >= start;
+        if (end) return sDate <= end;
+        return true;
+      }
+      return true; // 'all'
+    });
+  }
+
+  renderCashShiftHistory() {
+    const kpiContainer = document.getElementById('cash-history-kpis-container');
+    const tableContainer = document.getElementById('cash-history-table-container');
+    const badgeEl = document.getElementById('cash-history-count-badge');
+    if (!kpiContainer || !tableContainer) return;
+
+    const filtered = this.filterCashShiftsHistory();
+    if (badgeEl) {
+      badgeEl.innerText = `${filtered.length} Turno${filtered.length === 1 ? '' : 's'} encontrado${filtered.length === 1 ? '' : 's'}`;
+    }
+
+    const totalShifts = filtered.length;
+    let sumBase = 0;
+    let sumCashSales = 0;
+    let sumTransfers = 0;
+    let sumCreditSales = 0;
+    let sumExpenses = 0;
+    let sumClosing = 0;
+    let sumDiff = 0;
+    let countCuadrados = 0;
+    let countSobrantes = 0;
+    let countFaltantes = 0;
+
+    filtered.forEach(s => {
+      sumBase += Math.round(Number(s.openingCash) || 0);
+      sumCashSales += Math.round(Number(s.cashSales) || 0);
+      sumTransfers += Math.round(Number(s.cardSales) || 0);
+      sumCreditSales += Math.round(Number(s.creditSales) || 0);
+      sumExpenses += Math.round(Number(s.cashExpenses) || 0);
+      sumClosing += Math.round(Number(s.closingCash) || 0);
+      const diff = Math.round(Number(s.difference) || 0);
+      sumDiff += diff;
+      if (diff === 0) countCuadrados++;
+      else if (diff > 0) countSobrantes++;
+      else countFaltantes++;
+    });
+
+    const sumDigitalAndCredit = sumTransfers + sumCreditSales;
+
+    kpiContainer.innerHTML = `
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:0.75rem;">
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>Turnos Cerrados</span>
+            <span>📋</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.45rem; font-weight:800; color:var(--text-main); margin-top:0.25rem;">
+            ${totalShifts}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">
+            ✅ ${countCuadrados} cuadr. ${countSobrantes > 0 ? `· ⚠️ ${countSobrantes}` : ''} ${countFaltantes > 0 ? `· ❌ ${countFaltantes}` : ''}
+          </div>
+        </div>
+
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>Ventas en Efectivo</span>
+            <span>💵</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.45rem; font-weight:800; color:var(--emerald-text); margin-top:0.25rem;">
+            +${this.formatCurrency(sumCashSales)}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">
+            Flujo físico a gaveta
+          </div>
+        </div>
+
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>Bancos &amp; Crédito</span>
+            <span>🏦</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.45rem; font-weight:800; color:#4F46E5; margin-top:0.25rem;">
+            +${this.formatCurrency(sumDigitalAndCredit)}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">
+            Transferencias &amp; Cartera
+          </div>
+        </div>
+
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>Egresos en Efectivo</span>
+            <span>💸</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.45rem; font-weight:800; color:var(--rose-text); margin-top:0.25rem;">
+            -${this.formatCurrency(sumExpenses)}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">
+            Salidas y pagos registrados
+          </div>
+        </div>
+
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>Efectivo Arqueado</span>
+            <span>🔒</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.45rem; font-weight:800; color:var(--primary-indigo); margin-top:0.25rem;">
+            ${this.formatCurrency(sumClosing)}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">
+            Total físico contado en cierres
+          </div>
+        </div>
+
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>Conciliación Neta</span>
+            <span>⚖️</span>
+          </div>
+          <div style="font-family:var(--font-heading); font-size:1.45rem; font-weight:800; color:${sumDiff === 0 ? 'var(--emerald-text)' : sumDiff > 0 ? '#D97706' : 'var(--rose-text)'}; margin-top:0.25rem;">
+            ${sumDiff >= 0 ? '+' : ''}${this.formatCurrency(sumDiff)}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">
+            ${sumDiff === 0 ? '✅ Cajas cuadradas' : sumDiff > 0 ? '⚠️ Sobrante acumulado' : '❌ Faltante acumulado'}
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (filtered.length === 0) {
+      tableContainer.innerHTML = `
+        <div style="text-align:center; padding:3rem 1rem; color:var(--text-muted);">
+          <div style="font-size:2.8rem; margin-bottom:0.75rem; opacity:0.6;">🔍</div>
+          <h4 style="font-size:1.05rem; font-weight:700; color:var(--text-main); margin-bottom:0.35rem;">
+            No se encontraron turnos cerrados en este período
+          </h4>
+          <p style="font-size:0.85rem; max-width:420px; margin:0 auto 1.25rem auto;">
+            No hay registros de arqueo o cuadre de caja para las fechas seleccionadas. Puedes elegir otro período o ver el histórico completo.
+          </p>
+          <button class="btn btn-secondary text-sm" onclick="app.setCashShiftHistoryPeriod('all')">
+            Ver Histórico Completo
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    let rowsHtml = '';
+    filtered.forEach(s => {
+      const diff = Math.round(Number(s.difference) || 0);
+      let diffBadge = '';
+      if (diff === 0) {
+        diffBadge = `<span class="badge" style="background:rgba(16, 185, 129, 0.12); color:#047857; font-weight:700; font-size:0.75rem; border:1px solid rgba(16,185,129,0.3);">✅ Cuadrado ($0)</span>`;
+      } else if (diff > 0) {
+        diffBadge = `<span class="badge" style="background:rgba(245, 158, 11, 0.12); color:#B45309; font-weight:700; font-size:0.75rem; border:1px solid rgba(245,158,11,0.3);">⚠️ Sobrante (+${this.formatCurrency(diff)})</span>`;
+      } else {
+        diffBadge = `<span class="badge" style="background:rgba(239, 68, 68, 0.12); color:#B91C1C; font-weight:700; font-size:0.75rem; border:1px solid rgba(239,68,68,0.3);">❌ Faltante (-${this.formatCurrency(Math.abs(diff))})</span>`;
+      }
+
+      let displayDate = s.date || '';
+      if (displayDate.includes('-')) {
+        const p = displayDate.split('-');
+        if (p.length === 3) displayDate = `${p[2]}/${p[1]}/${p[0]}`;
+      }
+
+      const openingCash = Math.round(Number(s.openingCash) || 0);
+      const cashSales = Math.round(Number(s.cashSales) || 0);
+      const otherSales = Math.round(Number(s.cardSales) || 0) + Math.round(Number(s.creditSales) || 0);
+      const expenses = Math.round(Number(s.cashExpenses) || 0);
+      const expected = Math.round(Number(s.expectedCashInDrawer) || (openingCash + cashSales - expenses));
+      const counted = Math.round(Number(s.closingCash) || 0);
+
+      rowsHtml += `
+        <tr style="border-bottom:1px solid var(--border-color); transition:background 0.15s ease;" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background='transparent'">
+          <td style="padding:10px 12px;">
+            <div style="font-weight:700; color:var(--text-main); font-size:0.88rem;">${displayDate}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(s.id || '')}</div>
+          </td>
+          <td style="padding:10px 12px; font-size:0.82rem;">
+            <div style="display:flex; align-items:center; gap:0.3rem;">
+              <span style="color:var(--emerald-text);">●</span> <span>${this.escapeHtml(s.openedAt || '--')}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.3rem; margin-top:2px;">
+              <span style="color:var(--rose-text);">■</span> <span>${this.escapeHtml(s.closedAt || '--')}</span>
+            </div>
+          </td>
+          <td style="padding:10px 12px; font-size:0.82rem;">
+            <div><b>${this.escapeHtml(s.openedBy || 'Cajero')}</b></div>
+            ${s.closedBy && s.closedBy !== s.openedBy ? `<div style="font-size:0.75rem; color:var(--text-muted);">Cierre: ${this.escapeHtml(s.closedBy)}</div>` : ''}
+          </td>
+          <td style="padding:10px 12px; font-size:0.85rem; font-weight:600; text-align:right;">
+            ${this.formatCurrency(openingCash)}
+          </td>
+          <td style="padding:10px 12px; font-size:0.85rem; font-weight:700; color:var(--emerald-text); text-align:right;">
+            +${this.formatCurrency(cashSales)}
+          </td>
+          <td style="padding:10px 12px; font-size:0.85rem; font-weight:600; color:#4F46E5; text-align:right;">
+            +${this.formatCurrency(otherSales)}
+          </td>
+          <td style="padding:10px 12px; font-size:0.85rem; font-weight:700; color:var(--rose-text); text-align:right;">
+            -${this.formatCurrency(expenses)}
+          </td>
+          <td style="padding:10px 12px; font-size:0.85rem; font-weight:700; color:var(--primary-indigo); text-align:right;">
+            ${this.formatCurrency(expected)}
+          </td>
+          <td style="padding:10px 12px; font-size:0.88rem; font-weight:800; color:var(--text-main); text-align:right;">
+            ${this.formatCurrency(counted)}
+          </td>
+          <td style="padding:10px 12px; text-align:center;">
+            ${diffBadge}
+          </td>
+          <td style="padding:10px 12px; text-align:center;">
+            <button class="btn btn-secondary text-xs" onclick="app.openHistoryShiftDetail('${this.escapeHtml(s.id)}')" style="padding:4px 9px; font-weight:700; display:inline-flex; align-items:center; gap:0.25rem;">
+              <span>👁️</span> Arqueo
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+
+    tableContainer.innerHTML = `
+      <table class="data-table" style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left; text-transform:uppercase;">
+            <th style="padding:8px 12px;">Fecha / Turno</th>
+            <th style="padding:8px 12px;">Horario</th>
+            <th style="padding:8px 12px;">Cajero</th>
+            <th style="padding:8px 12px; text-align:right;">Base Inicial</th>
+            <th style="padding:8px 12px; text-align:right;">Ventas Efectivo</th>
+            <th style="padding:8px 12px; text-align:right;">Bancos/Otros</th>
+            <th style="padding:8px 12px; text-align:right;">Egresos</th>
+            <th style="padding:8px 12px; text-align:right;">Esperado</th>
+            <th style="padding:8px 12px; text-align:right;">Físico Contado</th>
+            <th style="padding:8px 12px; text-align:center;">Conciliación</th>
+            <th style="padding:8px 12px; text-align:center;">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+  }
+
+  openHistoryShiftDetail(shiftId) {
+    const shift = (this.data.cashShiftsHistory || []).find(s => s.id === shiftId);
+    if (!shift) {
+      this.showToast('No se encontró el registro del turno seleccionado', 'danger');
+      return;
+    }
+    this.currentModalShift = shift;
+
+    const modalBody = document.getElementById('history-shift-detail-body');
+    const modalTitle = document.getElementById('history-shift-detail-title');
+    if (!modalBody) return;
+
+    let displayDate = shift.date || '';
+    if (displayDate.includes('-')) {
+      const p = displayDate.split('-');
+      if (p.length === 3) displayDate = `${p[2]}/${p[1]}/${p[0]}`;
+    }
+
+    if (modalTitle) {
+      modalTitle.innerText = `Arqueo de Caja: Turno ${shift.id} (${displayDate})`;
+    }
+
+    const opening = Math.round(Number(shift.openingCash) || 0);
+    const cashSales = Math.round(Number(shift.cashSales) || 0);
+    const cardSales = Math.round(Number(shift.cardSales) || 0);
+    const creditSales = Math.round(Number(shift.creditSales) || 0);
+    const expenses = Math.round(Number(shift.cashExpenses) || 0);
+    const expected = Math.round(Number(shift.expectedCashInDrawer) || (opening + cashSales - expenses));
+    const counted = Math.round(Number(shift.closingCash) || 0);
+    const diff = Math.round(Number(shift.difference) || (counted - expected));
+
+    let diffAlert = '';
+    if (diff === 0) {
+      diffAlert = `<div style="background:rgba(16,185,129,0.12); color:#047857; padding:0.75rem 1rem; border-radius:var(--radius-sm); font-weight:700; font-size:0.9rem; text-align:center; border:1px solid rgba(16,185,129,0.3);">✅ Cuadre Perfecto de Caja: Efectivo Físico Arqueado ${this.formatCurrency(counted)} (Diferencia: $0)</div>`;
+    } else if (diff > 0) {
+      diffAlert = `<div style="background:rgba(245,158,11,0.12); color:#B45309; padding:0.75rem 1rem; border-radius:var(--radius-sm); font-weight:700; font-size:0.9rem; text-align:center; border:1px solid rgba(245,158,11,0.3);">⚠️ Sobrante en Caja: +${this.formatCurrency(diff)} (Físico: ${this.formatCurrency(counted)} vs Esperado: ${this.formatCurrency(expected)})</div>`;
+    } else {
+      diffAlert = `<div style="background:rgba(239,68,68,0.12); color:#B91C1C; padding:0.75rem 1rem; border-radius:var(--radius-sm); font-weight:700; font-size:0.9rem; text-align:center; border:1px solid rgba(239,68,68,0.3);">❌ Faltante en Caja: -${this.formatCurrency(Math.abs(diff))} (Físico: ${this.formatCurrency(counted)} vs Esperado: ${this.formatCurrency(expected)})</div>`;
+    }
+
+    const dateParts = shift.date ? shift.date.split('-') : [];
+    const datePattern = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : shift.date;
+    const ddMm = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : '';
+
+    const dayTxs = (this.data.recentTransactions || []).filter(tx => {
+      if (!tx.date) return false;
+      return tx.date === datePattern || tx.date.includes(datePattern) || (shift.date && tx.date.includes(shift.date)) || (ddMm && tx.date.includes(ddMm));
+    });
+
+    const dayExpenses = (this.data.expenses || []).filter(e => {
+      if (!e.date) return false;
+      const isDay = e.date.includes(datePattern) || (shift.date && e.date.includes(shift.date)) || (ddMm && e.date.includes(ddMm));
+      return isDay && (e.method || '').toLowerCase().includes('efectivo');
+    });
+
+    modalBody.innerHTML = `
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:0.75rem; margin-bottom:1.25rem;">
+        <div style="background:var(--canvas-bg); padding:0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-color);">
+          <div style="font-size:0.75rem; color:var(--text-muted);">Apertura de Turno</div>
+          <div style="font-weight:700; font-size:0.95rem; color:var(--text-main); margin-top:2px;">${this.escapeHtml(shift.openedBy || 'Cajero')}</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">${displayDate} a las ${this.escapeHtml(shift.openedAt || '--')}</div>
+        </div>
+        <div style="background:var(--canvas-bg); padding:0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-color);">
+          <div style="font-size:0.75rem; color:var(--text-muted);">Cierre de Turno</div>
+          <div style="font-weight:700; font-size:0.95rem; color:var(--text-main); margin-top:2px;">${this.escapeHtml(shift.closedBy || 'Cajero')}</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">${displayDate} a las ${this.escapeHtml(shift.closedAt || '--')}</div>
+        </div>
+        <div style="background:var(--canvas-bg); padding:0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-color);">
+          <div style="font-size:0.75rem; color:var(--text-muted);">Estado del Turno</div>
+          <div style="margin-top:4px;"><span class="badge badge-inactive" style="font-size:0.8rem;"><span class="badge-dot"></span>Cerrado &amp; Archivado</span></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:1.25rem;">
+        ${diffAlert}
+      </div>
+
+      <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; margin-bottom:1.25rem;">
+        <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
+          <span>💵</span> Conciliación Contable de Efectivo Físico
+        </h4>
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.86rem;">
+          <span>(+) Base Inicial (Apertura de Caja):</span>
+          <strong>${this.formatCurrency(opening)}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.86rem; color:var(--emerald-text);">
+          <span>(+) Ventas Recaudadas en Efectivo:</span>
+          <strong>+${this.formatCurrency(cashSales)}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.86rem; color:var(--rose-text);">
+          <span>(-) Egresos y Salidas de Caja en Efectivo:</span>
+          <strong>-${this.formatCurrency(expenses)}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.92rem; font-weight:800; color:var(--primary-indigo);">
+          <span>(=) Efectivo Teórico Esperado en Gaveta:</span>
+          <span>${this.formatCurrency(expected)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:0.45rem; padding-top:0.45rem; border-top:1px solid var(--border-color); font-size:0.98rem; font-weight:900; color:var(--text-main);">
+          <span>Conteo Físico Real Arqueado en Cierre:</span>
+          <span>${this.formatCurrency(counted)}</span>
+        </div>
+      </div>
+
+      ${(cardSales > 0 || creditSales > 0) ? `
+      <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; margin-bottom:1.25rem;">
+        <h4 style="margin:0 0 0.5rem 0; font-size:0.88rem; font-weight:700; color:var(--text-main);">
+          <span>💳</span> Otros Medios Registrados en el Turno (No entran a gaveta física)
+        </h4>
+        ${cardSales > 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem;"><span>🏦 Transferencias / Datáfono:</span><strong style="color:#4F46E5;">+${this.formatCurrency(cardSales)}</strong></div>` : ''}
+        ${creditSales > 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem;"><span>🏷️ Ventas a Crédito:</span><strong style="color:#D97706;">+${this.formatCurrency(creditSales)}</strong></div>` : ''}
+      </div>` : ''}
+
+      <div style="margin-top:1rem;">
+        <h4 style="margin:0 0 0.5rem 0; font-size:0.88rem; font-weight:700; color:var(--text-main); display:flex; justify-content:space-between; align-items:center;">
+          <span>🛒 Transacciones Registradas en la Fecha (${dayTxs.length})</span>
+          <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">Movimientos vinculados</span>
+        </h4>
+        ${dayTxs.length === 0 
+          ? `<div style="font-size:0.8rem; color:var(--text-muted); padding:0.5rem 0;">No se registraron ventas en esta fecha.</div>`
+          : `<div style="max-height:160px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
+              <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+                <thead>
+                  <tr style="background:var(--canvas-bg); border-bottom:1px solid var(--border-color); text-align:left; color:var(--text-muted);">
+                    <th style="padding:4px 8px;">Cód / Hora</th>
+                    <th style="padding:4px 8px;">Cliente</th>
+                    <th style="padding:4px 8px;">Método</th>
+                    <th style="padding:4px 8px; text-align:right;">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${dayTxs.map(t => `
+                    <tr style="border-bottom:1px solid var(--border-color);">
+                      <td style="padding:4px 8px;"><b>${this.escapeHtml(t.id || '')}</b> <span style="color:var(--text-muted); font-size:0.72rem;">${this.escapeHtml(t.time || '')}</span></td>
+                      <td style="padding:4px 8px;">${this.escapeHtml(t.customer || 'Cliente General')}</td>
+                      <td style="padding:4px 8px;">${this.escapeHtml(t.paymentMethod || 'Efectivo')}</td>
+                      <td style="padding:4px 8px; font-weight:700; text-align:right;">${this.formatCurrency(t.total)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>`
+        }
+      </div>
+
+      ${dayExpenses.length > 0 ? `
+      <div style="margin-top:1rem;">
+        <h4 style="margin:0 0 0.5rem 0; font-size:0.88rem; font-weight:700; color:var(--text-main); display:flex; justify-content:space-between; align-items:center;">
+          <span>📋 Salidas de Efectivo (${dayExpenses.length})</span>
+          <span style="font-size:0.75rem; color:var(--rose-text); font-weight:700;">-${this.formatCurrency(expenses)}</span>
+        </h4>
+        <div style="max-height:140px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
+          <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+            <thead>
+              <tr style="background:var(--canvas-bg); border-bottom:1px solid var(--border-color); text-align:left; color:var(--text-muted);">
+                <th style="padding:4px 8px;">Código</th>
+                <th style="padding:4px 8px;">Categoría / Concepto</th>
+                <th style="padding:4px 8px; text-align:right;">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dayExpenses.map(e => `
+                <tr style="border-bottom:1px solid var(--border-color);">
+                  <td style="padding:4px 8px;"><b>${this.escapeHtml(e.id || '')}</b></td>
+                  <td style="padding:4px 8px;">${this.escapeHtml(e.description || e.category || 'Gasto Operativo')}</td>
+                  <td style="padding:4px 8px; font-weight:700; color:var(--rose-text); text-align:right;">-${this.formatCurrency(e.amount)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>` : ''}
+    `;
+
+    this.openModal('history-shift-detail-modal');
+  }
+
+  exportCashShiftsHistoryExcel() {
+    const filtered = this.filterCashShiftsHistory();
+    if (!filtered || filtered.length === 0) {
+      this.showToast('No hay turnos en el período seleccionado para exportar', 'warning');
+      return;
+    }
+
+    const storeName = this.data.store?.name || 'Charles Joyas';
+    const now = new Date();
+    const formattedNow = `${now.toLocaleDateString('es-CO')} ${now.toLocaleTimeString('es-CO')}`;
+
+    let periodLabel = 'Histórico Completo';
+    if (this.cashShiftHistoryPeriod === 'today') periodLabel = 'Hoy';
+    else if (this.cashShiftHistoryPeriod === 'yesterday') periodLabel = 'Ayer';
+    else if (this.cashShiftHistoryPeriod === 'this_week') periodLabel = 'Esta Semana';
+    else if (this.cashShiftHistoryPeriod === 'last_week') periodLabel = 'Semana Pasada';
+    else if (this.cashShiftHistoryPeriod === 'this_month') periodLabel = 'Este Mes';
+    else if (this.cashShiftHistoryPeriod === 'last_month') periodLabel = 'Mes Pasado';
+    else if (this.cashShiftHistoryPeriod === 'custom') periodLabel = `Rango: ${this.cashShiftHistoryCustomStart} a ${this.cashShiftHistoryCustomEnd}`;
+
+    let xmlRows = '';
+    let totBase = 0, totCash = 0, totOther = 0, totExp = 0, totExpected = 0, totCounted = 0, totDiff = 0;
+
+    filtered.forEach(s => {
+      const b = Math.round(Number(s.openingCash) || 0);
+      const c = Math.round(Number(s.cashSales) || 0);
+      const o = Math.round(Number(s.cardSales) || 0) + Math.round(Number(s.creditSales) || 0);
+      const e = Math.round(Number(s.cashExpenses) || 0);
+      const exp = Math.round(Number(s.expectedCashInDrawer) || (b + c - e));
+      const cnt = Math.round(Number(s.closingCash) || 0);
+      const df = Math.round(Number(s.difference) || (cnt - exp));
+
+      totBase += b;
+      totCash += c;
+      totOther += o;
+      totExp += e;
+      totExpected += exp;
+      totCounted += cnt;
+      totDiff += df;
+
+      let displayDate = s.date || '';
+      if (displayDate.includes('-')) {
+        const p = displayDate.split('-');
+        if (p.length === 3) displayDate = `${p[2]}/${p[1]}/${p[0]}`;
+      }
+
+      const statusConcil = df === 0 ? 'CUADRADO' : (df > 0 ? 'SOBRANTE' : 'FALTANTE');
+
+      xmlRows += `
+      <Row>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(s.id || '')}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${displayDate}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${this.escapeHtml(s.openedAt || '')}</Data></Cell>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(s.openedBy || '')}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${this.escapeHtml(s.closedAt || '')}</Data></Cell>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(s.closedBy || '')}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${b}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${c}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${o}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${e}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${exp}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${cnt}</Data></Cell>
+        <Cell ss:StyleID="${df === 0 ? 'Currency' : (df > 0 ? 'CurrencyAmber' : 'CurrencyRed')}"><Data ss:Type="Number">${df}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${statusConcil}</Data></Cell>
+      </Row>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1F2937"/>
+  </Style>
+  <Style ss:ID="Title">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="15" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="MetaLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#475569"/>
+  </Style>
+  <Style ss:ID="MetaValue">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TextLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+  </Style>
+  <Style ss:ID="TextCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+  </Style>
+  <Style ss:ID="Currency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CurrencyAmber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+   <Font ss:Color="#B45309" ss:Bold="1"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CurrencyRed">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+   <Font ss:Color="#B91C1C" ss:Bold="1"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="TotalRow">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="TotalLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Historial de Cuadres">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="90"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="90"/>
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="13" ss:StyleID="Title"><Data ss:Type="String">${this.escapeHtml(storeName)} - Historial de Cuadre de Caja &amp; Arqueos</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Período Consultado:</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="MetaValue"><Data ss:Type="String">${this.escapeHtml(periodLabel)}</Data></Cell>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Fecha Emisión:</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="MetaValue"><Data ss:Type="String">${formattedNow}</Data></Cell>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Total Turnos:</Data></Cell>
+    <Cell ss:StyleID="MetaValue"><Data ss:Type="Number">${filtered.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="8"/>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="Header"><Data ss:Type="String">ID Turno</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Fecha</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Hora Apertura</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Cajero Apertura</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Hora Cierre</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Cajero Cierre</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Base Inicial</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Ventas Efectivo</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Bancos/Otros</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Egresos Efectivo</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Efectivo Esperado</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Físico Arqueado</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Diferencia</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Conciliación</Data></Cell>
+   </Row>
+   ${xmlRows}
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES GENERALES DEL PERÍODO</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totBase}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totCash}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totOther}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totExp}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totExpected}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totCounted}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totDiff}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Historial_Cuadres_Caja_${now.toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    this.showToast('Historial de cuadres exportado a Excel exitosamente', 'success');
+  }
+
+  exportCurrentModalShiftExcel() {
+    const shift = this.currentModalShift;
+    if (!shift) {
+      this.showToast('No hay ningún arqueo seleccionado para exportar', 'warning');
+      return;
+    }
+    const storeName = this.data.store?.name || 'Charles Joyas';
+    const now = new Date();
+    const formattedNow = `${now.toLocaleDateString('es-CO')} ${now.toLocaleTimeString('es-CO')}`;
+
+    let displayDate = shift.date || '';
+    if (displayDate.includes('-')) {
+      const p = displayDate.split('-');
+      if (p.length === 3) displayDate = `${p[2]}/${p[1]}/${p[0]}`;
+    }
+
+    const b = Math.round(Number(shift.openingCash) || 0);
+    const c = Math.round(Number(shift.cashSales) || 0);
+    const e = Math.round(Number(shift.cashExpenses) || 0);
+    const exp = Math.round(Number(shift.expectedCashInDrawer) || (b + c - e));
+    const cnt = Math.round(Number(shift.closingCash) || 0);
+    const df = Math.round(Number(shift.difference) || (cnt - exp));
+
+    const dateParts = shift.date ? shift.date.split('-') : [];
+    const datePattern = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : shift.date;
+    const ddMm = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : '';
+
+    const dayTxs = (this.data.recentTransactions || []).filter(tx => {
+      if (!tx.date) return false;
+      return tx.date === datePattern || tx.date.includes(datePattern) || (shift.date && tx.date.includes(shift.date)) || (ddMm && tx.date.includes(ddMm));
+    });
+
+    const dayExpenses = (this.data.expenses || []).filter(ex => {
+      if (!ex.date) return false;
+      const isDay = ex.date.includes(datePattern) || (shift.date && ex.date.includes(shift.date)) || (ddMm && ex.date.includes(ddMm));
+      return isDay && (ex.method || '').toLowerCase().includes('efectivo');
+    });
+
+    let txRowsXml = '';
+    dayTxs.forEach(t => {
+      txRowsXml += `
+      <Row>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(t.id || '')}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${this.escapeHtml(t.time || '')}</Data></Cell>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(t.customer || 'Cliente General')}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${this.escapeHtml(t.paymentMethod || 'Efectivo')}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${Math.round(Number(t.total) || 0)}</Data></Cell>
+      </Row>`;
+    });
+
+    let expRowsXml = '';
+    dayExpenses.forEach(ex => {
+      expRowsXml += `
+      <Row>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.id || '')}</Data></Cell>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.category || 'Gasto Operativo')}</Data></Cell>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.description || '')}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${Math.round(Number(ex.amount) || 0)}</Data></Cell>
+      </Row>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1F2937"/>
+  </Style>
+  <Style ss:ID="Title">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="Section">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#1E293B"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TextLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+  </Style>
+  <Style ss:ID="TextCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+  </Style>
+  <Style ss:ID="Currency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#F1F5F9"/></Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CurrencyBold">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders>
+   <Font ss:Bold="1" ss:Color="#0F172A"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CurrencyAmber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:Bold="1" ss:Color="#B45309"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CurrencyRed">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:Bold="1" ss:Color="#B91C1C"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Comprobante Arqueo">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="130"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="4" ss:StyleID="Title"><Data ss:Type="String">${this.escapeHtml(storeName)} - Comprobante de Arqueo y Cierre de Caja</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="TextLeft"><Data ss:Type="String">Turno ID:</Data></Cell>
+    <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(shift.id || '')}</Data></Cell>
+    <Cell ss:StyleID="TextLeft"><Data ss:Type="String">Fecha:</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TextLeft"><Data ss:Type="String">${displayDate}</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="TextLeft"><Data ss:Type="String">Apertura:</Data></Cell>
+    <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(shift.openedBy || '')} (${this.escapeHtml(shift.openedAt || '')})</Data></Cell>
+    <Cell ss:StyleID="TextLeft"><Data ss:Type="String">Cierre:</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(shift.closedBy || '')} (${this.escapeHtml(shift.closedAt || '')})</Data></Cell>
+   </Row>
+   <Row ss:Height="8"/>
+   <Row>
+    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">CONCILIACIÓN DE EFECTIVO EN GAVETA FÍSICA</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:MergeAcross="3" ss:StyleID="TextLeft"><Data ss:Type="String">(+) Base Inicial de Apertura</Data></Cell>
+    <Cell ss:StyleID="Currency"><Data ss:Type="Number">${b}</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:MergeAcross="3" ss:StyleID="TextLeft"><Data ss:Type="String">(+) Ventas Recaudadas en Efectivo</Data></Cell>
+    <Cell ss:StyleID="Currency"><Data ss:Type="Number">${c}</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:MergeAcross="3" ss:StyleID="TextLeft"><Data ss:Type="String">(-) Egresos y Salidas en Efectivo</Data></Cell>
+    <Cell ss:StyleID="Currency"><Data ss:Type="Number">${e}</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:MergeAcross="3" ss:StyleID="TextLeft"><Data ss:Type="String">(=) Efectivo Teórico Esperado en Gaveta</Data></Cell>
+    <Cell ss:StyleID="CurrencyBold"><Data ss:Type="Number">${exp}</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:MergeAcross="3" ss:StyleID="TextLeft"><Data ss:Type="String">Conteo Físico Real Arqueado en Cierre</Data></Cell>
+    <Cell ss:StyleID="CurrencyBold"><Data ss:Type="Number">${cnt}</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:MergeAcross="3" ss:StyleID="TextLeft"><Data ss:Type="String">Diferencia de Caja (Conciliación)</Data></Cell>
+    <Cell ss:StyleID="${df === 0 ? 'CurrencyBold' : (df > 0 ? 'CurrencyAmber' : 'CurrencyRed')}"><Data ss:Type="Number">${df}</Data></Cell>
+   </Row>
+   <Row ss:Height="12"/>
+   ${dayTxs.length > 0 ? `
+   <Row>
+    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">TRANSACCIONES REGISTRADAS (${dayTxs.length})</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Código</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Hora</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Cliente</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Medio de Pago</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Total</Data></Cell>
+   </Row>
+   ${txRowsXml}
+   <Row ss:Height="12"/>` : ''}
+   ${dayExpenses.length > 0 ? `
+   <Row>
+    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">EGRESOS Y RETIROS EN EFECTIVO (${dayExpenses.length})</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Código</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Categoría</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="Header"><Data ss:Type="String">Descripción</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Monto</Data></Cell>
+   </Row>
+   ${expRowsXml}` : ''}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Arqueo_${shift.id || 'Turno'}_${displayDate.replace(/\//g, '-')}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    this.showToast(`Arqueo de ${shift.id} exportado a Excel`, 'success');
   }
 
   renderAbonosVentasTable() {
