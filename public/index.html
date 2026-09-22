@@ -2272,7 +2272,7 @@
               <span>Transferencia</span>
             </button>
             <button type="button" class="btn pay-method-btn" data-pay-type="credit" id="pay-btn-credit">
-              <span style="font-size:1.15rem;">💳</span>
+              <span style="font-size:1.15rem;">🏷️</span>
               <span>Crédito</span>
             </button>
             <button type="button" class="btn pay-method-btn" data-pay-type="separe" id="pay-btn-separe">
@@ -3801,6 +3801,7 @@
           <div style="display:flex; justify-content:space-between; margin-bottom:0.45rem;"><span>Efectivo Teórico en Gaveta:</span><strong id="cash-theoretical-amount" style="color:var(--primary-indigo); font-size:1.05rem;">$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💵 Ventas en Efectivo:</span><strong id="cash-shift-sales" style="color:var(--emerald-text);">+$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏦 Ventas por Transferencia:</span><strong id="cash-shift-transfers" style="color:#4F46E5;">+$0.00</strong></div>
+          <div id="cash-shift-credit-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏷️ Ventas a Crédito (Por Cobrar):</span><strong id="cash-shift-credit" style="color:#D97706;">+$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.9rem;"><span>📊 Total Facturado Turno:</span><strong id="cash-shift-total-sales" style="font-weight:800; color:var(--text-main);">$0.00</strong></div>
         </div>
         <div class="form-group">
@@ -3992,6 +3993,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=47" defer></script>
+  <script src="js/app.js?v=48" defer></script>
 </body>
 </html>

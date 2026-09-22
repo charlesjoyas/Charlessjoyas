@@ -6856,8 +6856,8 @@ class NexusApp {
       const lower = (m || '').toLowerCase();
       if (lower.includes('efectivo') || lower.includes('cash')) return 'Efectivo';
       if (lower.includes('transfer') || lower.includes('banco') || lower.includes('cta')) return 'Transferencia';
-      if (lower.includes('tarjeta') || lower.includes('card') || lower.includes('débito') || lower.includes('debito') || (lower.includes('crédito') && !lower.includes('cliente'))) return 'Tarjeta';
-      if (lower.includes('crédito cliente') || lower.includes('credito cliente')) return 'Crédito Cliente';
+      if ((lower.includes('crédito') || lower.includes('credito')) && !lower.includes('tarjeta') && !lower.includes('card')) return 'Crédito';
+      if (lower.includes('tarjeta') || lower.includes('card') || lower.includes('débito') || lower.includes('debito') || lower.includes('datafono') || lower.includes('datáfono')) return 'Tarjeta';
       if (lower.includes('separe')) return 'Plan Separe';
       return m || 'Otros';
     };
@@ -6866,6 +6866,7 @@ class NexusApp {
       'Efectivo': { icon: '💵', color: 'var(--emerald-text, #059669)', badgeBg: 'rgba(16, 185, 129, 0.14)', badgeText: '#047857' },
       'Transferencia': { icon: '🏦', color: '#4F46E5', badgeBg: 'rgba(99, 102, 241, 0.14)', badgeText: '#4338CA' },
       'Tarjeta': { icon: '💳', color: '#9333EA', badgeBg: 'rgba(168, 85, 247, 0.14)', badgeText: '#7E22CE' },
+      'Crédito': { icon: '🏷️', color: '#D97706', badgeBg: 'rgba(245, 158, 11, 0.14)', badgeText: '#B45309' },
       'Crédito Cliente': { icon: '🏷️', color: '#D97706', badgeBg: 'rgba(245, 158, 11, 0.14)', badgeText: '#B45309' },
       'Plan Separe': { icon: '📦', color: '#0284C7', badgeBg: 'rgba(14, 165, 233, 0.14)', badgeText: '#0369A1' },
       'Otros': { icon: '💰', color: '#475569', badgeBg: 'rgba(100, 116, 139, 0.14)', badgeText: '#334155' }
@@ -6888,6 +6889,11 @@ class NexusApp {
 
     const summaryCards = Object.entries(methodMap).map(([key, data]) => {
       const meta = methodMeta[key] || methodMeta['Otros'];
+      const isCredit = key === 'Crédito' || key === 'Crédito Cliente';
+      const statusNote = isCredit
+        ? `<div style="font-size:0.68rem; color:#D97706; font-weight:700; margin-top:3px;">🏷️ Por Cobrar (Cartera)</div>`
+        : `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:600; margin-top:3px;">✅ Recaudado</div>`;
+
       return `
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.65rem 0.95rem; min-width:160px; flex:1;">
           <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem; margin-bottom:0.25rem;">
@@ -6899,6 +6905,7 @@ class NexusApp {
           <div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">
             ${data.count} ${data.count === 1 ? 'operación' : 'operaciones'}
           </div>
+          ${statusNote}
         </div>
       `;
     }).join('');
@@ -7056,6 +7063,8 @@ class NexusApp {
 
     let totalEfectivo = 0;
     let totalTransferencia = 0;
+    let totalTarjeta = 0;
+    let totalCredito = 0;
     let totalOtros = 0;
     let totalFacturado = 0;
 
@@ -7063,18 +7072,32 @@ class NexusApp {
       const amt = Math.round(Math.abs(t.total || 0));
       totalFacturado += amt;
       const m = (t.paymentMethod || '').toLowerCase();
-      if (m.includes('efectivo')) totalEfectivo += amt;
-      else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) totalTransferencia += amt;
-      else totalOtros += amt;
+      if (m.includes('efectivo') || m.includes('cash')) {
+        totalEfectivo += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransferencia += amt;
+      } else if ((m.includes('crédito') || m.includes('credito')) && !m.includes('tarjeta') && !m.includes('card')) {
+        totalCredito += amt;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
+        totalTarjeta += amt;
+      } else {
+        totalOtros += amt;
+      }
     });
 
     abonos.forEach(a => {
       const amt = Math.round(Math.abs(a.amount || 0));
       totalFacturado += amt;
       const m = (a.method || '').toLowerCase();
-      if (m.includes('efectivo')) totalEfectivo += amt;
-      else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) totalTransferencia += amt;
-      else totalOtros += amt;
+      if (m.includes('efectivo') || m.includes('cash')) {
+        totalEfectivo += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransferencia += amt;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
+        totalTarjeta += amt;
+      } else {
+        totalOtros += amt;
+      }
     });
 
     // Fallback if shift.cashSales has recorded cash
@@ -7085,8 +7108,10 @@ class NexusApp {
       totalTransferencia = Math.round(Number(shift.cardSales));
     }
     if (totalFacturado === 0) {
-      totalFacturado = totalEfectivo + totalTransferencia + totalOtros;
+      totalFacturado = totalEfectivo + totalTransferencia + totalTarjeta + totalCredito + totalOtros;
     }
+
+    const totalRecaudado = totalEfectivo + totalTransferencia + totalTarjeta + totalOtros;
 
     const openingCash = Math.round(Number(shift.openingCash) || 0);
     const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
@@ -7110,6 +7135,17 @@ class NexusApp {
           <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#4F46E5;">+${this.formatCurrency(totalTransferencia)}</div>
           <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">🏦 Entró a banco</div>
         </div>
+        ${totalTarjeta > 0 ? `
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas con Tarjeta</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#9333EA;">+${this.formatCurrency(totalTarjeta)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💳 Entró por Datáfono</div>
+        </div>` : ''}
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
+          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas a Crédito</div>
+          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#D97706;">+${this.formatCurrency(totalCredito)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">🏷️ Por cobrar (No entra a caja)</div>
+        </div>
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
           <div style="font-size:0.78rem; color:var(--text-muted);">Total Facturado Turno</div>
           <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:800; color:var(--text-main);">+${this.formatCurrency(totalFacturado)}</div>
@@ -7131,11 +7167,17 @@ class NexusApp {
       <div style="margin-top:1.5rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1.25rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem; flex-wrap:wrap; gap:0.5rem;">
           <h4 style="font-size:0.95rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.45rem; color:var(--text-main);">
-            <span>📥</span> Desglose de Ingresos por Medio de Pago en este Turno
+            <span>📥</span> Desglose de Ventas por Medio de Pago en este Turno
           </h4>
-          <span style="font-size:0.86rem; font-weight:800; color:var(--emerald-text); background:rgba(16,185,129,0.1); padding:3px 10px; border-radius:20px;">
-            Total Recaudado: +${this.formatCurrency(totalFacturado)}
-          </span>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+            <span style="font-size:0.84rem; font-weight:700; color:var(--emerald-text); background:rgba(16,185,129,0.1); padding:3px 10px; border-radius:20px;">
+              Recaudado (Efectivo/Banco): +${this.formatCurrency(totalRecaudado)}
+            </span>
+            ${totalCredito > 0 ? `
+            <span style="font-size:0.84rem; font-weight:700; color:#D97706; background:rgba(245,158,11,0.1); padding:3px 10px; border-radius:20px;">
+              Ventas a Crédito (Por Cobrar): +${this.formatCurrency(totalCredito)}
+            </span>` : ''}
+          </div>
         </div>
         ${this.renderCashShiftIncomesSummary()}
       </div>
@@ -7232,19 +7274,28 @@ class NexusApp {
     const shiftTxs = this.getCashShiftTransactions();
     let totalCash = 0;
     let totalTransfer = 0;
+    let totalTarjeta = 0;
+    let totalCredito = 0;
     let totalSales = 0;
 
     shiftTxs.forEach(t => {
       const amt = Math.round(Math.abs(t.total || 0));
       totalSales += amt;
       const m = (t.paymentMethod || '').toLowerCase();
-      if (m.includes('efectivo')) totalCash += amt;
-      else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) totalTransfer += amt;
+      if (m.includes('efectivo') || m.includes('cash')) {
+        totalCash += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransfer += amt;
+      } else if ((m.includes('crédito') || m.includes('credito')) && !m.includes('tarjeta') && !m.includes('card')) {
+        totalCredito += amt;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito')) {
+        totalTarjeta += amt;
+      }
     });
 
     if (totalCash === 0 && Number(shift.cashSales) > 0) totalCash = Math.round(Number(shift.cashSales));
     if (totalTransfer === 0 && Number(shift.cardSales) > 0) totalTransfer = Math.round(Number(shift.cardSales));
-    if (totalSales === 0) totalSales = totalCash + totalTransfer;
+    if (totalSales === 0) totalSales = totalCash + totalTransfer + totalTarjeta + totalCredito;
 
     const openingCash = Math.round(Number(shift.openingCash) || 0);
     const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
@@ -7252,16 +7303,21 @@ class NexusApp {
     shift.expectedCashInDrawer = calculatedExpected;
     shift.cashSales = totalCash;
     shift.cardSales = totalTransfer;
+    shift.creditSales = totalCredito;
 
     const theoEl = document.getElementById('cash-theoretical-amount');
     const salesEl = document.getElementById('cash-shift-sales');
     const transfersEl = document.getElementById('cash-shift-transfers');
+    const creditEl = document.getElementById('cash-shift-credit');
+    const creditRowEl = document.getElementById('cash-shift-credit-row');
     const totalSalesEl = document.getElementById('cash-shift-total-sales');
     const countedEl = document.getElementById('cash-physical-counted');
 
     if (theoEl) theoEl.innerText = this.formatCurrency(calculatedExpected);
     if (salesEl) salesEl.innerText = '+' + this.formatCurrency(totalCash);
     if (transfersEl) transfersEl.innerText = '+' + this.formatCurrency(totalTransfer);
+    if (creditEl) creditEl.innerText = '+' + this.formatCurrency(totalCredito);
+    if (creditRowEl) creditRowEl.style.display = totalCredito > 0 ? 'flex' : 'none';
     if (totalSalesEl) totalSalesEl.innerText = '+' + this.formatCurrency(totalSales);
     if (countedEl) {
       countedEl.value = this.formatNumberWithCommas(calculatedExpected);
@@ -7310,6 +7366,8 @@ class NexusApp {
       status: "Cerrado",
       openingCash: this.data.cashShiftLog?.openingCash || 0,
       cashSales: this.data.cashShiftLog?.cashSales || 0,
+      cardSales: this.data.cashShiftLog?.cardSales || 0,
+      creditSales: this.data.cashShiftLog?.creditSales || 0,
       cashExpenses: this.data.cashShiftLog?.cashExpenses || 0,
       expectedCashInDrawer: expected,
       closingCash: counted,
