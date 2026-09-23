@@ -2349,10 +2349,14 @@
 
         <div style="margin-bottom:1.5rem;">
           <label style="font-size:0.8rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Método de Pago</label>
-          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;" id="checkout-pay-methods-grid">
+          <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:0.5rem;" id="checkout-pay-methods-grid">
             <button type="button" class="btn pay-method-btn active" data-pay-type="cash" id="pay-btn-cash">
               <span style="font-size:1.15rem;">💵</span>
               <span>Efectivo</span>
+            </button>
+            <button type="button" class="btn pay-method-btn" data-pay-type="card" id="pay-btn-card">
+              <span style="font-size:1.15rem;">💳</span>
+              <span>Tarjeta</span>
             </button>
             <button type="button" class="btn pay-method-btn" data-pay-type="transfer" id="pay-btn-transfer">
               <span style="font-size:1.15rem;">🏦</span>
@@ -2368,6 +2372,19 @@
             </button>
           </div>
           <div id="checkout-customer-allowed-notice" style="font-size:0.75rem; color:var(--text-subtle); margin-top:0.4rem; display:none;"></div>
+        </div>
+
+        <div id="card-info-box" style="display:none; flex-direction:column; gap:0.75rem; margin-bottom:1.5rem; background:rgba(147,51,234,0.08); border:1px solid rgba(147,51,234,0.25); padding:1rem; border-radius:var(--radius-md);">
+          <div style="font-weight:700; font-size:0.9rem; color:#9333EA; display:flex; align-items:center; gap:6px;">💳 Pago con Tarjeta / Datáfono</div>
+          <div style="font-size:0.8rem; color:var(--text-muted);">El cobro se procesa por datáfono y el dinero ingresa a la cuenta bancaria seleccionada:</div>
+          <div>
+            <label style="font-size:0.78rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.35rem;">¿A qué cuenta bancaria ingresa? *</label>
+            <select id="checkout-card-account-select" class="form-select" style="width:100%; font-weight:700; font-size:0.95rem;"></select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.35rem;">N° de Voucher / Aprobación (Opcional)</label>
+            <input type="text" id="checkout-card-voucher-input" class="form-input" placeholder="Ej: #048291" style="font-size:0.85rem;">
+          </div>
         </div>
 
         <div id="cash-calc-box" style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1.5rem; background:var(--canvas-bg); padding:1rem; border-radius:var(--radius-md);">
@@ -2781,6 +2798,16 @@
                   <div>
                     <div class="payment-check-title">Efectivo</div>
                     <div class="payment-check-desc">Pago de contado en caja</div>
+                  </div>
+                </div>
+              </label>
+              <label class="payment-check-card" id="card-cust-pay-card">
+                <input type="checkbox" id="cust-pay-card" value="Tarjeta" checked>
+                <div class="payment-check-info">
+                  <span class="payment-check-icon">💳</span>
+                  <div>
+                    <div class="payment-check-title">Tarjeta</div>
+                    <div class="payment-check-desc">Datáfono Débito / Crédito</div>
                   </div>
                 </div>
               </label>
@@ -3699,6 +3726,16 @@
                   </div>
                 </div>
               </label>
+              <label class="payment-check-card" id="card-edit-cust-pay-card">
+                <input type="checkbox" id="edit-cust-pay-card" value="Tarjeta">
+                <div class="payment-check-info">
+                  <span class="payment-check-icon">💳</span>
+                  <div>
+                    <div class="payment-check-title">Tarjeta</div>
+                    <div class="payment-check-desc">Datáfono Débito / Crédito</div>
+                  </div>
+                </div>
+              </label>
               <label class="payment-check-card" id="card-edit-cust-pay-transfer">
                 <input type="checkbox" id="edit-cust-pay-transfer" value="Transferencia">
                 <div class="payment-check-info">
@@ -3888,6 +3925,7 @@
           <div style="display:flex; justify-content:space-between; margin-bottom:0.45rem;"><span>Efectivo Teórico en Gaveta:</span><strong id="cash-theoretical-amount" style="color:var(--primary-indigo); font-size:1.05rem;">$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💵 Ventas en Efectivo:</span><strong id="cash-shift-sales" style="color:var(--emerald-text);">+$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏦 Ventas por Transferencia:</span><strong id="cash-shift-transfers" style="color:#4F46E5;">+$0.00</strong></div>
+          <div id="cash-shift-cards-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💳 Ventas con Tarjeta:</span><strong id="cash-shift-cards" style="color:#9333EA;">+$0.00</strong></div>
           <div id="cash-shift-credit-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏷️ Ventas a Crédito (Por Cobrar):</span><strong id="cash-shift-credit" style="color:#D97706;">+$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.9rem;"><span>📊 Total Facturado Turno:</span><strong id="cash-shift-total-sales" style="font-weight:800; color:var(--text-main);">$0.00</strong></div>
         </div>

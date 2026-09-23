@@ -2040,6 +2040,7 @@ class NexusApp {
 
         const allowedPaymentMethods = [];
         if (document.getElementById('cust-pay-cash')?.checked) allowedPaymentMethods.push('Efectivo');
+        if (document.getElementById('cust-pay-card')?.checked) allowedPaymentMethods.push('Tarjeta');
         if (document.getElementById('cust-pay-transfer')?.checked) allowedPaymentMethods.push('Transferencia');
         if (document.getElementById('cust-pay-credit')?.checked) allowedPaymentMethods.push('Crédito');
         if (document.getElementById('cust-pay-separe')?.checked) allowedPaymentMethods.push('Plan Separe');
@@ -2106,6 +2107,7 @@ class NexusApp {
 
           const allowedPaymentMethods = [];
           if (document.getElementById('edit-cust-pay-cash')?.checked) allowedPaymentMethods.push('Efectivo');
+          if (document.getElementById('edit-cust-pay-card')?.checked) allowedPaymentMethods.push('Tarjeta');
           if (document.getElementById('edit-cust-pay-transfer')?.checked) allowedPaymentMethods.push('Transferencia');
           if (document.getElementById('edit-cust-pay-credit')?.checked) allowedPaymentMethods.push('Crédito');
           if (document.getElementById('edit-cust-pay-separe')?.checked) allowedPaymentMethods.push('Plan Separe');
@@ -4330,7 +4332,7 @@ class NexusApp {
     if (docTypeSelect) docTypeSelect.value = 'CC';
     const docInput = document.getElementById('cust-document-input');
     if (docInput) docInput.placeholder = 'ej. 1020304050';
-    ['cash', 'transfer', 'credit', 'separe'].forEach(type => {
+    ['cash', 'card', 'transfer', 'credit', 'separe'].forEach(type => {
       const el = document.getElementById(`cust-pay-${type}`);
       if (el) el.checked = true;
     });
@@ -4356,13 +4358,15 @@ class NexusApp {
     document.getElementById('edit-cust-limit').value = this.formatNumberWithCommas(c.creditLimit);
 
     // Sincronizar opciones de pago
-    const methods = c.allowedPaymentMethods || ['Efectivo', 'Transferencia', 'Crédito', 'Plan Separe'];
+    const methods = c.allowedPaymentMethods || ['Efectivo', 'Tarjeta', 'Transferencia', 'Crédito', 'Plan Separe'];
     const chkCash = document.getElementById('edit-cust-pay-cash');
+    const chkCard = document.getElementById('edit-cust-pay-card');
     const chkTransfer = document.getElementById('edit-cust-pay-transfer');
     const chkCredit = document.getElementById('edit-cust-pay-credit');
     const chkSepare = document.getElementById('edit-cust-pay-separe');
 
     if (chkCash) chkCash.checked = methods.includes('Efectivo');
+    if (chkCard) chkCard.checked = methods.includes('Tarjeta') || methods.includes('Tarjeta Débito/Crédito');
     if (chkTransfer) chkTransfer.checked = methods.includes('Transferencia');
     if (chkCredit) chkCredit.checked = methods.includes('Crédito');
     if (chkSepare) chkSepare.checked = methods.includes('Plan Separe');
@@ -6061,7 +6065,11 @@ class NexusApp {
           </span>
         </td>
         <td>${this.escapeHtml(tx.customer || 'Cliente Mostrador')}</td>
-        <td>${this.escapeHtml(tx.paymentMethod || 'Efectivo')}</td>
+        <td>
+          <span class="badge" style="background:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'rgba(168, 85, 247, 0.14)' : 'rgba(100, 116, 139, 0.08)'}; color:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '#7E22CE' : 'var(--text-main)'}; font-weight:700; padding:2px 8px; border-radius:12px;">
+            ${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '💳 ' : ''}${this.escapeHtml(tx.paymentMethod || 'Efectivo')}
+          </span>
+        </td>
         <td><span class="font-bold" style="color:var(--text-main);">${this.formatCurrency(Math.abs(tx.total))}</span></td>
         <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span></td>
         <td>
@@ -6179,7 +6187,12 @@ class NexusApp {
           <div style="font-weight:700; color:var(--text-main); font-size:0.9rem;">${qtyInfo.main}</div>
           <div class="text-xs" style="color:var(--text-muted); margin-top:2px;">${qtyInfo.sub}</div>
         </td>
-        <td>${this.escapeHtml(tx.paymentMethod || 'Efectivo')}</td>
+        <td>
+          <span class="badge" style="background:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'rgba(168, 85, 247, 0.14)' : 'rgba(100, 116, 139, 0.08)'}; color:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '#7E22CE' : 'var(--text-main)'}; font-weight:700; padding:2px 8px; border-radius:12px;">
+            ${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '💳 ' : ''}${this.escapeHtml(tx.paymentMethod || 'Efectivo')}
+          </span>
+          ${tx.voucher ? `<div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">Voucher: <b>#${this.escapeHtml(tx.voucher)}</b></div>` : ''}
+        </td>
         <td><span class="font-bold">${this.formatCurrency(Math.abs(tx.total))}</span></td>
         <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span></td>
         <td>
@@ -6860,9 +6873,9 @@ class NexusApp {
     const getMethodKey = (m) => {
       const lower = (m || '').toLowerCase();
       if (lower.includes('efectivo') || lower.includes('cash')) return 'Efectivo';
-      if (lower.includes('transfer') || lower.includes('banco') || lower.includes('cta')) return 'Transferencia';
-      if ((lower.includes('crédito') || lower.includes('credito')) && !lower.includes('tarjeta') && !lower.includes('card')) return 'Crédito';
       if (lower.includes('tarjeta') || lower.includes('card') || lower.includes('débito') || lower.includes('debito') || lower.includes('datafono') || lower.includes('datáfono')) return 'Tarjeta';
+      if (lower.includes('transfer') || lower.includes('banco') || lower.includes('cta')) return 'Transferencia';
+      if ((lower.includes('crédito') || lower.includes('credito'))) return 'Crédito';
       if (lower.includes('separe')) return 'Plan Separe';
       return m || 'Otros';
     };
@@ -6880,16 +6893,26 @@ class NexusApp {
     const methodMap = {};
     txs.forEach(t => {
       const key = getMethodKey(t.paymentMethod);
-      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0 };
-      methodMap[key].total += Math.round(Math.abs(t.total || 0));
+      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0, accounts: {} };
+      const amt = Math.round(Math.abs(t.total || 0));
+      methodMap[key].total += amt;
       methodMap[key].count++;
+      if (key === 'Tarjeta') {
+        const acct = t.targetAccount || (t.paymentMethod && t.paymentMethod.includes('(') ? t.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'General');
+        methodMap[key].accounts[acct] = (methodMap[key].accounts[acct] || 0) + amt;
+      }
     });
 
     abonos.forEach(a => {
       const key = getMethodKey(a.method);
-      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0 };
-      methodMap[key].total += Math.round(Math.abs(a.amount || 0));
+      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0, accounts: {} };
+      const amt = Math.round(Math.abs(a.amount || 0));
+      methodMap[key].total += amt;
       methodMap[key].count++;
+      if (key === 'Tarjeta') {
+        const acct = a.targetAccount || (a.method && a.method.includes('(') ? a.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'General');
+        methodMap[key].accounts[acct] = (methodMap[key].accounts[acct] || 0) + amt;
+      }
     });
 
     const summaryCards = Object.entries(methodMap).map(([key, data]) => {
@@ -6898,6 +6921,17 @@ class NexusApp {
       const statusNote = isCredit
         ? `<div style="font-size:0.68rem; color:#D97706; font-weight:700; margin-top:3px;">🏷️ Por Cobrar (Cartera)</div>`
         : `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:600; margin-top:3px;">✅ Recaudado</div>`;
+
+      const accountsDetail = (key === 'Tarjeta' && data.accounts && Object.keys(data.accounts).length > 0)
+        ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.7rem;">
+            ${Object.entries(data.accounts).map(([accName, accTotal]) => `
+              <div style="display:flex; justify-content:space-between; color:var(--text-subtle); margin-bottom:2px;">
+                <span>${this.escapeHtml(accName)}:</span>
+                <b style="color:var(--text-main);">${this.formatCurrency(accTotal)}</b>
+              </div>
+            `).join('')}
+          </div>`
+        : '';
 
       return `
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.65rem 0.95rem; min-width:160px; flex:1;">
@@ -6910,6 +6944,7 @@ class NexusApp {
           <div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">
             ${data.count} ${data.count === 1 ? 'operación' : 'operaciones'}
           </div>
+          ${accountsDetail}
           ${statusNote}
         </div>
       `;
@@ -7080,12 +7115,12 @@ class NexusApp {
       const m = (t.paymentMethod || '').toLowerCase();
       if (m.includes('efectivo') || m.includes('cash')) {
         totalEfectivo += amt;
-      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransferencia += amt;
-      } else if ((m.includes('crédito') || m.includes('credito')) && !m.includes('tarjeta') && !m.includes('card')) {
-        totalCredito += amt;
       } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
         totalTarjeta += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransferencia += amt;
+      } else if ((m.includes('crédito') || m.includes('credito'))) {
+        totalCredito += amt;
       } else {
         totalOtros += amt;
       }
@@ -7097,10 +7132,10 @@ class NexusApp {
       const m = (a.method || '').toLowerCase();
       if (m.includes('efectivo') || m.includes('cash')) {
         totalEfectivo += amt;
-      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransferencia += amt;
       } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
         totalTarjeta += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransferencia += amt;
       } else {
         totalOtros += amt;
       }
@@ -7290,12 +7325,12 @@ class NexusApp {
       const m = (t.paymentMethod || '').toLowerCase();
       if (m.includes('efectivo') || m.includes('cash')) {
         totalCash += amt;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
+        totalTarjeta += amt;
       } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
         totalTransfer += amt;
-      } else if ((m.includes('crédito') || m.includes('credito')) && !m.includes('tarjeta') && !m.includes('card')) {
+      } else if ((m.includes('crédito') || m.includes('credito'))) {
         totalCredito += amt;
-      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito')) {
-        totalTarjeta += amt;
       }
     });
 
@@ -7308,12 +7343,14 @@ class NexusApp {
     const calculatedExpected = openingCash + totalCash - cashExpenses;
     shift.expectedCashInDrawer = calculatedExpected;
     shift.cashSales = totalCash;
-    shift.cardSales = totalTransfer;
+    shift.cardSales = totalTransfer + totalTarjeta;
     shift.creditSales = totalCredito;
 
     const theoEl = document.getElementById('cash-theoretical-amount');
     const salesEl = document.getElementById('cash-shift-sales');
     const transfersEl = document.getElementById('cash-shift-transfers');
+    const cardsEl = document.getElementById('cash-shift-cards');
+    const cardsRowEl = document.getElementById('cash-shift-cards-row');
     const creditEl = document.getElementById('cash-shift-credit');
     const creditRowEl = document.getElementById('cash-shift-credit-row');
     const totalSalesEl = document.getElementById('cash-shift-total-sales');
@@ -7322,6 +7359,8 @@ class NexusApp {
     if (theoEl) theoEl.innerText = this.formatCurrency(calculatedExpected);
     if (salesEl) salesEl.innerText = '+' + this.formatCurrency(totalCash);
     if (transfersEl) transfersEl.innerText = '+' + this.formatCurrency(totalTransfer);
+    if (cardsEl) cardsEl.innerText = '+' + this.formatCurrency(totalTarjeta);
+    if (cardsRowEl) cardsRowEl.style.display = totalTarjeta > 0 ? 'flex' : 'none';
     if (creditEl) creditEl.innerText = '+' + this.formatCurrency(totalCredito);
     if (creditRowEl) creditRowEl.style.display = totalCredito > 0 ? 'flex' : 'none';
     if (totalSalesEl) totalSalesEl.innerText = '+' + this.formatCurrency(totalSales);
@@ -10317,8 +10356,13 @@ class NexusApp {
           </div>` : ''}
           <div style="display:flex; justify-content:space-between;">
             <span>Forma pago:</span>
-            <span>${this.escapeHtml(paymentMethod)}</span>
+            <span>${this.escapeHtml((paymentMethod || '').toLowerCase().includes('tarjeta') ? 'Tarjeta' : paymentMethod)}</span>
           </div>
+          ${options.voucher ? `
+          <div style="display:flex; justify-content:space-between;">
+            <span>Voucher / Aut.:</span>
+            <span>#${this.escapeHtml(options.voucher)}</span>
+          </div>` : ''}
           ${type === 'compra' ? `
           <div style="display:flex; justify-content:space-between; font-weight:700; margin-top:2px;">
             <span>Estado orden:</span>
@@ -10412,6 +10456,8 @@ class NexusApp {
       paidAmount: Math.abs(tx.total),
       changeAmount: 0,
       paymentMethod: tx.paymentMethod || 'Efectivo',
+      targetAccount: tx.targetAccount || (tx.paymentMethod && tx.paymentMethod.includes('(') ? tx.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : ''),
+      voucher: tx.voucher || '',
       customerCreditBalance: cust?.creditBalance
     });
 
@@ -13279,6 +13325,7 @@ class NexusApp {
       openBtn.addEventListener('click', () => {
         if (this.cart.length === 0) return;
         this.populateCheckoutCustomerSelect();
+        this.populateCardAccountSelect();
         this.renderCheckoutSummary();
         let subtotal = this.getCartSubtotal();
         let grandTotal = subtotal * (1 + this.data.store.taxRate / 100);
@@ -13339,14 +13386,60 @@ class NexusApp {
     select.innerHTML = defaultOpt + custOptions;
   }
 
+  populateCardAccountSelect() {
+    const select = document.getElementById('checkout-card-account-select');
+    if (!select) return;
+
+    // Cuentas base requeridas por el negocio
+    const baseAccounts = [
+      'Cuenta Carlos',
+      'Cuenta Sharick'
+    ];
+
+    const discoveredAccounts = [];
+    (this.data.paymentMethods || []).forEach(pm => {
+      const lower = (pm.name || '').toLowerCase();
+      if ((lower.includes('cuenta') || lower.includes('cta') || lower.includes('banco') || lower.includes('bancaria')) &&
+          !lower.includes('efectivo') && !lower.includes('separe') && !lower.includes('crédito cliente')) {
+        let cleanName = pm.name.trim();
+        if (cleanName) discoveredAccounts.push(cleanName);
+      }
+    });
+
+    const accountsSet = new Set();
+    const finalAccounts = [];
+
+    baseAccounts.forEach(name => {
+      accountsSet.add(name.toLowerCase());
+      finalAccounts.push(name);
+    });
+
+    discoveredAccounts.forEach(acc => {
+      const lower = acc.toLowerCase();
+      const alreadyCovered = (lower.includes('carlos') && accountsSet.has('cuenta carlos')) ||
+                             ((lower.includes('zharick') || lower.includes('sharick')) && accountsSet.has('cuenta sharick'));
+      if (!alreadyCovered && !accountsSet.has(lower)) {
+        accountsSet.add(lower);
+        finalAccounts.push(acc);
+      }
+    });
+
+    const currentVal = select.value;
+    select.innerHTML = finalAccounts.map((acc, idx) => {
+      const isSelected = (currentVal && currentVal === acc) || (!currentVal && idx === 0) ? 'selected' : '';
+      return `<option value="${this.escapeHtml(acc)}" ${isSelected}>🏦 ${this.escapeHtml(acc)}</option>`;
+    }).join('');
+  }
+
   syncCheckoutCustomerPaymentMethods() {
     const custSelect = document.getElementById('checkout-customer-select');
     const selectedCustomerName = custSelect?.value || 'Cliente Mostrador';
     const isMostrador = selectedCustomerName === 'Cliente Mostrador';
     const cust = this.data.customers.find(c => c.name === selectedCustomerName);
-    const allowed = cust ? (cust.allowedPaymentMethods || ['Efectivo', 'Transferencia', 'Crédito', 'Plan Separe']) : ['Efectivo', 'Transferencia', 'Crédito', 'Plan Separe'];
+    const allowed = cust ? (cust.allowedPaymentMethods || ['Efectivo', 'Tarjeta', 'Transferencia', 'Crédito', 'Plan Separe']) : ['Efectivo', 'Tarjeta', 'Transferencia', 'Crédito', 'Plan Separe'];
 
     const btnCash = document.getElementById('pay-btn-cash');
+    const btnCard = document.getElementById('pay-btn-card');
     const btnTransfer = document.getElementById('pay-btn-transfer');
     const btnCredit = document.getElementById('pay-btn-credit');
     const btnSepare = document.getElementById('pay-btn-separe');
@@ -13370,6 +13463,7 @@ class NexusApp {
     };
 
     updateBtn(btnCash, 'Efectivo', allowed.includes('Efectivo'));
+    updateBtn(btnCard, 'Tarjeta', allowed.includes('Tarjeta') || allowed.includes('Tarjeta Débito/Crédito') || isMostrador || true);
     updateBtn(btnTransfer, 'Transferencia', allowed.includes('Transferencia'));
     updateBtn(btnCredit, 'Crédito', !isMostrador && allowed.includes('Crédito'));
     updateBtn(btnSepare, 'Plan Separe', !isMostrador && allowed.includes('Plan Separe'));
@@ -13389,7 +13483,7 @@ class NexusApp {
     // If currently active button is disabled or none active, pick first available
     const activeBtn = document.querySelector('.pay-method-btn.active');
     if (!activeBtn || activeBtn.disabled) {
-      const firstAvailable = [btnCash, btnTransfer, btnCredit, btnSepare].find(b => b && !b.disabled);
+      const firstAvailable = [btnCash, btnCard, btnTransfer, btnCredit, btnSepare].find(b => b && !b.disabled);
       if (firstAvailable) {
         firstAvailable.click();
       }
@@ -13405,11 +13499,13 @@ class NexusApp {
     const cust = this.data.customers.find(c => c.name === selectedCustomerName);
 
     const cashCalcBox = document.getElementById('cash-calc-box');
+    const cardBox = document.getElementById('card-info-box');
     const transferBox = document.getElementById('transfer-info-box');
     const creditBox = document.getElementById('credit-info-box');
     const separeBox = document.getElementById('separe-info-box');
 
     if (cashCalcBox) cashCalcBox.style.display = this.selectedPayMethod === 'cash' ? 'flex' : 'none';
+    if (cardBox) cardBox.style.display = this.selectedPayMethod === 'card' ? 'flex' : 'none';
     if (transferBox) transferBox.style.display = this.selectedPayMethod === 'transfer' ? 'flex' : 'none';
     if (creditBox) creditBox.style.display = this.selectedPayMethod === 'credit' ? 'flex' : 'none';
     if (separeBox) separeBox.style.display = this.selectedPayMethod === 'separe' ? 'flex' : 'none';
@@ -13473,11 +13569,22 @@ class NexusApp {
 
     const payMethodNames = {
       'cash': 'Efectivo',
+      'card': 'Tarjeta',
       'transfer': 'Transferencia',
       'credit': 'Crédito',
       'separe': 'Plan Separe'
     };
     const payMethodName = payMethodNames[this.selectedPayMethod] || 'Efectivo';
+
+    const cardAccount = this.selectedPayMethod === 'card'
+      ? (document.getElementById('checkout-card-account-select')?.value?.trim() || 'Cuenta Carlos')
+      : '';
+    const cardVoucher = this.selectedPayMethod === 'card'
+      ? (document.getElementById('checkout-card-voucher-input')?.value?.trim() || '')
+      : '';
+    const txPaymentMethod = (this.selectedPayMethod === 'card' && cardAccount)
+      ? `Tarjeta (${cardAccount})`
+      : payMethodName;
 
     // 1. Guard against unauthorized methods for unregistered clients
     if ((this.selectedPayMethod === 'credit' || this.selectedPayMethod === 'separe') && (!cust || isMostrador)) {
@@ -13574,7 +13681,7 @@ class NexusApp {
       this.data.cashShiftLog.cashSales = Math.round((Number(this.data.cashShiftLog.cashSales || 0) + grandTotal) * 100) / 100;
       this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
       if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
-    } else if (this.selectedPayMethod === 'transfer') {
+    } else if (this.selectedPayMethod === 'card' || this.selectedPayMethod === 'transfer') {
       this.data.cashShiftLog.cardSales = Math.round((Number(this.data.cashShiftLog.cardSales || 0) + grandTotal) * 100) / 100;
     } else if (this.selectedPayMethod === 'credit') {
       if (cust) {
@@ -13647,7 +13754,9 @@ class NexusApp {
       subtotal: subtotal,
       tax: tax,
       total: grandTotal,
-      paymentMethod: payMethodName,
+      paymentMethod: txPaymentMethod,
+      targetAccount: cardAccount || undefined,
+      voucher: cardVoucher || undefined,
       cashier: this.currentUser?.name || this.data.store?.cashier || "Cajero",
       status: "completed"
     };
@@ -13701,7 +13810,9 @@ class NexusApp {
       total: grandTotal,
       paidAmount: cashReceived,
       changeAmount: changeVal,
-      paymentMethod: payMethodName,
+      paymentMethod: txPaymentMethod,
+      targetAccount: cardAccount || undefined,
+      voucher: cardVoucher || undefined,
       separeAbono: separeAbono,
       separePending: separePending,
       customerCreditBalance: cust?.creditBalance
@@ -13726,7 +13837,7 @@ class NexusApp {
     if (receiptBody) receiptBody.innerHTML = receiptHtml;
     this.openModal('receipt-modal');
 
-    this.showToast(`¡Venta #${newTxId} (${payMethodName}) completada y guardada!`, 'success');
+    this.showToast(`¡Venta #${newTxId} (${txPaymentMethod}) completada y guardada!`, 'success');
   }
 
   /* --------------------------------------------------------------------------
