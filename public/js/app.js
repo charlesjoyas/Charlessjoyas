@@ -7145,8 +7145,13 @@ class NexusApp {
     if (totalEfectivo === 0 && Number(shift.cashSales) > 0) {
       totalEfectivo = Math.round(Number(shift.cashSales));
     }
-    if (totalTransferencia === 0 && Number(shift.cardSales) > 0) {
-      totalTransferencia = Math.round(Number(shift.cardSales));
+    if (totalTransferencia === 0 && totalTarjeta === 0 && Number(shift.cardSales) > 0) {
+      if (Number(shift.tarjetaSales) > 0 || Number(shift.transferSales) > 0) {
+        totalTransferencia = Math.round(Number(shift.transferSales) || 0);
+        totalTarjeta = Math.round(Number(shift.tarjetaSales) || 0);
+      } else {
+        totalTransferencia = Math.round(Number(shift.cardSales));
+      }
     }
     if (totalFacturado === 0) {
       totalFacturado = totalEfectivo + totalTransferencia + totalTarjeta + totalCredito + totalOtros;
@@ -7160,47 +7165,61 @@ class NexusApp {
     const expectedCashInDrawer = isOpen ? calculatedExpected : (Math.round(Number(shift.expectedCashInDrawer)) || calculatedExpected);
 
     container.innerHTML = `
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0.75rem;">
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Monto Apertura (Base)</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700;">${this.formatCurrency(openingCash)}</div>
-          ${shift.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : ''}
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:0.75rem;">
+        <!-- 1. Monto Apertura -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Monto Apertura (Base)</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(openingCash)}</div>
+          ${shift.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">Base inicial de turno</div>'}
         </div>
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas en Efectivo</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:var(--emerald-text);">+${this.formatCurrency(totalEfectivo)}</div>
+
+        <!-- 2. Ventas Efectivo -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ventas en Efectivo</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:var(--emerald-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalEfectivo)}</div>
           <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💵 Entró a gaveta física</div>
         </div>
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas por Transferencia</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#4F46E5;">+${this.formatCurrency(totalTransferencia)}</div>
+
+        <!-- 3. Ventas Transferencia -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ventas por Transferencia</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:#4F46E5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalTransferencia)}</div>
           <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">🏦 Entró a banco</div>
         </div>
-        ${totalTarjeta > 0 ? `
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas con Tarjeta</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#9333EA;">+${this.formatCurrency(totalTarjeta)}</div>
+
+        <!-- 4. Ventas Tarjeta (Datáfono) -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ventas con Tarjeta</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:#9333EA; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalTarjeta)}</div>
           <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💳 Entró por Datáfono</div>
-        </div>` : ''}
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Ventas a Crédito</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:#D97706;">+${this.formatCurrency(totalCredito)}</div>
+        </div>
+
+        <!-- 5. Ventas Crédito -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ventas a Crédito</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:#D97706; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalCredito)}</div>
           <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">🏷️ Por cobrar (No entra a caja)</div>
         </div>
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Total Facturado Turno</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:800; color:var(--text-main);">+${this.formatCurrency(totalFacturado)}</div>
-          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📊 Todos los medios</div>
-        </div>
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Retiros & Egresos</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:var(--rose-text);">-${this.formatCurrency(cashExpenses)}</div>
+
+        <!-- 6. Retiros & Egresos -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Retiros & Egresos</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:var(--rose-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">-${this.formatCurrency(cashExpenses)}</div>
           <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📋 Salidas en efectivo</div>
         </div>
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem;">
-          <div style="font-size:0.78rem; color:var(--text-muted);">Efectivo Esperado (Gaveta)</div>
-          <div style="font-family:var(--font-heading); font-size:1.4rem; font-weight:800; color:var(--primary-indigo);">${this.formatCurrency(expectedCashInDrawer)}</div>
-          ${shift.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem;">Cierre: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : ''}
+
+        <!-- 7. Total Facturado -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Total Facturado Turno</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalFacturado)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📊 Todos los medios</div>
+        </div>
+
+        <!-- 8. Efectivo Esperado en Gaveta -->
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Efectivo Esperado (Gaveta)</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:var(--primary-indigo); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(expectedCashInDrawer)}</div>
+          ${shift.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Cierre: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💼 Saldo teórico en gaveta</div>'}
         </div>
       </div>
 
@@ -7344,6 +7363,8 @@ class NexusApp {
     shift.expectedCashInDrawer = calculatedExpected;
     shift.cashSales = totalCash;
     shift.cardSales = totalTransfer + totalTarjeta;
+    shift.transferSales = totalTransfer;
+    shift.tarjetaSales = totalTarjeta;
     shift.creditSales = totalCredito;
 
     const theoEl = document.getElementById('cash-theoretical-amount');
@@ -7412,6 +7433,8 @@ class NexusApp {
       openingCash: this.data.cashShiftLog?.openingCash || 0,
       cashSales: this.data.cashShiftLog?.cashSales || 0,
       cardSales: this.data.cashShiftLog?.cardSales || 0,
+      transferSales: this.data.cashShiftLog?.transferSales || 0,
+      tarjetaSales: this.data.cashShiftLog?.tarjetaSales || 0,
       creditSales: this.data.cashShiftLog?.creditSales || 0,
       cashExpenses: this.data.cashShiftLog?.cashExpenses || 0,
       expectedCashInDrawer: expected,
