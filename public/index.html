@@ -2424,9 +2424,17 @@
           </div>
         </div>
 
-        <div id="transfer-info-box" style="display:none; flex-direction:column; gap:0.5rem; margin-bottom:1.5rem; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25); padding:1rem; border-radius:var(--radius-md);">
-          <div style="font-weight:700; font-size:0.9rem; color:#3B82F6; display:flex; align-items:center; gap:6px;">🏦 Pago por Transferencia Electrónica</div>
-          <div style="font-size:0.8rem; color:var(--text-muted);">Cuentas habilitadas: Bancolombia Cta Ahorros, Nequi, Daviplata, Transfiya / Llave QR. Verifique el comprobante antes de emitir la factura.</div>
+        <div id="transfer-info-box" style="display:none; flex-direction:column; gap:0.75rem; margin-bottom:1.5rem; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25); padding:1rem; border-radius:var(--radius-md);">
+          <div style="font-weight:700; font-size:0.9rem; color:#2563EB; display:flex; align-items:center; gap:6px;">🏦 Pago por Transferencia / QR</div>
+          <div style="font-size:0.8rem; color:var(--text-muted);">El cobro se procesa por transferencia o código QR y el dinero ingresa a la cuenta bancaria seleccionada:</div>
+          <div>
+            <label style="font-size:0.78rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.35rem;">¿A qué cuenta bancaria ingresa? *</label>
+            <select id="checkout-transfer-account-select" class="form-select" style="width:100%; font-weight:700; font-size:0.95rem;"></select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.35rem;">N° de Comprobante / Transacción (Opcional)</label>
+            <input type="text" id="checkout-transfer-voucher-input" class="form-input" placeholder="Ej: #048291 / Nequi M1234" style="font-size:0.85rem;">
+          </div>
         </div>
 
         <button class="btn btn-emerald" style="width:100%; padding:0.85rem; font-size:1rem;" id="confirm-payment-btn">✔ Confirmar & Emitir Recibo</button>

@@ -660,6 +660,8 @@ class NexusApp {
     if (typeof this.renderMorosidadPortfolio === 'function') this.renderMorosidadPortfolio();
     this.populateTendenciaDatalist();
     this.populateCheckoutCustomerSelect();
+    this.populateCardAccountSelect();
+    this.populateTransferAccountSelect();
     this.syncCheckoutCustomerPaymentMethods();
     this.renderDashboardMetrics();
     this.renderCuadreCajaCard();
@@ -6066,8 +6068,8 @@ class NexusApp {
         </td>
         <td>${this.escapeHtml(tx.customer || 'Cliente Mostrador')}</td>
         <td>
-          <span class="badge" style="background:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'rgba(168, 85, 247, 0.14)' : 'rgba(100, 116, 139, 0.08)'}; color:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '#7E22CE' : 'var(--text-main)'}; font-weight:700; padding:2px 8px; border-radius:12px;">
-            ${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '💳 ' : ''}${this.escapeHtml(tx.paymentMethod || 'Efectivo')}
+          <span class="badge" style="background:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'rgba(168, 85, 247, 0.14)' : ((tx.paymentMethod || '').toLowerCase().includes('transfer') ? 'rgba(59, 130, 246, 0.14)' : 'rgba(100, 116, 139, 0.08)')}; color:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '#7E22CE' : ((tx.paymentMethod || '').toLowerCase().includes('transfer') ? '#1D4ED8' : 'var(--text-main)')}; font-weight:700; padding:2px 8px; border-radius:12px;">
+            ${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '💳 ' : ((tx.paymentMethod || '').toLowerCase().includes('transfer') ? '🏦 ' : '')}${this.escapeHtml(tx.paymentMethod || 'Efectivo')}
           </span>
         </td>
         <td><span class="font-bold" style="color:var(--text-main);">${this.formatCurrency(Math.abs(tx.total))}</span></td>
@@ -6188,10 +6190,10 @@ class NexusApp {
           <div class="text-xs" style="color:var(--text-muted); margin-top:2px;">${qtyInfo.sub}</div>
         </td>
         <td>
-          <span class="badge" style="background:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'rgba(168, 85, 247, 0.14)' : 'rgba(100, 116, 139, 0.08)'}; color:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '#7E22CE' : 'var(--text-main)'}; font-weight:700; padding:2px 8px; border-radius:12px;">
-            ${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '💳 ' : ''}${this.escapeHtml(tx.paymentMethod || 'Efectivo')}
+          <span class="badge" style="background:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'rgba(168, 85, 247, 0.14)' : ((tx.paymentMethod || '').toLowerCase().includes('transfer') ? 'rgba(59, 130, 246, 0.14)' : 'rgba(100, 116, 139, 0.08)')}; color:${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '#7E22CE' : ((tx.paymentMethod || '').toLowerCase().includes('transfer') ? '#1D4ED8' : 'var(--text-main)')}; font-weight:700; padding:2px 8px; border-radius:12px;">
+            ${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? '💳 ' : ((tx.paymentMethod || '').toLowerCase().includes('transfer') ? '🏦 ' : '')}${this.escapeHtml(tx.paymentMethod || 'Efectivo')}
           </span>
-          ${tx.voucher ? `<div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">Voucher: <b>#${this.escapeHtml(tx.voucher)}</b></div>` : ''}
+          ${tx.voucher ? `<div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'Voucher' : 'Comprobante'}: <b>#${this.escapeHtml(tx.voucher)}</b></div>` : ''}
         </td>
         <td><span class="font-bold">${this.formatCurrency(Math.abs(tx.total))}</span></td>
         <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span></td>
@@ -6897,7 +6899,7 @@ class NexusApp {
       const amt = Math.round(Math.abs(t.total || 0));
       methodMap[key].total += amt;
       methodMap[key].count++;
-      if (key === 'Tarjeta') {
+      if (key === 'Tarjeta' || key === 'Transferencia') {
         const acct = t.targetAccount || (t.paymentMethod && t.paymentMethod.includes('(') ? t.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'General');
         methodMap[key].accounts[acct] = (methodMap[key].accounts[acct] || 0) + amt;
       }
@@ -6909,7 +6911,7 @@ class NexusApp {
       const amt = Math.round(Math.abs(a.amount || 0));
       methodMap[key].total += amt;
       methodMap[key].count++;
-      if (key === 'Tarjeta') {
+      if (key === 'Tarjeta' || key === 'Transferencia') {
         const acct = a.targetAccount || (a.method && a.method.includes('(') ? a.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'General');
         methodMap[key].accounts[acct] = (methodMap[key].accounts[acct] || 0) + amt;
       }
@@ -6922,7 +6924,7 @@ class NexusApp {
         ? `<div style="font-size:0.68rem; color:#D97706; font-weight:700; margin-top:3px;">🏷️ Por Cobrar (Cartera)</div>`
         : `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:600; margin-top:3px;">✅ Recaudado</div>`;
 
-      const accountsDetail = (key === 'Tarjeta' && data.accounts && Object.keys(data.accounts).length > 0)
+      const accountsDetail = ((key === 'Tarjeta' || key === 'Transferencia') && data.accounts && Object.keys(data.accounts).length > 0)
         ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.7rem;">
             ${Object.entries(data.accounts).map(([accName, accTotal]) => `
               <div style="display:flex; justify-content:space-between; color:var(--text-subtle); margin-bottom:2px;">
@@ -13349,6 +13351,7 @@ class NexusApp {
         if (this.cart.length === 0) return;
         this.populateCheckoutCustomerSelect();
         this.populateCardAccountSelect();
+        this.populateTransferAccountSelect();
         this.renderCheckoutSummary();
         let subtotal = this.getCartSubtotal();
         let grandTotal = subtotal * (1 + this.data.store.taxRate / 100);
@@ -13409,14 +13412,12 @@ class NexusApp {
     select.innerHTML = defaultOpt + custOptions;
   }
 
-  populateCardAccountSelect() {
-    const select = document.getElementById('checkout-card-account-select');
-    if (!select) return;
-
+  getDestinationBankAccounts() {
     // Cuentas base requeridas por el negocio
     const baseAccounts = [
       'Cuenta Carlos',
-      'Cuenta Sharick'
+      'Cuenta Sharick',
+      'CUENTA CHARLES JOYAS SAS'
     ];
 
     const discoveredAccounts = [];
@@ -13440,13 +13441,32 @@ class NexusApp {
     discoveredAccounts.forEach(acc => {
       const lower = acc.toLowerCase();
       const alreadyCovered = (lower.includes('carlos') && accountsSet.has('cuenta carlos')) ||
-                             ((lower.includes('zharick') || lower.includes('sharick')) && accountsSet.has('cuenta sharick'));
+                             ((lower.includes('zharick') || lower.includes('sharick')) && accountsSet.has('cuenta sharick')) ||
+                             (lower.includes('charles joyas') && accountsSet.has('cuenta charles joyas sas'));
       if (!alreadyCovered && !accountsSet.has(lower)) {
         accountsSet.add(lower);
         finalAccounts.push(acc);
       }
     });
 
+    return finalAccounts;
+  }
+
+  populateCardAccountSelect() {
+    const select = document.getElementById('checkout-card-account-select');
+    if (!select) return;
+    const finalAccounts = this.getDestinationBankAccounts();
+    const currentVal = select.value;
+    select.innerHTML = finalAccounts.map((acc, idx) => {
+      const isSelected = (currentVal && currentVal === acc) || (!currentVal && idx === 0) ? 'selected' : '';
+      return `<option value="${this.escapeHtml(acc)}" ${isSelected}>🏦 ${this.escapeHtml(acc)}</option>`;
+    }).join('');
+  }
+
+  populateTransferAccountSelect() {
+    const select = document.getElementById('checkout-transfer-account-select');
+    if (!select) return;
+    const finalAccounts = this.getDestinationBankAccounts();
     const currentVal = select.value;
     select.innerHTML = finalAccounts.map((acc, idx) => {
       const isSelected = (currentVal && currentVal === acc) || (!currentVal && idx === 0) ? 'selected' : '';
@@ -13528,8 +13548,14 @@ class NexusApp {
     const separeBox = document.getElementById('separe-info-box');
 
     if (cashCalcBox) cashCalcBox.style.display = this.selectedPayMethod === 'cash' ? 'flex' : 'none';
-    if (cardBox) cardBox.style.display = this.selectedPayMethod === 'card' ? 'flex' : 'none';
-    if (transferBox) transferBox.style.display = this.selectedPayMethod === 'transfer' ? 'flex' : 'none';
+    if (cardBox) {
+      cardBox.style.display = this.selectedPayMethod === 'card' ? 'flex' : 'none';
+      if (this.selectedPayMethod === 'card') this.populateCardAccountSelect();
+    }
+    if (transferBox) {
+      transferBox.style.display = this.selectedPayMethod === 'transfer' ? 'flex' : 'none';
+      if (this.selectedPayMethod === 'transfer') this.populateTransferAccountSelect();
+    }
     if (creditBox) creditBox.style.display = this.selectedPayMethod === 'credit' ? 'flex' : 'none';
     if (separeBox) separeBox.style.display = this.selectedPayMethod === 'separe' ? 'flex' : 'none';
 
@@ -13605,9 +13631,27 @@ class NexusApp {
     const cardVoucher = this.selectedPayMethod === 'card'
       ? (document.getElementById('checkout-card-voucher-input')?.value?.trim() || '')
       : '';
-    const txPaymentMethod = (this.selectedPayMethod === 'card' && cardAccount)
-      ? `Tarjeta (${cardAccount})`
-      : payMethodName;
+
+    const transferAccount = this.selectedPayMethod === 'transfer'
+      ? (document.getElementById('checkout-transfer-account-select')?.value?.trim() || 'Cuenta Carlos')
+      : '';
+    const transferVoucher = this.selectedPayMethod === 'transfer'
+      ? (document.getElementById('checkout-transfer-voucher-input')?.value?.trim() || '')
+      : '';
+
+    let txPaymentMethod = payMethodName;
+    let targetAccount = '';
+    let voucher = '';
+
+    if (this.selectedPayMethod === 'card') {
+      targetAccount = cardAccount;
+      voucher = cardVoucher;
+      if (cardAccount) txPaymentMethod = `Tarjeta (${cardAccount})`;
+    } else if (this.selectedPayMethod === 'transfer') {
+      targetAccount = transferAccount;
+      voucher = transferVoucher;
+      if (transferAccount) txPaymentMethod = `Transferencia (${transferAccount})`;
+    }
 
     // 1. Guard against unauthorized methods for unregistered clients
     if ((this.selectedPayMethod === 'credit' || this.selectedPayMethod === 'separe') && (!cust || isMostrador)) {
@@ -13778,8 +13822,8 @@ class NexusApp {
       tax: tax,
       total: grandTotal,
       paymentMethod: txPaymentMethod,
-      targetAccount: cardAccount || undefined,
-      voucher: cardVoucher || undefined,
+      targetAccount: targetAccount || undefined,
+      voucher: voucher || undefined,
       cashier: this.currentUser?.name || this.data.store?.cashier || "Cajero",
       status: "completed"
     };
@@ -13834,8 +13878,8 @@ class NexusApp {
       paidAmount: cashReceived,
       changeAmount: changeVal,
       paymentMethod: txPaymentMethod,
-      targetAccount: cardAccount || undefined,
-      voucher: cardVoucher || undefined,
+      targetAccount: targetAccount || undefined,
+      voucher: voucher || undefined,
       separeAbono: separeAbono,
       separePending: separePending,
       customerCreditBalance: cust?.creditBalance
@@ -13850,6 +13894,11 @@ class NexusApp {
     this.renderDashboardRecentSales();
     this.renderCuadreCajaCard();
     this.renderRepFinanzas();
+
+    const cardVoucherEl = document.getElementById('checkout-card-voucher-input');
+    if (cardVoucherEl) cardVoucherEl.value = '';
+    const transferVoucherEl = document.getElementById('checkout-transfer-voucher-input');
+    if (transferVoucherEl) transferVoucherEl.value = '';
 
     if (modal) modal.classList.remove('open');
 
