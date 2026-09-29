@@ -11326,7 +11326,7 @@ class NexusApp {
    <Column ss:Width="90"/>
 
    <Row ss:Height="28">
-    <Cell ss:MergeAcross="5" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — LIBRO MAESTRO DE COMPRAS, ABASTECIMIENTO Y ABONOS</Data></Cell>
+    <Cell ss:MergeAcross="5" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — LIBRO COMPLETO DE COMPRAS, ABASTECIMIENTO Y ABONOS</Data></Cell>
    </Row>
    <Row ss:Height="18">
     <Cell ss:MergeAcross="5" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Consolidado Multi-Módulo de Flujos Comerciales</Data></Cell>
@@ -11630,8 +11630,8 @@ class NexusApp {
  </Worksheet>
 </Workbook>`;
 
-    this._downloadExcelWorkbook(xml, 'Libro_Maestro_Compras_y_Abonos_Charles_Joyas');
-    this.showToast('Libro Maestro de Compras y Abonos exportado a Excel exitosamente', 'success');
+    this._downloadExcelWorkbook(xml, 'Libro_Completo_Compras_y_Abonos_Charles_Joyas');
+    this.showToast('Libro Completo de Compras y Abonos exportado a Excel exitosamente', 'success');
   }
 
 
