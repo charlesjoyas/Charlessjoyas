@@ -852,7 +852,16 @@
                 <h1 class="section-title">Órdenes de Compra a Proveedores</h1>
                 <p class="section-subtitle">Gestión de pedidos de reposición e inventario entrante.</p>
               </div>
-              <button class="btn btn-primary" id="open-purchase-modal-btn">+ Nueva Orden Compra</button>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportPurchasesExcel()" title="Exportar historial completo de órdenes de compra a Excel (.xls)" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar Compras (.xls)
+                </button>
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportLibroCompletoComprasYAbonosExcel()" title="Exportar Libro Maestro con Compras, Abonos a Proveedores y Abonos de Clientes" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+                  📊 Libro Maestro (Compras &amp; Abonos)
+                </button>
+                <button class="btn btn-primary" id="open-purchase-modal-btn">+ Nueva Orden Compra</button>
+              </div>
             </div>
             <div class="table-wrapper">
               <div class="table-container">
@@ -1216,9 +1225,17 @@
                   Nueva Orden
                 </button>
 
-                <button class="btn btn-secondary text-sm" onclick="app.exportPurchasesCSV()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+                <button class="btn btn-secondary text-sm" onclick="app.exportPurchasesExcel()" title="Exportar Reporte Completo de Compras en Excel profesional multi-hoja (.xls)" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                  Exportar CSV
+                  Exportar Excel (.xls)
+                </button>
+
+                <button class="btn btn-secondary text-sm" onclick="app.exportLibroCompletoComprasYAbonosExcel()" title="Exportar Libro Maestro Consolidado (Compras + Abonos Ventas + Abonos Compras)" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+                  📊 Libro Maestro
+                </button>
+
+                <button class="btn btn-secondary text-sm" onclick="app.exportPurchasesCSV()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600;" title="Exportar en formato CSV">
+                  CSV
                 </button>
 
                 <button class="btn btn-secondary text-sm" onclick="app.renderRepCompras(); app.showToast('Métricas de compras recalculadas', 'success')" title="Recalcular">
@@ -1452,13 +1469,59 @@
           </div>
 
           <div class="sub-view-pane" id="pane-reports-abonos_ventas">
-            <div class="section-header"><div><h1 class="section-title">Historial de Abonos a Ventas</h1><p class="section-subtitle">Registro de cobros recibidos de clientes a crédito.</p></div></div>
-            <div class="table-wrapper"><div class="table-container"><table class="data-table"><thead><tr><th>ID Abono</th><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Monto ($)</th><th>Método</th><th>Cajero</th></tr></thead><tbody id="abonos-ventas-tbody"></tbody></table></div></div>
+            <div class="section-header">
+              <div>
+                <h1 class="section-title">Historial de Abonos a Ventas</h1>
+                <p class="section-subtitle">Registro de cobros recibidos de clientes a crédito y Plan Separe.</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportAbonosVentasExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;" title="Exportar historial detallado de abonos de clientes a Excel (.xls)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar Abonos Ventas (.xls)
+                </button>
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportLibroCompletoComprasYAbonosExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;" title="Exportar Libro Maestro Consolidado (Compras + Abonos)">
+                  📊 Libro Maestro
+                </button>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr><th>ID Abono</th><th>Fecha</th><th>Cliente</th><th>Factura / Ref</th><th>Monto ($)</th><th>Método</th><th>Cajero</th></tr>
+                  </thead>
+                  <tbody id="abonos-ventas-tbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
           <div class="sub-view-pane" id="pane-reports-abonos_compras">
-            <div class="section-header"><div><h1 class="section-title">Historial de Abonos a Compras</h1><p class="section-subtitle">Registro de pagos realizados a proveedores.</p></div></div>
-            <div class="table-wrapper"><div class="table-container"><table class="data-table"><thead><tr><th>ID Abono</th><th>Fecha</th><th>Proveedor</th><th>Orden Compra</th><th>Monto ($)</th><th>Método</th><th>Estado</th></tr></thead><tbody id="abonos-compras-tbody"></tbody></table></div></div>
+            <div class="section-header">
+              <div>
+                <h1 class="section-title">Historial de Abonos a Compras</h1>
+                <p class="section-subtitle">Registro de pagos y abonos realizados a proveedores de joyería.</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportAbonosComprasExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;" title="Exportar historial detallado de abonos y pagos a proveedores a Excel (.xls)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar Abonos Compras (.xls)
+                </button>
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportLibroCompletoComprasYAbonosExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;" title="Exportar Libro Maestro Consolidado (Compras + Abonos)">
+                  📊 Libro Maestro
+                </button>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr><th>ID Abono</th><th>Fecha</th><th>Proveedor</th><th>Orden / Crédito</th><th>Monto ($)</th><th>Método</th><th>Estado</th></tr>
+                  </thead>
+                  <tbody id="abonos-compras-tbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
