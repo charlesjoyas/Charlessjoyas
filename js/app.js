@@ -5453,6 +5453,39 @@ class NexusApp {
     this.openAbonoModal('supplier', deudaId);
   }
 
+  deleteSupplierCredit(deudaId) {
+    const credit = (this.data.supplierCredits || []).find(sc => sc.id === deudaId);
+    const supplierName = credit ? credit.supplier : 'este proveedor';
+    const pendingFmt = credit ? this.formatCurrency(credit.pendingAmount || 0) : '';
+    const confirmMsg = `¿Eliminar definitivamente la deuda${pendingFmt ? ' de ' + pendingFmt : ''} con "${supplierName}"?\n\nEsta acción eliminará el registro y saldará el saldo en el directorio de proveedores. No se puede deshacer.`;
+    if (!confirm(confirmMsg)) return;
+
+    // 1. Eliminar el registro de supplierCredits
+    if (Array.isArray(this.data.supplierCredits)) {
+      this.data.supplierCredits = this.data.supplierCredits.filter(sc => sc.id !== deudaId);
+    }
+
+    // 2. Si el crédito tiene supplierId o nombre, poner creditBalance = 0 en el proveedor
+    if (credit && Array.isArray(this.data.suppliers)) {
+      const supplier = this.data.suppliers.find(s =>
+        (credit.supplierId && s.id === credit.supplierId) ||
+        s.name?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim()
+      );
+      if (supplier) {
+        supplier.creditBalance = 0;
+      }
+    }
+
+    // 3. Guardar y re-renderizar globalmente
+    this.savePersistence().then(() => {
+      this.syncAllModules();
+      this.showToast('Deuda eliminada correctamente. El saldo del proveedor ha sido actualizado.', 'success');
+    }).catch(() => {
+      this.syncAllModules();
+      this.showToast('Deuda eliminada correctamente.', 'success');
+    });
+  }
+
   /* --------------------------------------------------------------------------
      CHARTS INITIALIZATION WITH SAFE DESTROY
      -------------------------------------------------------------------------- */
@@ -6385,6 +6418,7 @@ class NexusApp {
         <td>
           <div class="action-btn-group">
             ${cp.pendingAmount > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.paySupplierCredit('${cp.id}')">💳 Registrar Pago</button>` : `<span class="text-xs" style="color:var(--emerald-text);">Saldado</span>`}
+            <button class="btn-action-delete" style="padding:3px 10px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${cp.id}')">🗑️ Eliminar</button>
           </div>
         </td>
       </tr>
