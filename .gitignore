@@ -26,3 +26,5 @@ Thumbs.db
 # Temporary scratch folder & testing profiles
 scratch/
 *.log
+
+.vercel
