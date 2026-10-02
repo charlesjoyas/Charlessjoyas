@@ -10287,6 +10287,565 @@ class NexusApp {
     URL.revokeObjectURL(url);
   }
 
+  exportCreditosProveedoresExcel() {
+    this.syncSupplierCreditsState();
+    const credits = this.data.supplierCredits || [];
+    const suppliers = this.data.suppliers || [];
+    const abonos = this.data.abonosCompras || [];
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    if (credits.length === 0 && suppliers.every(s => !s.creditBalance || Number(s.creditBalance) === 0)) {
+      this.showToast('No hay créditos ni deudas de proveedores para exportar', 'warning');
+      return;
+    }
+
+    const escapeXml = (str) => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const findSupplier = (name, suppId) => {
+      if (suppId) {
+        const found = suppliers.find(s => s.id === suppId);
+        if (found) return found;
+      }
+      if (!name) return null;
+      const clean = String(name).trim().toLowerCase();
+      return suppliers.find(s =>
+        (s.name && s.name.trim().toLowerCase() === clean) ||
+        (s.id && s.id.trim().toLowerCase() === clean)
+      );
+    };
+
+    // Consolidate totals
+    let totalDeudaInicial = 0;
+    let totalSaldoPendiente = 0;
+    let totalAbonado = 0;
+    let countPendientes = 0;
+    let countVencidos = 0;
+    let countSaldados = 0;
+
+    const suppSummaryMap = {};
+
+    credits.forEach(cr => {
+      const inicial = Number(cr.totalOwed) || 0;
+      const pendiente = Number(cr.pendingAmount) || 0;
+      const abonado = Number(cr.paidAmount) || (inicial - pendiente > 0 ? inicial - pendiente : 0);
+
+      totalDeudaInicial += inicial;
+      totalSaldoPendiente += pendiente;
+      totalAbonado += abonado;
+
+      const isVencido = pendiente > 0 && cr.dueDate && cr.dueDate < todayStr;
+      if (isVencido) countVencidos++;
+      if (pendiente > 0) countPendientes++;
+      else countSaldados++;
+
+      const supp = findSupplier(cr.supplier, cr.supplierId);
+      const sName = cr.supplier || (supp ? supp.name : 'Proveedor General');
+      if (!suppSummaryMap[sName]) {
+        suppSummaryMap[sName] = {
+          supplier: sName,
+          nit: supp?.nit || 'N/A',
+          phone: supp?.phone || 'N/A',
+          bank: supp?.bank ? `${supp.bank} (${supp.accountType || 'Cta'} #${supp.accountNumber || ''})` : 'No registrado',
+          countCredits: 0,
+          totalOwed: 0,
+          totalPaid: 0,
+          totalPending: 0,
+          vencidosCount: 0
+        };
+      }
+      suppSummaryMap[sName].countCredits++;
+      suppSummaryMap[sName].totalOwed += inicial;
+      suppSummaryMap[sName].totalPaid += abonado;
+      suppSummaryMap[sName].totalPending += pendiente;
+      if (isVencido) suppSummaryMap[sName].vencidosCount++;
+    });
+
+    // Cross-check any supplier with positive credit balance not in credits list
+    suppliers.forEach(s => {
+      const bal = Number(s.creditBalance) || 0;
+      if (bal > 0 && !suppSummaryMap[s.name]) {
+        suppSummaryMap[s.name] = {
+          supplier: s.name,
+          nit: s.nit || 'N/A',
+          phone: s.phone || 'N/A',
+          bank: s.bank ? `${s.bank} (${s.accountType || 'Cta'} #${s.accountNumber || ''})` : 'No registrado',
+          countCredits: 1,
+          totalOwed: bal,
+          totalPaid: 0,
+          totalPending: bal,
+          vencidosCount: 0
+        };
+        totalDeudaInicial += bal;
+        totalSaldoPendiente += bal;
+        countPendientes++;
+      }
+    });
+
+    const pctAmortizado = totalDeudaInicial > 0 ? (totalAbonado / totalDeudaInicial) : 0;
+
+    // --- HOJA 1: RESUMEN POR PROVEEDOR ---
+    let rowsSuppSummary = '';
+    Object.keys(suppSummaryMap).forEach(sName => {
+      const s = suppSummaryMap[sName];
+      const partPct = totalSaldoPendiente > 0 ? (s.totalPending / totalSaldoPendiente) : 0;
+      let badge = 'BadgeGreen';
+      let estadoTxt = 'Al Día / Saldado';
+      if (s.totalPending > 0) {
+        if (s.vencidosCount > 0) {
+          badge = 'BadgeRose';
+          estadoTxt = `${s.vencidosCount} Vencido(s)`;
+        } else {
+          badge = 'BadgeAmber';
+          estadoTxt = 'Pendiente de Pago';
+        }
+      }
+
+      rowsSuppSummary += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(s.supplier)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.nit)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.phone)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(s.bank)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${s.countCredits}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${s.totalOwed}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${s.totalPaid}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${s.totalPending}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${partPct}</Data></Cell>
+      <Cell ss:StyleID="${badge}"><Data ss:Type="String">${escapeXml(estadoTxt)}</Data></Cell>
+    </Row>`;
+    });
+
+    // --- HOJA 2: SOLO DEUDAS PENDIENTES (ORDENADAS POR VENCIMIENTO) ---
+    const pendingCredits = credits
+      .filter(cr => (Number(cr.pendingAmount) || 0) > 0)
+      .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+
+    let sumPendingInicial = 0;
+    let sumPendingAbonado = 0;
+    let sumPendingSaldo = 0;
+
+    let rowsPending = '';
+    pendingCredits.forEach(cr => {
+      const inicial = Number(cr.totalOwed) || 0;
+      const pendiente = Number(cr.pendingAmount) || 0;
+      const abonado = Number(cr.paidAmount) || (inicial - pendiente > 0 ? inicial - pendiente : 0);
+      const supp = findSupplier(cr.supplier, cr.supplierId);
+      const sName = cr.supplier || (supp ? supp.name : 'Proveedor General');
+      const pctOwed = inicial > 0 ? (pendiente / inicial) : 1;
+
+      sumPendingInicial += inicial;
+      sumPendingAbonado += abonado;
+      sumPendingSaldo += pendiente;
+
+      let diasTexto = 'Al día';
+      let diasBadge = 'BadgeGreen';
+      if (cr.dueDate) {
+        const due = new Date(cr.dueDate + 'T23:59:59');
+        const diffTime = due.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+          diasTexto = `🔴 VENCIDO (hace ${Math.abs(diffDays)} d)`;
+          diasBadge = 'BadgeRose';
+        } else if (diffDays === 0) {
+          diasTexto = '🟡 VENCE HOY';
+          diasBadge = 'BadgeAmber';
+        } else if (diffDays <= 7) {
+          diasTexto = `🟡 Próximo (${diffDays} d)`;
+          diasBadge = 'BadgeAmber';
+        } else {
+          diasTexto = `🟢 Al día (${diffDays} d)`;
+          diasBadge = 'BadgeGreen';
+        }
+      }
+
+      rowsPending += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(cr.id)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(sName)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.nit || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.phone || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(supp?.bank ? `${supp.bank} (${supp.accountType || 'Cta'} #${supp.accountNumber || ''})` : 'No registrado')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(cr.date || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(cr.dueDate || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="${diasBadge}"><Data ss:Type="String">${escapeXml(diasTexto)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${inicial}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${abonado}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${pendiente}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pctOwed}</Data></Cell>
+      <Cell ss:StyleID="BadgeRose"><Data ss:Type="String">${escapeXml(cr.status || 'Pendiente')}</Data></Cell>
+    </Row>`;
+    });
+
+    // --- HOJA 3: HISTÓRICO COMPLETO DE CRÉDITOS ---
+    let rowsAllCredits = '';
+    credits.forEach(cr => {
+      const inicial = Number(cr.totalOwed) || 0;
+      const pendiente = Number(cr.pendingAmount) || 0;
+      const abonado = Number(cr.paidAmount) || (inicial - pendiente > 0 ? inicial - pendiente : 0);
+      const supp = findSupplier(cr.supplier, cr.supplierId);
+      const sName = cr.supplier || (supp ? supp.name : 'Proveedor General');
+      const pctPaid = inicial > 0 ? (abonado / inicial) : 0;
+
+      let badge = 'BadgeRose';
+      if (cr.status === 'Pagado Total' || pendiente <= 0) {
+        badge = 'BadgeGreen';
+      } else if (abonado > 0) {
+        badge = 'BadgeAmber';
+      }
+
+      const lastAbono = abonos.find(a => 
+        (a.poId && a.poId === cr.id) || 
+        (a.supplier && a.supplier.toLowerCase().trim() === sName.toLowerCase().trim())
+      );
+      const lastAbonoTxt = lastAbono ? `${lastAbono.date} (${this.formatCurrency(lastAbono.amount)})` : 'Sin abonos';
+
+      rowsAllCredits += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(cr.id)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(sName)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.nit || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.phone || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(cr.date || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(cr.dueDate || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${inicial}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${abonado}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${pendiente}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pctPaid}</Data></Cell>
+      <Cell ss:StyleID="${badge}"><Data ss:Type="String">${escapeXml(cr.status || 'Pendiente')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(lastAbonoTxt)}</Data></Cell>
+    </Row>`;
+    });
+
+    // --- HOJA 4: HISTORIAL DE ABONOS A PROVEEDORES ---
+    let totalAbonosEfectuados = 0;
+    let rowsAbonos = '';
+    abonos.forEach(ab => {
+      const amt = Number(ab.amount) || 0;
+      totalAbonosEfectuados += amt;
+      const supp = findSupplier(ab.supplier);
+      const isCaja = (ab.method || '').toLowerCase().includes('caja') || (ab.method || '').toLowerCase().includes('efectivo');
+
+      rowsAbonos += `
+    <Row ss:Height="20">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(ab.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.date)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(ab.supplier)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.nit || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.poId || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${amt}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.method || 'Efectivo')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(isCaja ? 'Caja Principal' : 'Transferencia Bancaria')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(ab.cashier || (this.currentUser ? this.currentUser.name : 'Administrador'))}</Data></Cell>
+      <Cell ss:StyleID="BadgeGreen"><Data ss:Type="String">${escapeXml(ab.status || 'Confirmado')}</Data></Cell>
+    </Row>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>Charles Joyas SAS</Author>
+  <Company>Inversiones Charles Joyas S.A.S</Company>
+  <Created>${now.toISOString()}</Created>
+ </DocumentProperties>
+ <Styles>
+  ${this._getExcelCommonStyles()}
+ </Styles>
+
+ <!-- HOJA 1: RESUMEN EJECUTIVO Y CARTERA POR PROVEEDOR -->
+ <Worksheet ss:Name="Resumen Cartera CXP">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="190"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="120"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="9" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — AUDITORÍA GENERAL DE CRÉDITOS Y CUENTAS POR PAGAR (CXP)</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="9" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Consolidado Ejecutivo de Compromisos Comerciales</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="9" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Total Proveedores: ${Object.keys(suppSummaryMap).length}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- KPI Cards -->
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL DEUDA INICIAL</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL ABONADO / PAGADO</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">SALDO PENDIENTE ACTUAL (CXP)</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">% AMORTIZADO</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">DEUDAS PENDIENTES</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">DEUDAS EN MORA / VENCIDAS</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiVal"><Data ss:Type="Number">${totalDeudaInicial}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalAbonado}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalSaldoPendiente}</Data></Cell>
+    <Cell ss:StyleID="KpiValAmber"><Data ss:Type="String">${(pctAmortizado * 100).toFixed(1)}%</Data></Cell>
+    <Cell ss:StyleID="KpiValRose"><Data ss:Type="Number">${countPendientes}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValRose"><Data ss:Type="Number">${countVencidos}</Data></Cell>
+   </Row>
+   <Row ss:Height="12"></Row>
+
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  DETALLE CONSOLIDADO POR PROVEEDOR (DISTRIBUIDORES &amp; TALLER)</Data></Cell>
+   </Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PROVEEDOR</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NIT / CC</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TELÉFONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">BANCO / CUENTA PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CRÉDITOS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DEUDA INICIAL</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL ABONADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% CARTERA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsSuppSummary || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="9" ss:StyleID="CellCenter"><Data ss:Type="String">No hay proveedores registrados con créditos o cuentas por pagar.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO CARTERA PROVEEDORES</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalDeudaInicial}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalAbonado}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalSaldoPendiente}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${Object.keys(suppSummaryMap).length} proveedores</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>9</SplitHorizontal>
+   <TopRowBottomPane>9</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- HOJA 2: SOLO DEUDAS PENDIENTES (PRIORIDAD OPERATIVA) -->
+ <Worksheet ss:Name="Deudas Pendientes">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="95"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="170"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="125"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="105"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="12" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — CARTERA ACTIVA: DEUDAS Y SALDOS PENDIENTES DE PAGO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="12" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Listado Prioritario de Compromisos Comerciales Pendientes (Filtro Activo: Saldo > $0)</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="12" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Cuentas Pendientes: ${pendingCredits.length} | Total por Pagar: $ ${sumPendingSaldo.toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID DEUDA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PROVEEDOR</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NIT / CC</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TELÉFONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">BANCO / CUENTA PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA APERTURA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VENCIMIENTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DIAGNÓSTICO MORA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DEUDA INICIAL</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ABONOS REALIZADOS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% PENDIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsPending || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="12" ss:StyleID="CellCenter"><Data ss:Type="String">¡Excelente! No hay deudas pendientes con proveedores registradas actualmente.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="7" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL SALDO PENDIENTE PRIORITARIO (CXP)</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumPendingInicial}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumPendingAbonado}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumPendingSaldo}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${pendingCredits.length} pendientes</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- HOJA 3: LIBRO MAESTRO COMPLETO (HISTÓRICO) -->
+ <Worksheet ss:Name="Libro Maestro Creditos">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="95"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="160"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="11" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — LIBRO MAESTRO DE CRÉDITOS CON PROVEEDORES (HISTÓRICO)</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Trazabilidad Completa de Compromisos Comerciales: Cuentas Activas y Cuentas Saldadas</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="MetaHeader"><Data ss:Type="String">  Total Créditos Registrados: ${credits.length} | Créditos Saldados: ${countSaldados} | Créditos Activos: ${countPendientes}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID CRÉDITO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PROVEEDOR</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NIT</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TELÉFONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA EMISIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VENCIMIENTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DEUDA INICIAL</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL ABONADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% AMORTIZADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ÚLTIMO ABONO REGISTRADO</Data></Cell>
+   </Row>
+
+   ${rowsAllCredits || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="11" ss:StyleID="CellCenter"><Data ss:Type="String">No hay créditos registrados en el historial.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL HISTÓRICO CRÉDITOS PROVEEDORES</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalDeudaInicial}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalAbonado}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalSaldoPendiente}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${(pctAmortizado * 100).toFixed(1)}%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${credits.length} registros</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- HOJA 4: HISTORIAL DE ABONOS A PROVEEDORES -->
+ <Worksheet ss:Name="Historial Abonos Pagados">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="95"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="95"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="9" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — HISTORIAL DE PAGOS Y ABONOS A PROVEEDORES</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="9" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Comprobantes Oficiales de Salidas de Caja y Banco para Amortización de Deudas</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="9" ss:StyleID="MetaHeader"><Data ss:Type="String">  Total Pagos Realizados: ${abonos.length} | Valor Total Desembolsado: $ ${totalAbonosEfectuados.toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID COMPROBANTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PROVEEDOR</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NIT</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">N° ORDEN / CRÉDITO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VALOR ABONADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MÉTODO PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ORIGEN FONDOS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">RESPONSABLE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsAbonos || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="9" ss:StyleID="CellCenter"><Data ss:Type="String">No se han registrado abonos a compras o proveedores todavía.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GENERAL ABONADO A PROVEEDORES</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalAbonosEfectuados}</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">${abonos.length} abonos confirmados</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    this._downloadExcelWorkbook(xml, 'Reporte_Creditos_Proveedores_Charles_Joyas');
+    this.showToast('Auditoría Completa de Créditos y Cuentas por Pagar exportada a Excel exitosamente', 'success');
+  }
+
   exportAbonosComprasExcel() {
     const list = this.data.abonosCompras || [];
     if (list.length === 0) {
