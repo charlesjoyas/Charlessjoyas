@@ -11929,6 +11929,8 @@ class NexusApp {
 
     const logoHtml = store.branding?.logoUrl ? `<img src="${store.branding.logoUrl}" style="max-height:42px; max-width:130px; margin-bottom:4px; object-fit:contain;">` : '';
 
+    const isVenta = type === 'venta';
+
     const itemsRowsHtml = items.map(item => {
       const name = this.escapeHtml(item.name || 'Producto Joya');
       const sku = item.sku || item.product?.sku || item.productSku || (item.product?.id ? item.product.id : '');
@@ -11936,6 +11938,21 @@ class NexusApp {
       const qtyStr = item.formattedQty || `${item.qty || 1}`;
       const priceStr = item.formattedUnitPrice || this.formatCurrency(item.price || 0);
       const totalStr = item.formattedLineTotal || this.formatCurrency(item.total || (item.price * item.qty));
+
+      if (isVenta) {
+        return `
+          <div style="margin-bottom:6px; padding-bottom:3px; border-bottom:1px dotted #eaeaea;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; font-size:12px;">
+              <div style="font-weight:700; text-transform:none; color:#000; flex:2.2; padding-right:8px; line-height:1.3;">
+                ${codePrefix}${name}
+              </div>
+              <div style="flex:1.1; text-align:right; font-weight:700; color:#000; white-space:nowrap;">
+                ${totalStr}
+              </div>
+            </div>
+          </div>
+        `;
+      }
 
       return `
         <div style="margin-bottom:6px;">
@@ -11983,11 +12000,18 @@ class NexusApp {
         <div style="border-bottom:1px solid #111; margin:6px 0;"></div>
 
         <!-- ENCABEZADO DE COLUMNAS -->
+        ${isVenta ? `
+        <div style="display:flex; justify-content:space-between; font-weight:800; font-size:11.5px; padding:2px 0;">
+          <span style="flex:2.2; text-align:left;">Descripción</span>
+          <span style="flex:1.1; text-align:right;">Valor</span>
+        </div>
+        ` : `
         <div style="display:flex; justify-content:space-between; font-weight:800; font-size:11.5px; padding:2px 0;">
           <span style="flex:1.2; text-align:left;">Cant</span>
           <span style="flex:1.5; text-align:center;">$/Unid</span>
           <span style="flex:1.3; text-align:right;">Total</span>
         </div>
+        `}
 
         <div style="border-bottom:1px solid #111; margin:3px 0 6px 0;"></div>
 
