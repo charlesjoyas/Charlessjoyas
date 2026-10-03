@@ -1064,11 +1064,25 @@
                   <button type="button" class="finanzas-period-pill active" onclick="app.setFinanzasPeriod('month', this)">Este Mes</button>
                   <button type="button" class="finanzas-period-pill" onclick="app.setFinanzasPeriod('30d', this)">Últimos 30d</button>
                   <button type="button" class="finanzas-period-pill" onclick="app.setFinanzasPeriod('all', this)">Histórico</button>
+                  <button type="button" class="finanzas-period-pill" id="finanzas-pill-custom" onclick="app.setFinanzasPeriod('custom', this)">Personalizado</button>
+                </div>
+
+                <div class="finanzas-date-range-box" id="finanzas-date-range-box">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    Desde:
+                  </span>
+                  <input type="date" id="finanzas-date-from" title="Fecha inicial del reporte" onchange="app.onFinanzasCustomDateChanged()">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">Hasta:</span>
+                  <input type="date" id="finanzas-date-to" title="Fecha final del reporte" onchange="app.onFinanzasCustomDateChanged()">
+                  <button type="button" class="btn btn-primary" id="finanzas-btn-apply" onclick="app.applyFinanzasCustomDateRange()" style="padding: 0.2rem 0.65rem; font-size: 0.76rem; height: 28px; font-weight: 700; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem;" title="Filtrar reporte, gráficas y excel">
+                    Filtrar
+                  </button>
                 </div>
 
                 <button class="btn btn-secondary text-sm" onclick="app.exportFinancesPAndLExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                  Exportar P&L (Excel)
+                  Exportar P&amp;L (Excel)
                 </button>
 
                 <button class="btn btn-secondary text-sm" onclick="app.renderRepFinanzas(); app.showToast('Métricas financieras recalculadas', 'success')" title="Recalcular">
@@ -4210,6 +4224,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=56" defer></script>
+  <script src="js/app.js?v=57" defer></script>
 </body>
 </html>

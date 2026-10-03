@@ -8617,6 +8617,20 @@ class NexusApp {
       cutoff.setHours(0, 0, 0, 0);
       return d >= cutoff;
     }
+    if (period === 'custom') {
+      const startStr = this.finanzasCustomStartDate;
+      const endStr = this.finanzasCustomEndDate;
+      if (!startStr && !endStr) return true;
+
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const isoDate = `${y}-${m}-${day}`;
+
+      if (startStr && isoDate < startStr) return false;
+      if (endStr && isoDate > endStr) return false;
+      return true;
+    }
     return true;
   }
 
@@ -8661,16 +8675,109 @@ class NexusApp {
     if (container) {
       container.querySelectorAll('.finanzas-period-pill').forEach(b => {
         const onClick = b.getAttribute('onclick') || '';
-        const isMatch = btnEl ? b === btnEl : onClick.includes(`'${period}'`);
+        const isMatch = btnEl ? b === btnEl : (onClick.includes(`'${period}'`) || b.id === `finanzas-pill-${period}`);
         b.classList.toggle('active', isMatch);
       });
     }
+
+    const fromInput = document.getElementById('finanzas-date-from');
+    const toInput = document.getElementById('finanzas-date-to');
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    if (period === 'month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      if (fromInput) fromInput.value = firstDay;
+      if (toInput) toInput.value = todayStr;
+      this.finanzasCustomStartDate = firstDay;
+      this.finanzasCustomEndDate = todayStr;
+    } else if (period === '30d') {
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+      if (fromInput) fromInput.value = thirtyDaysAgo;
+      if (toInput) toInput.value = todayStr;
+      this.finanzasCustomStartDate = thirtyDaysAgo;
+      this.finanzasCustomEndDate = todayStr;
+    } else if (period === 'all') {
+      let oldestDate = '2024-01-01';
+      const allDates = [
+        ...(this.data.recentTransactions || []).map(t => t.date),
+        ...(this.data.expenses || []).map(e => e.date)
+      ].filter(Boolean).map(s => String(s).slice(0, 10)).sort();
+      if (allDates.length > 0) oldestDate = allDates[0];
+      if (fromInput) fromInput.value = oldestDate;
+      if (toInput) toInput.value = todayStr;
+      this.finanzasCustomStartDate = oldestDate;
+      this.finanzasCustomEndDate = todayStr;
+    } else if (period === 'custom') {
+      if (fromInput?.value && toInput?.value) {
+        this.finanzasCustomStartDate = fromInput.value;
+        this.finanzasCustomEndDate = toInput.value;
+      }
+    }
+
     this.renderRepFinanzas(period);
+  }
+
+  onFinanzasCustomDateChanged() {
+    const fromInput = document.getElementById('finanzas-date-from');
+    const toInput = document.getElementById('finanzas-date-to');
+    if (fromInput?.value && toInput?.value) {
+      this.applyFinanzasCustomDateRange();
+    }
+  }
+
+  applyFinanzasCustomDateRange() {
+    const fromInput = document.getElementById('finanzas-date-from');
+    const toInput = document.getElementById('finanzas-date-to');
+    if (!fromInput || !toInput) return;
+
+    const fromVal = fromInput.value;
+    const toVal = toInput.value;
+
+    if (!fromVal || !toVal) {
+      this.showToast('Por favor selecciona las fechas Desde y Hasta', 'warning');
+      return;
+    }
+
+    if (fromVal > toVal) {
+      this.showToast('La fecha "Desde" no puede ser mayor que la fecha "Hasta"', 'warning');
+      return;
+    }
+
+    this.finanzasCustomStartDate = fromVal;
+    this.finanzasCustomEndDate = toVal;
+    this.currentFinanzasPeriod = 'custom';
+
+    const container = document.getElementById('finanzas-period-btns');
+    if (container) {
+      container.querySelectorAll('.finanzas-period-pill').forEach(b => {
+        const isCustom = b.id === 'finanzas-pill-custom' || (b.getAttribute('onclick') || '').includes("'custom'");
+        b.classList.toggle('active', isCustom);
+      });
+    }
+
+    this.renderRepFinanzas('custom');
+    this.showToast(`Informe financiero filtrado: ${fromVal} a ${toVal}`, 'success');
   }
 
   renderRepFinanzas(period = null) {
     if (period) this.currentFinanzasPeriod = period;
     const currentPeriod = this.currentFinanzasPeriod || 'month';
+
+    const fromInput = document.getElementById('finanzas-date-from');
+    const toInput = document.getElementById('finanzas-date-to');
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    if (fromInput && toInput) {
+      if (!this.finanzasCustomStartDate || !this.finanzasCustomEndDate) {
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+        this.finanzasCustomStartDate = firstDay;
+        this.finanzasCustomEndDate = todayStr;
+      }
+      if (!fromInput.value) fromInput.value = this.finanzasCustomStartDate;
+      if (!toInput.value) toInput.value = this.finanzasCustomEndDate;
+    }
 
     // 1. Calculate Revenue purely from real sales and transactions for the selected period
     const validSalesTx = (this.data.recentTransactions || []).filter(tx => {
@@ -8936,6 +9043,145 @@ class NexusApp {
         expenseData = bRev.map((rev, i) => bCOGS[i] + bOpex[i]);
         netProfitData = incomeData.map((rev, i) => rev - expenseData[i]);
 
+      } else if (period === 'custom') {
+        const now = new Date();
+        const startD = this.parseDateSafe(this.finanzasCustomStartDate) || new Date(now.getTime() - 30 * 86400000);
+        const endD = this.parseDateSafe(this.finanzasCustomEndDate) || new Date();
+        const diffDays = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1);
+
+        if (diffDays <= 14) {
+          labels = [];
+          const cur = new Date(startD);
+          const dayKeys = [];
+          while (cur <= endD) {
+            const y = cur.getFullYear();
+            const m = String(cur.getMonth() + 1).padStart(2, '0');
+            const day = String(cur.getDate()).padStart(2, '0');
+            dayKeys.push(`${y}-${m}-${day}`);
+            labels.push(cur.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }));
+            cur.setDate(cur.getDate() + 1);
+          }
+          const cRev = labels.map(() => 0);
+          const cCOGS = labels.map(() => 0);
+          const cOpex = labels.map(() => 0);
+
+          filteredTx.forEach(tx => {
+            const d = this.parseDateSafe(tx.date);
+            if (!d) return;
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const iso = `${y}-${m}-${day}`;
+            const idx = dayKeys.indexOf(iso);
+            if (idx !== -1) {
+              cRev[idx] += (Number(tx.total) || 0);
+              if (Array.isArray(tx.items)) {
+                tx.items.forEach(it => {
+                  cCOGS[idx] += this.calculateTransactionItemCOGS(it);
+                });
+              }
+            }
+          });
+
+          filteredExp.forEach(e => {
+            const d = this.parseDateSafe(e.date);
+            if (!d) return;
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const iso = `${y}-${m}-${day}`;
+            const idx = dayKeys.indexOf(iso);
+            if (idx !== -1) {
+              cOpex[idx] += (Number(e.amount) || 0);
+            }
+          });
+
+          incomeData = cRev;
+          expenseData = cRev.map((rev, i) => cCOGS[i] + cOpex[i]);
+          netProfitData = incomeData.map((rev, i) => rev - expenseData[i]);
+
+        } else if (diffDays <= 45) {
+          const numBuckets = 4;
+          const bucketSpan = Math.ceil(diffDays / numBuckets);
+          labels = [];
+          for (let i = 0; i < numBuckets; i++) {
+            const bStart = new Date(startD.getTime() + i * bucketSpan * 86400000);
+            const bEnd = new Date(Math.min(endD.getTime(), startD.getTime() + (i + 1) * bucketSpan * 86400000 - 86400000));
+            labels.push(`${bStart.getDate()}/${bStart.getMonth() + 1} - ${bEnd.getDate()}/${bEnd.getMonth() + 1}`);
+          }
+          const bRev = [0, 0, 0, 0];
+          const bCOGS = [0, 0, 0, 0];
+          const bOpex = [0, 0, 0, 0];
+
+          filteredTx.forEach(tx => {
+            const d = this.parseDateSafe(tx.date);
+            if (!d) return;
+            const dayOffset = Math.floor((d.getTime() - startD.getTime()) / 86400000);
+            const idx = Math.min(numBuckets - 1, Math.max(0, Math.floor(dayOffset / bucketSpan)));
+            bRev[idx] += (Number(tx.total) || 0);
+            if (Array.isArray(tx.items)) {
+              tx.items.forEach(it => {
+                bCOGS[idx] += this.calculateTransactionItemCOGS(it);
+              });
+            }
+          });
+
+          filteredExp.forEach(e => {
+            const d = this.parseDateSafe(e.date);
+            if (!d) return;
+            const dayOffset = Math.floor((d.getTime() - startD.getTime()) / 86400000);
+            const idx = Math.min(numBuckets - 1, Math.max(0, Math.floor(dayOffset / bucketSpan)));
+            bOpex[idx] += (Number(e.amount) || 0);
+          });
+
+          incomeData = bRev;
+          expenseData = bRev.map((rev, i) => bCOGS[i] + bOpex[i]);
+          netProfitData = incomeData.map((rev, i) => rev - expenseData[i]);
+
+        } else {
+          const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+          labels = [];
+          const cur = new Date(startD.getFullYear(), startD.getMonth(), 1);
+          while (cur <= endD) {
+            labels.push(`${monthNames[cur.getMonth()]} ${cur.getFullYear().toString().slice(-2)}`);
+            cur.setMonth(cur.getMonth() + 1);
+          }
+          if (labels.length === 0) labels = ['Período'];
+
+          const mRev = labels.map(() => 0);
+          const mCOGS = labels.map(() => 0);
+          const mOpex = labels.map(() => 0);
+
+          filteredTx.forEach(tx => {
+            const d = this.parseDateSafe(tx.date);
+            if (!d) return;
+            const key = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
+            const idx = labels.indexOf(key);
+            if (idx !== -1) {
+              mRev[idx] += (Number(tx.total) || 0);
+              if (Array.isArray(tx.items)) {
+                tx.items.forEach(it => {
+                  mCOGS[idx] += this.calculateTransactionItemCOGS(it);
+                });
+              }
+            }
+          });
+
+          filteredExp.forEach(e => {
+            const d = this.parseDateSafe(e.date);
+            if (!d) return;
+            const key = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
+            const idx = labels.indexOf(key);
+            if (idx !== -1) {
+              mOpex[idx] += (Number(e.amount) || 0);
+            }
+          });
+
+          incomeData = mRev;
+          expenseData = mRev.map((rev, i) => mCOGS[i] + mOpex[i]);
+          netProfitData = incomeData.map((rev, i) => rev - expenseData[i]);
+        }
+
       } else {
         const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
         const currentMonthIdx = new Date().getMonth();
@@ -9123,9 +9369,18 @@ class NexusApp {
 
     const safePctVal = (val, tot) => tot > 0 ? (val / tot) : 0;
     const period = m.period || 'month';
-    const periodLabel = period === 'month' 
-      ? `Mes Actual (${new Date().toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }).toUpperCase()})`
-      : (period === '30d' ? 'Últimos 30 Días' : 'Histórico Consolidado Completo');
+    let periodLabel = '';
+    if (period === 'custom') {
+      const fromStr = this.finanzasCustomStartDate || m.startDate || 'Inicio';
+      const toStr = this.finanzasCustomEndDate || m.endDate || 'Hoy';
+      periodLabel = `Rango Seleccionado: ${fromStr} al ${toStr}`;
+    } else if (period === 'month') {
+      periodLabel = `Mes Actual (${new Date().toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }).toUpperCase()})`;
+    } else if (period === '30d') {
+      periodLabel = 'Últimos 30 Días';
+    } else {
+      periodLabel = 'Histórico Consolidado Completo';
+    }
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-CO');
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -9703,8 +9958,11 @@ class NexusApp {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     const fileDateStr = new Date().toISOString().split('T')[0];
+    const fileRangeSuffix = period === 'custom'
+      ? `${this.finanzasCustomStartDate || 'desde'}_al_${this.finanzasCustomEndDate || 'hasta'}`
+      : period;
     link.setAttribute('href', url);
-    link.setAttribute('download', `Estado_Resultados_PyL_Charles_Joyas_${period}_${fileDateStr}.xls`);
+    link.setAttribute('download', `Estado_Resultados_PyL_Charles_Joyas_${fileRangeSuffix}_${fileDateStr}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

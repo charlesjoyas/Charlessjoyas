@@ -4077,6 +4077,48 @@ html, body {
   color: var(--brand-primary);
 }
 
+.finanzas-date-range-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg-surface-elevated, #F1F5F9);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+
+.finanzas-date-range-box input[type="date"] {
+  padding: 0.22rem 0.5rem;
+  font-size: 0.8rem;
+  height: 28px;
+  width: 125px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  outline: none;
+  font-family: inherit;
+  font-weight: 600;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.finanzas-date-range-box input[type="date"]:focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="dark"] .finanzas-date-range-box {
+  background: #1E293B;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .finanzas-date-range-box input[type="date"] {
+  background: #0F172A;
+  border-color: #334155;
+  color: #F8FAFC;
+}
+
+
 .finanzas-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
