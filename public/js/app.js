@@ -16082,6 +16082,7 @@ class NexusApp {
       totalSalesAll,
       totalExpensesAll,
       totalCogsAll,
+      totalGrossProfitAll,
       totalUtilidadAll,
       totalUtilidadNetaAll,
       globalMargin,
