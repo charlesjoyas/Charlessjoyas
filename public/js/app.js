@@ -8074,6 +8074,648 @@ class NexusApp {
     }).join('');
   }
 
+  exportAssetsExcel() {
+    const assets = this.data.assets || [];
+    if (assets.length === 0) {
+      this.showToast('No hay activos fijos registrados para exportar', 'warning');
+      return;
+    }
+
+    const escapeXml = (str) => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+
+    let totalCost = 0;
+    let totalCurrentVal = 0;
+    const catMap = {};
+    const statusMap = {};
+
+    assets.forEach(a => {
+      const cost = Number(a.costValue) || 0;
+      const curr = Number(a.currentVal !== undefined ? a.currentVal : a.costValue) || 0;
+      const dep = Math.max(0, cost - curr);
+
+      totalCost += cost;
+      totalCurrentVal += curr;
+
+      const cat = a.category || 'General';
+      if (!catMap[cat]) catMap[cat] = { count: 0, cost: 0, current: 0, dep: 0 };
+      catMap[cat].count++;
+      catMap[cat].cost += cost;
+      catMap[cat].current += curr;
+      catMap[cat].dep += dep;
+
+      const st = a.status || 'Excelente';
+      if (!statusMap[st]) statusMap[st] = { count: 0, cost: 0, current: 0 };
+      statusMap[st].count++;
+      statusMap[st].cost += cost;
+      statusMap[st].current += curr;
+    });
+
+    const totalDepreciation = Math.max(0, totalCost - totalCurrentVal);
+    const globalDepPct = totalCost > 0 ? (totalDepreciation / totalCost) : 0;
+
+    // Hoja 1: Detalle Activos
+    let rowsDetalle = '';
+    assets.forEach((a, idx) => {
+      const cost = Number(a.costValue) || 0;
+      const curr = Number(a.currentVal !== undefined ? a.currentVal : a.costValue) || 0;
+      const dep = Math.max(0, cost - curr);
+      const depPct = cost > 0 ? (dep / cost) : 0;
+
+      const pDate = this.parseDateSafe(a.purchaseDate);
+      let antiguedad = 'N/A';
+      if (pDate && !isNaN(pDate.getTime())) {
+        const months = Math.max(0, Math.round((now.getTime() - pDate.getTime()) / (1000 * 60 * 60 * 24 * 30.4375)));
+        if (months < 1) antiguedad = 'Menos de 1 mes';
+        else if (months === 1) antiguedad = '1 mes';
+        else if (months < 12) antiguedad = `${months} meses`;
+        else {
+          const yrs = (months / 12).toFixed(1);
+          antiguedad = `${yrs} años`;
+        }
+      }
+
+      const niifClasif = a.category?.toLowerCase().includes('pos') || a.category?.toLowerCase().includes('comput')
+        ? 'Equipos de Procesamiento de Datos (5 años)'
+        : (a.category?.toLowerCase().includes('seguridad')
+          ? 'Equipo de Seguridad y Bóveda (10 años)'
+          : 'Mobiliario y Enseres (10 años)');
+
+      rowsDetalle += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(a.id)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(a.name || '')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(a.category || 'General')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(a.purchaseDate || '')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(antiguedad)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${cost}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${curr}</Data></Cell>
+      <Cell ss:StyleID="${dep > 0 ? 'CellCurrencyRose' : 'CellCurrency'}"><Data ss:Type="Number">${dep}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${depPct.toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="BadgeActive"><Data ss:Type="String">${escapeXml(a.status || 'Excelente')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(niifClasif)}</Data></Cell>
+    </Row>`;
+    });
+
+    // Hoja 2: Resumen por Categoría
+    const sortedCats = Object.entries(catMap).sort((a, b) => b[1].current - a[1].current);
+    let rowsCategorias = '';
+    sortedCats.forEach((c, idx) => {
+      const catName = c[0];
+      const catData = c[1];
+      const catShare = totalCurrentVal > 0 ? (catData.current / totalCurrentVal) : 0;
+      const catAvg = catData.count > 0 ? (catData.current / catData.count) : 0;
+      const catDepPct = catData.cost > 0 ? (catData.dep / catData.cost) : 0;
+
+      rowsCategorias += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(catName)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${catData.count}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${catData.cost}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${catData.current}</Data></Cell>
+      <Cell ss:StyleID="${catData.dep > 0 ? 'CellCurrencyRose' : 'CellCurrency'}"><Data ss:Type="Number">${catData.dep}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${catDepPct.toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${catShare.toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Math.round(catAvg)}</Data></Cell>
+    </Row>`;
+    });
+
+    // Hoja 3: Resumen por Estado de Conservación
+    const sortedStatus = Object.entries(statusMap).sort((a, b) => b[1].current - a[1].current);
+    let rowsStatus = '';
+    sortedStatus.forEach((s, idx) => {
+      const sName = s[0];
+      const sData = s[1];
+      const sShare = totalCurrentVal > 0 ? (sData.current / totalCurrentVal) : 0;
+
+      rowsStatus += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(sName)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${sData.count}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${sData.cost}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${sData.current}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${sShare.toFixed(4)}</Data></Cell>
+    </Row>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>Charles Joyas SAS</Author>
+  <Created>${now.toISOString()}</Created>
+  <Company>Charles Joyas SAS</Company>
+ </DocumentProperties>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1E293B"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="TitleHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="15" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="SubTitleHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Color="#94A3B8"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="MetaHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Color="#CBD5E1"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="KpiTitle">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="8" ss:Bold="1" ss:Color="#64748B"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="KpiValEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="KpiValCurrency">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="KpiValRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#991B1B"/>
+   <Interior ss:Color="#FEF2F2" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="KpiValNumber">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="#,##0"/>
+  </Style>
+  <Style ss:ID="TableColHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TableColHeaderEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#059669"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#059669"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#047857"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#047857" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TableColHeaderRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#991B1B"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B91C1C"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B91C1C"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#991B1B"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#B91C1C" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="CellLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellLeftBold">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellCenterBold">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="CellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#0F172A"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyEmerald">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#047857"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyRose">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#B91C1C"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellPercent">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <Style ss:ID="BadgeActive">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TotalLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TotalCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalCurrencyEmerald">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#047857"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalCurrencyRose">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#B91C1C"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalPercent">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+ </Styles>
+
+ <!-- ========================================== -->
+ <!-- HOJA 1: INVENTARIO DE ACTIVOS FIJOS        -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Activos Fijos">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="35"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="230"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="11" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — CONTROL PATRIMONIAL DE ACTIVOS FIJOS &amp; EQUIPAMIENTO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Registro de Bienes, Valor de Compra y Depreciación</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: Administración | Total Bienes: ${assets.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- Tarjetas KPI -->
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiTitle"><Data ss:Type="String">COSTO ADQUISICIÓN TOTAL</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiTitle"><Data ss:Type="String">VALOR PATRIMONIAL ACTUAL</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiTitle"><Data ss:Type="String">DEPRECIACIÓN ACUMULADA</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiTitle"><Data ss:Type="String">CANTIDAD DE BIENES</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiValCurrency"><Data ss:Type="Number">${totalCost}</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalCurrentVal}</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalDepreciation}</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiValNumber"><Data ss:Type="Number">${assets.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="12"></Row>
+
+   <!-- Cabecera de Tabla -->
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID ACTIVO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NOMBRE DEL BIEN / EQUIPO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA ADQ.</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ANTIGÜEDAD</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">COSTO INICIAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">VALOR ACTUAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">DEPRECIACIÓN (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% DEPREC.</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CLASIFICACIÓN CONTABLE NIIF</Data></Cell>
+   </Row>
+
+   ${rowsDetalle}
+
+   <!-- Totales -->
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL VALOR PATRIMONIAL CONSOLIDADO</Data></Cell>
+    <Cell ss:StyleID="TotalCurrency"><Data ss:Type="Number">${totalCost}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyEmerald"><Data ss:Type="Number">${totalCurrentVal}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyRose"><Data ss:Type="Number">${totalDepreciation}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${globalDepPct.toFixed(4)}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalLabel"><Data ss:Type="String">${assets.length} activos en servicio</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>8</SplitHorizontal>
+   <TopRowBottomPane>8</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 2: RESUMEN POR CATEGORÍA              -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Resumen por Categoria">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="35"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="140"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="8" ss:StyleID="TitleHeader"><Data ss:Type="String">  DISTRIBUCIÓN PATRIMONIAL POR CATEGORÍA</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="8" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Concentración de inversiones en tecnología POS, seguridad, mobiliario y herramientas</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">N° BIENES</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">COSTO TOTAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">VALOR ACTUAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">DEPRECIACIÓN (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% DEPREC.</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% PATRIMONIO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VALOR PROMEDIO (COP)</Data></Cell>
+   </Row>
+
+   ${rowsCategorias}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES POR CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${assets.length}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrency"><Data ss:Type="Number">${totalCost}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyEmerald"><Data ss:Type="Number">${totalCurrentVal}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyRose"><Data ss:Type="Number">${totalDepreciation}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${globalDepPct.toFixed(4)}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">1.0</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${Math.round(totalCurrentVal / (assets.length || 1))}</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 3: ESTADO DE CONSERVACIÓN             -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Estado de Conservacion">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="35"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="110"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="5" ss:StyleID="TitleHeader"><Data ss:Type="String">  ESTADO DE CONSERVACIÓN Y OPERATIVIDAD</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="5" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Evaluación técnica de condiciones físicas y vida útil remanente</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO OPERATIVO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CANTIDAD</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">COSTO ORIGINAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">VALOR VIGENTE (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% PATRIMONIO</Data></Cell>
+   </Row>
+
+   ${rowsStatus}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GENERAL</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${assets.length}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrency"><Data ss:Type="Number">${totalCost}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyEmerald"><Data ss:Type="Number">${totalCurrentVal}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">1.0</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 4: GUÍA Y POLÍTICAS DE DEPRECIACIÓN   -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Normativa y Depreciacion">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="180"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="340"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="3" ss:StyleID="TitleHeader"><Data ss:Type="String">  NORMATIVA CONTABLE Y POLÍTICAS DE DEPRECIACIÓN NIIF</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="3" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Marco fiscal colombiano (Estatuto Tributario Art. 137) y políticas contables de Charles Joyas SAS</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CLASE DE ACTIVO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MÉTODO SUGERIDO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VIDA ÚTIL</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">POLÍTICA DE CONTROL Y SALVAGUARDA</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Equipos de Cómputo y POS</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Línea Recta (20% anual)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">5 Años</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Mantenimiento preventivo semestral, antivirus y copias de seguridad de facturación.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Equipos de Seguridad y Bóvedas</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Línea Recta (10% anual)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10 Años</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Inspección de combinaciones, cerraduras de retardo y mantenimiento anual certificado.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Mobiliario, Vitrinas y Enseres</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Línea Recta (10% anual)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10 Años</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Inspección de iluminación LED, cerraduras de exhibidores y cristal templado.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Maquinaria de Taller y Pulido</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Línea Recta (10% anual)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10 Años</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Calibración de balanzas analíticas certificadas, filtros de polvo de oro y extractores.</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    this._downloadExcelWorkbook(xml, `Activos_Fijos_Patrimonio_CharlesJoyas_${dateStr}`);
+    this.showToast(`Auditoría de Activos Fijos (${assets.length} bienes) exportada a Excel exitosamente`, 'success');
+  }
+
   getCashShiftTransactions() {
     const shift = this.data.cashShiftLog;
     const today = new Date().toISOString().slice(0, 10);
