@@ -650,7 +650,13 @@
                 <h1 class="section-title">Directorio de Proveedores</h1>
                 <p class="section-subtitle">Gestión de distribuidores, condiciones de pago y saldo de crédito pendiente.</p>
               </div>
-              <button class="btn btn-primary" id="open-supplier-modal-btn" onclick="app.openSupplierModal()">+ Nuevo Proveedor</button>
+              <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                <button type="button" class="btn btn-outline" onclick="app.exportSuppliersExcel()" style="display:inline-flex; align-items:center; gap:0.5rem; border:1px solid #10B981; color:#059669; font-weight:600; padding:0.6rem 1rem; border-radius:8px; background:var(--card-bg, #fff); cursor:pointer;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  <span>Exportar Excel (.xls)</span>
+                </button>
+                <button class="btn btn-primary" id="open-supplier-modal-btn" onclick="app.openSupplierModal()">+ Nuevo Proveedor</button>
+              </div>
             </div>
             <div class="table-wrapper">
               <div class="table-container">
@@ -4639,6 +4645,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=74" defer></script>
+  <script src="js/app.js?v=75" defer></script>
 </body>
 </html>
