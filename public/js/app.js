@@ -15715,9 +15715,9 @@ class NexusApp {
       const sales = data.sales;
       const expenses = data.expenses;
       const cogs = data.cogs;
-      const utilidad = sales - expenses; // Utilidad del Periodo (solicitada expresamente por el cliente)
-      const utilidadNetaReal = sales - cogs - expenses; // Utilidad Neta Real considerando costo de joyería
-      const margin = sales > 0 ? ((utilidad / sales) * 100) : 0;
+      const grossProfit = sales - cogs;
+      const utilidadNetaReal = sales - cogs - expenses; // FÓRMULA FINANCIERA REAL: Facturación - COGS - Gastos Operativos
+      const marginGross = sales > 0 ? ((grossProfit / sales) * 100) : 0;
       const marginNetoReal = sales > 0 ? ((utilidadNetaReal / sales) * 100) : 0;
       const ticketPromedio = data.salesCount > 0 ? (sales / data.salesCount) : 0;
 
@@ -15732,10 +15732,12 @@ class NexusApp {
         sales,
         expenses,
         cogs,
-        utilidad,
+        grossProfit,
+        utilidad: utilidadNetaReal,       // Utilidad Neta Real deduciendo costo de mercancía
         utilidadNetaReal,
-        margin,
+        margin: marginNetoReal,           // Margen Neto Real
         marginNetoReal,
+        marginGross,
         salesCount: data.salesCount,
         expensesCount: data.expensesCount,
         ticketPromedio,
@@ -15802,10 +15804,11 @@ class NexusApp {
     const totalSalesAll = filteredPeriodList.reduce((acc, p) => acc + p.sales, 0);
     const totalExpensesAll = filteredPeriodList.reduce((acc, p) => acc + p.expenses, 0);
     const totalCogsAll = filteredPeriodList.reduce((acc, p) => acc + p.cogs, 0);
-    const totalUtilidadAll = totalSalesAll - totalExpensesAll;
-    const totalUtilidadNetaAll = totalSalesAll - totalCogsAll - totalExpensesAll;
+    const totalGrossProfitAll = totalSalesAll - totalCogsAll;
+    const totalUtilidadAll = totalGrossProfitAll - totalExpensesAll; // Utilidad Neta Real
+    const totalUtilidadNetaAll = totalUtilidadAll;
     const globalMargin = totalSalesAll > 0 ? ((totalUtilidadAll / totalSalesAll) * 100) : 0;
-    const globalMarginNeto = totalSalesAll > 0 ? ((totalUtilidadNetaAll / totalSalesAll) * 100) : 0;
+    const globalMarginNeto = globalMargin;
     const totalTicketsAll = filteredPeriodList.reduce((acc, p) => acc + p.salesCount, 0);
 
     // Listas consolidadas de transacciones y gastos para los períodos filtrados
@@ -15816,7 +15819,7 @@ class NexusApp {
       filteredExps = filteredExps.concat(p.expList);
     });
 
-    // Mejor mes en ventas y en utilidad
+    // Mejor mes en ventas y en utilidad neta
     let bestSalesPeriod = null;
     let bestProfitPeriod = null;
     const listForBest = filteredPeriodList.length > 1 ? filteredPeriodList : periodListAll;
@@ -15835,6 +15838,7 @@ class NexusApp {
       totalSalesAll,
       totalExpensesAll,
       totalCogsAll,
+      totalGrossProfitAll,
       totalUtilidadAll,
       totalUtilidadNetaAll,
       globalMargin,
@@ -15907,6 +15911,7 @@ class NexusApp {
       activeFilter,
       periodLabel,
       totalSalesAll,
+      totalCogsAll,
       totalExpensesAll,
       totalUtilidadAll,
       globalMargin,
@@ -15953,7 +15958,7 @@ class NexusApp {
       activeBadge.innerHTML = `📅 Filtrando: <strong>${this.escapeXml(periodLabel)}</strong> (${periodList.length} período${periodList.length === 1 ? '' : 's'})`;
     }
 
-    // Renderizar KPI Cards con los datos correspondientes al filtro activo
+    // Renderizar KPI Cards con los datos correspondientes al filtro activo (5 Tarjetas Financieras)
     const kpiGrid = document.getElementById('inf-periodos-kpi-grid');
     if (kpiGrid) {
       const isSinglePeriod = periodList.length === 1;
@@ -15966,14 +15971,19 @@ class NexusApp {
           <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${totalTicketsAll} ventas registradas</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">${isSinglePeriod ? 'Gastos del Período' : 'Gastos Operativos'}</div>
-          <div class="kpi-value" style="color:var(--rose-text);">${this.formatCurrency(totalExpensesAll)}</div>
-          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Egresos de operación, nómina y taller</div>
+          <div class="kpi-title">${isSinglePeriod ? 'Costo Mercancía (COGS)' : 'Costo Mercancía (COGS)'}</div>
+          <div class="kpi-value" style="color:#D97706;">${this.formatCurrency(totalCogsAll)}</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Costo piezas y oro 18k vendido</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">${isSinglePeriod ? 'Utilidad del Período' : 'Utilidad Acumulada'}</div>
+          <div class="kpi-title">${isSinglePeriod ? 'Gastos del Período' : 'Gastos Operativos (OPEX)'}</div>
+          <div class="kpi-value" style="color:var(--rose-text);">${this.formatCurrency(totalExpensesAll)}</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Alquiler, nómina y taller</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">${isSinglePeriod ? 'Utilidad Neta Real' : 'Utilidad Neta Real'}</div>
           <div class="kpi-value" style="color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${totalUtilidadAll >= 0 ? '+' : ''}${this.formatCurrency(totalUtilidadAll)}</div>
-          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen: ${globalMargin.toFixed(1)}% (Facturación - Gastos)</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Neto: ${globalMargin.toFixed(1)}% (Ventas - COGS - Gastos)</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-title">${isSinglePeriod ? 'Estado del Período' : 'Mejor Período Financiero'}</div>
@@ -15981,7 +15991,7 @@ class NexusApp {
             ${isSinglePeriod ? (singleP.isCurrent ? 'Abierto (En Curso)' : 'Cerrado') : (bestProfitPeriod ? bestProfitPeriod.monthLabel : 'N/A')}
           </div>
           <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">
-            ${isSinglePeriod ? `${singleP.monthLabel}` : (bestProfitPeriod ? `+${this.formatCurrency(bestProfitPeriod.utilidad)} de utilidad` : 'Sin registros')}
+            ${isSinglePeriod ? `${singleP.monthLabel}` : (bestProfitPeriod ? `+${this.formatCurrency(bestProfitPeriod.utilidad)} neta real` : 'Sin registros')}
           </div>
         </div>
       `;
@@ -15990,7 +16000,7 @@ class NexusApp {
     if (periodList.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" style="text-align:center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.95rem;">
+          <td colspan="7" style="text-align:center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.95rem;">
             No hay transacciones ni gastos registrados para el período seleccionado (${this.escapeXml(periodLabel)})
           </td>
         </tr>
@@ -16020,6 +16030,9 @@ class NexusApp {
           <td style="text-align:right; font-weight:700; color:var(--emerald-text);">
             ${this.formatCurrency(item.sales)}
           </td>
+          <td style="text-align:right; font-weight:600; color:#D97706;">
+            ${this.formatCurrency(item.cogs)}
+          </td>
           <td style="text-align:right; font-weight:600; color:var(--rose-text);">
             ${this.formatCurrency(item.expenses)}
           </td>
@@ -16027,7 +16040,7 @@ class NexusApp {
             ${utilidadSign}${utilidadFormatted}
           </td>
           <td style="text-align:center; font-weight:700;">
-            <span class="badge ${item.margin > 50 ? 'badge-active' : (item.margin > 0 ? 'badge-amber' : 'badge-danger')}">
+            <span class="badge ${item.margin > 10 ? 'badge-active' : (item.margin > 0 ? 'badge-amber' : 'badge-danger')}">
               ${item.margin.toFixed(1)}%
             </span>
           </td>
@@ -16038,13 +16051,14 @@ class NexusApp {
       `;
     }).join('');
 
-    // Fila de totales en tfoot
+    // Fila de totales en tfoot (7 columnas que coinciden exactamente con thead)
     const tfoot = document.getElementById('inf-periodos-tfoot');
     if (tfoot) {
       tfoot.innerHTML = `
         <tr style="background:rgba(241,245,249,0.7); font-weight:800; border-top:2px solid var(--border-color);">
           <td style="font-size:0.95rem; color:var(--text-main);">TOTAL SELECCIONADO</td>
           <td style="text-align:right; color:var(--emerald-text); font-size:0.95rem;">${this.formatCurrency(totalSalesAll)}</td>
+          <td style="text-align:right; color:#D97706; font-size:0.95rem;">${this.formatCurrency(totalCogsAll)}</td>
           <td style="text-align:right; color:var(--rose-text); font-size:0.95rem;">${this.formatCurrency(totalExpensesAll)}</td>
           <td style="text-align:right; color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'}; font-size:1.05rem;">
             ${totalUtilidadAll >= 0 ? '+' : ''}${this.formatCurrency(totalUtilidadAll)}
@@ -16107,8 +16121,8 @@ class NexusApp {
       <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${p.sales}</Data></Cell>
       <Cell ss:StyleID="CellCurrencyAmber"><Data ss:Type="Number">${p.cogs}</Data></Cell>
       <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${p.expenses}</Data></Cell>
-      <Cell ss:StyleID="${p.utilidad >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose'}"><Data ss:Type="Number">${p.utilidad}</Data></Cell>
-      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${(p.margin / 100).toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="${p.grossProfit >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose'}"><Data ss:Type="Number">${p.grossProfit}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${(p.marginGross / 100).toFixed(4)}</Data></Cell>
       <Cell ss:StyleID="${p.utilidadNetaReal >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose'}"><Data ss:Type="Number">${p.utilidadNetaReal}</Data></Cell>
       <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${(p.marginNetoReal / 100).toFixed(4)}</Data></Cell>
       <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(momSalesStr)}</Data></Cell>
@@ -16565,9 +16579,9 @@ class NexusApp {
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FACTURACIÓN TOTAL (COP)</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">COSTO MERCANCÍA (COGS)</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GASTOS OPERATIVOS (COP)</Data></Cell>
-    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">UTILIDAD PERIODO (COP)</Data></Cell>
-    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MARGEN OP. %</Data></Cell>
-    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">UTILIDAD NETA REAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">UTILIDAD BRUTA (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MARGEN BRUTO %</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">UTILIDAD NETA REAL (COP)</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MARGEN NETO %</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VARIACIÓN MoM %</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CALIFICACIÓN</Data></Cell>
@@ -16582,10 +16596,10 @@ class NexusApp {
     <Cell ss:StyleID="TotalCurrencyEmerald"><Data ss:Type="Number">${totalSalesAll}</Data></Cell>
     <Cell ss:StyleID="TotalCurrency"><Data ss:Type="Number">${totalCogsAll}</Data></Cell>
     <Cell ss:StyleID="TotalCurrencyRose"><Data ss:Type="Number">${totalExpensesAll}</Data></Cell>
+    <Cell ss:StyleID="${totalGrossProfitAll >= 0 ? 'TotalCurrencyEmerald' : 'TotalCurrencyRose'}"><Data ss:Type="Number">${totalGrossProfitAll}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${totalSalesAll > 0 ? ((totalGrossProfitAll / totalSalesAll)).toFixed(4) : 0}</Data></Cell>
     <Cell ss:StyleID="${totalUtilidadAll >= 0 ? 'TotalCurrencyEmerald' : 'TotalCurrencyRose'}"><Data ss:Type="Number">${totalUtilidadAll}</Data></Cell>
     <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${(globalMargin / 100).toFixed(4)}</Data></Cell>
-    <Cell ss:StyleID="${totalUtilidadNetaAll >= 0 ? 'TotalCurrencyEmerald' : 'TotalCurrencyRose'}"><Data ss:Type="Number">${totalUtilidadNetaAll}</Data></Cell>
-    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${(globalMarginNeto / 100).toFixed(4)}</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">-</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${periodList.length} Periodos Evaluados</Data></Cell>
    </Row>
@@ -16841,8 +16855,8 @@ class NexusApp {
       'Facturacion Total COP',
       'Costo Mercancia COGS COP',
       'Gastos Operativos COP',
-      'Utilidad Periodo COP',
-      'Margen Operativo %',
+      'Utilidad Bruta COP',
+      'Margen Bruto %',
       'Utilidad Neta Real COP',
       'Margen Neto Real %',
       'Variacion MoM %'
@@ -16860,8 +16874,8 @@ class NexusApp {
         p.sales,
         p.cogs,
         p.expenses,
-        p.utilidad,
-        `${p.margin.toFixed(1)}%`,
+        p.grossProfit,
+        `${p.marginGross.toFixed(1)}%`,
         p.utilidadNetaReal,
         `${p.marginNetoReal.toFixed(1)}%`,
         p.momSalesGrowth !== null ? `${p.momSalesGrowth.toFixed(1)}%` : 'Base'
