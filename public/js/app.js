@@ -1136,88 +1136,69 @@ class NexusApp {
     if (!printIframe) {
       printIframe = document.createElement('iframe');
       printIframe.id = 'pos-print-iframe';
-      printIframe.style.position = 'fixed';
-      printIframe.style.right = '0';
-      printIframe.style.bottom = '0';
-      printIframe.style.width = '0';
-      printIframe.style.height = '0';
-      printIframe.style.border = 'none';
+      printIframe.setAttribute('style', 'position:fixed; right:-9999px; bottom:-9999px; width:80mm; height:100px; border:0; visibility:hidden;');
       document.body.appendChild(printIframe);
     }
 
-    const doc = printIframe.contentWindow.document;
+    const doc = printIframe.contentDocument || printIframe.contentWindow.document;
     doc.open();
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Imprimir Ticket</title>
-        <style>
-          @page {
-            size: 80mm auto;
-            margin: 0;
-          }
-          * {
-            box-sizing: border-box;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            font-weight: 700 !important;
-          }
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #ffffff !important;
-            color: #000000 !important;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
-            line-height: 1.25;
-            width: 76mm;
-            font-weight: 700 !important;
-          }
-          .thermal-ticket-card,
-          .thermal-ticket-card * {
-            width: 100%;
-            max-width: 76mm;
-            margin: 0 auto;
-            padding: 2mm 1mm;
-            background: #ffffff !important;
-            color: #000000 !important;
-            border: none;
-            box-shadow: none;
-            font-weight: 700 !important;
-          }
-          img {
-            max-width: 130px;
-            height: auto;
-            display: block;
-            margin: 0 auto 5px auto;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-          th, td {
-            padding: 2px 0;
-            color: #000000 !important;
-          }
-          hr {
-            border: none;
-            border-top: 1px dashed #000000;
-            margin: 4px 0;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="thermal-ticket-card">
-          ${ticketHtml}
-        </div>
-      </body>
-      </html>
-    `);
+    doc.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Ticket POS - ${this.escapeHtml(this.data.store?.name || 'Comprobante')}</title>
+  <style>
+    @page {
+      size: 80mm auto;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      font-weight: 700 !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff !important;
+      color: #000000 !important;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 700 !important;
+    }
+    .thermal-ticket-card {
+      width: 76mm !important;
+      max-width: 76mm !important;
+      margin: 0 auto !important;
+      padding: 2mm 1mm !important;
+      background: #ffffff !important;
+      color: #000000 !important;
+      border: none !important;
+      box-shadow: none !important;
+      box-sizing: border-box !important;
+      font-weight: 700 !important;
+    }
+    .thermal-ticket-card * {
+      color: #000000 !important;
+      font-weight: 700 !important;
+    }
+    img {
+      max-width: 130px !important;
+      height: auto !important;
+      display: block;
+      margin: 0 auto 4px auto;
+    }
+  </style>
+</head>
+<body>
+  ${ticketHtml}
+</body>
+</html>`);
     doc.close();
 
-    // Ensure images and fonts load before triggering print
+    // Ensure iframe content is ready before triggering print
     setTimeout(() => {
       try {
         printIframe.contentWindow.focus();
@@ -17497,90 +17478,6 @@ class NexusApp {
     this.openModal('receipt-modal');
   }
 
-  printTicket() {
-    const receiptBody = document.getElementById('receipt-modal-body');
-    if (!receiptBody) {
-      window.print();
-      return;
-    }
-
-    try {
-      let printIframe = document.getElementById('pos-print-iframe');
-      if (!printIframe) {
-        printIframe = document.createElement('iframe');
-        printIframe.id = 'pos-print-iframe';
-        printIframe.setAttribute('style', 'position:fixed; right:-9999px; bottom:-9999px; width:80mm; height:100px; border:0; visibility:hidden;');
-        document.body.appendChild(printIframe);
-      }
-
-      const iframeDoc = printIframe.contentDocument || printIframe.contentWindow.document;
-      iframeDoc.open();
-      iframeDoc.write(`<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <title>Ticket POS - ${this.escapeHtml(this.data.store?.name || 'Comprobante')}</title>
-  <style>
-    @page {
-      size: 80mm auto;
-      margin: 0;
-    }
-    * {
-      box-sizing: border-box;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-      font-weight: 700 !important;
-    }
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #ffffff !important;
-      color: #000000 !important;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 12px;
-      line-height: 1.35;
-      width: 80mm;
-      max-width: 80mm;
-      font-weight: 700 !important;
-    }
-    .thermal-ticket-card,
-    .thermal-ticket-card * {
-      width: 100% !important;
-      max-width: 76mm !important;
-      margin: 0 auto !important;
-      padding: 5mm 3mm !important;
-      background: #ffffff !important;
-      color: #000000 !important;
-      border: none !important;
-      box-shadow: none !important;
-      font-weight: 700 !important;
-    }
-    img {
-      max-width: 100% !important;
-      height: auto !important;
-    }
-  </style>
-</head>
-<body>
-  ${receiptBody.innerHTML}
-</body>
-</html>`);
-      iframeDoc.close();
-
-      setTimeout(() => {
-        try {
-          printIframe.contentWindow.focus();
-          printIframe.contentWindow.print();
-        } catch (e) {
-          console.warn('Iframe print error, falling back to window.print()', e);
-          window.print();
-        }
-      }, 350);
-    } catch (err) {
-      console.warn('Print iframe error:', err);
-      window.print();
-    }
-  }
 
   renderInformesBalance() {
     const kpiContainer = document.getElementById('inf-balance-kpis');
