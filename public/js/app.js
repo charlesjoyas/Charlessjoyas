@@ -13159,8 +13159,27 @@ class NexusApp {
       ? validSalesTx.reduce((acc, t) => acc + Number(t.total), 0)
       : (Number(this.data.kpis?.salesToday) || 0);
 
+    // Costo de Ventas (COGS / Costo Real de Joyería y Oro Vendido)
+    let calculatedCOGS = 0;
+    validSalesTx.forEach(tx => {
+      const isTxService = String(tx.type || '').toLowerCase().includes('servicio');
+      if (Array.isArray(tx.items) && tx.items.length > 0) {
+        tx.items.forEach(it => {
+          calculatedCOGS += this.calculateTransactionItemCOGS(it);
+        });
+      } else {
+        const txTot = Number(tx.total) || 0;
+        calculatedCOGS += isTxService ? Math.round(txTot * 0.20) : Math.round(txTot * 0.65);
+      }
+    });
+
+    const totalCOGS = calculatedCOGS;
+    const grossProfit = totalSales - totalCOGS;
+    const grossMarginPct = totalSales > 0 ? ((grossProfit / totalSales) * 100) : 0;
+
     const totalExp = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-    const netProfit = totalSales - totalExp;
+    // Utilidad Neta Real = Utilidad Bruta (Ventas - COGS) - Gastos Operativos (OPEX)
+    const netProfit = grossProfit - totalExp;
     const netMarginPct = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
 
     const totalAbonosVentas = abonosVentas.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
@@ -13227,6 +13246,9 @@ class NexusApp {
       cashShiftsHistory,
       currentShift,
       totalSales,
+      totalCOGS,
+      grossProfit,
+      grossMarginPct,
       totalExp,
       netProfit,
       netMarginPct,
@@ -13251,6 +13273,9 @@ class NexusApp {
     const opData = this.getConsolidatedReporteGeneralData();
     const {
       totalSales,
+      totalCOGS,
+      grossProfit,
+      grossMarginPct,
       totalExp,
       netProfit,
       netMarginPct,
@@ -13268,14 +13293,19 @@ class NexusApp {
         <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${validSalesTx.length} ventas registradas y facturación</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Gastos Operativos Totales</div>
+        <div class="kpi-title">Costo de Ventas (COGS)</div>
+        <div class="kpi-value" style="color:#D97706;">${this.formatCurrency(totalCOGS)}</div>
+        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Costo mercancía vendida (Utilidad Bruta: ${grossMarginPct.toFixed(1)}%)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Gastos Operativos (OPEX)</div>
         <div class="kpi-value" style="color:var(--rose-text);">${this.formatCurrency(totalExp)}</div>
         <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${expenses.length} egresos (alquiler, nómina y taller)</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Utilidad Neta Operativa</div>
+        <div class="kpi-title">Utilidad Neta Operativa Real</div>
         <div class="kpi-value" style="color:${netProfit >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(netProfit)}</div>
-        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Neto: ${netMarginPct.toFixed(1)}%</div>
+        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Neto Real: ${netMarginPct.toFixed(1)}% (Ventas - Costos - Gastos)</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-title">Recaudos Cartera / Abonos</div>
@@ -13331,27 +13361,31 @@ class NexusApp {
               <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:0.5rem;">
                 <span>📈</span> Estado de Resultados Operativo (P&amp;L)
               </h3>
-              <span class="badge ${netProfit >= 0 ? 'badge-active' : 'badge-danger'}">Margen: ${netMarginPct.toFixed(1)}%</span>
+              <span class="badge ${netProfit >= 0 ? 'badge-active' : 'badge-danger'}">Margen Neto: ${netMarginPct.toFixed(1)}%</span>
             </div>
             <div style="display:flex; flex-direction:column; gap:0.75rem; font-size:0.9rem;">
               <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
-                <span style="color:var(--text-muted);">Ingresos por Ventas POS:</span>
+                <span style="color:var(--text-muted);">(+) Ingresos por Ventas POS:</span>
                 <span style="font-weight:700; color:var(--emerald-text);">${this.formatCurrency(totalSales)}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
+                <span style="color:var(--text-muted);">(-) Costo de Ventas (COGS - Joyería &amp; Oro Vendido):</span>
+                <span style="font-weight:700; color:#D97706;">-${this.formatCurrency(totalCOGS)}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding:0.4rem 0.5rem; background:rgba(16, 185, 129, 0.06); border-radius:6px; border:1px solid rgba(16, 185, 129, 0.15);">
+                <span style="font-weight:700; color:var(--text-main);">(=) UTILIDAD BRUTA OPERATIVA:</span>
+                <span style="font-weight:800; color:var(--emerald-text);">${this.formatCurrency(grossProfit)} (${grossMarginPct.toFixed(1)}%)</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
+                <span style="color:var(--text-muted);">(-) Gastos Operativos Totales (OPEX):</span>
+                <span style="font-weight:700; color:var(--rose-text);">${this.formatCurrency(totalExp)}</span>
               </div>
               <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
                 <span style="color:var(--text-muted);">(+) Recaudos de Cartera / Abonos:</span>
                 <span style="font-weight:700; color:var(--brand-primary);">${this.formatCurrency(totalAbonosVentas)}</span>
               </div>
-              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
-                <span style="color:var(--text-muted);">(-) Compras de Joyería &amp; Insumos:</span>
-                <span style="font-weight:700; color:var(--text-main);">${this.formatCurrency(totalPurchases)}</span>
-              </div>
-              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
-                <span style="color:var(--text-muted);">(-) Gastos Operativos (OPEX):</span>
-                <span style="font-weight:700; color:var(--rose-text);">${this.formatCurrency(totalExp)}</span>
-              </div>
               <div style="display:flex; justify-content:space-between; padding-top:0.4rem; font-size:1.05rem;">
-                <span style="font-weight:800; color:var(--text-main);">UTILIDAD NETA OPERATIVA:</span>
+                <span style="font-weight:800; color:var(--text-main);">UTILIDAD NETA OPERATIVA REAL:</span>
                 <span style="font-weight:900; color:${netProfit >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(netProfit)}</span>
               </div>
             </div>
@@ -13399,6 +13433,9 @@ class NexusApp {
       cashShiftsHistory,
       currentShift,
       totalSales,
+      totalCOGS,
+      grossProfit,
+      grossMarginPct,
       totalExp,
       netProfit,
       netMarginPct,
@@ -13435,35 +13472,27 @@ class NexusApp {
         badge: 'BadgeGreen'
       },
       {
+        concepto: '(-) Costo de Ventas (COGS): Joyería, Oro 18k e Insumos Vendidos',
+        puc: '6135',
+        naturaleza: 'Costo de Ventas',
+        monto: totalCOGS,
+        base: totalSales > 0 ? (totalCOGS / totalSales) : 0,
+        badge: 'BadgeAmber'
+      },
+      {
+        concepto: '(=) UTILIDAD BRUTA OPERATIVA (MARGEN BRUTO)',
+        puc: 'MARGEN_BRUTO',
+        naturaleza: 'Utilidad Bruta',
+        monto: grossProfit,
+        base: totalSales > 0 ? (grossProfit / totalSales) : 0,
+        badge: 'BadgeGreen'
+      },
+      {
         concepto: '(+) Recaudos en Caja por Abonos de Cartera / Planes Separe',
         puc: '1305',
         naturaleza: 'Ingreso Tesorería',
         monto: totalAbonosVentas,
         base: totalSales > 0 ? (totalAbonosVentas / totalSales) : 0,
-        badge: 'BadgeGreen'
-      },
-      {
-        concepto: '(=) TOTAL INGRESOS OPERATIVOS BRUTOS Y RECAUDOS',
-        puc: '41',
-        naturaleza: 'Subtotal Ingresos',
-        monto: totalSales + totalAbonosVentas,
-        base: totalSales > 0 ? ((totalSales + totalAbonosVentas) / totalSales) : 0,
-        badge: 'BadgeGreen'
-      },
-      {
-        concepto: '(-) Costo de Mercancía: Compras de Joyería, Oro 18k e Insumos',
-        puc: '1435',
-        naturaleza: 'Costo Directo',
-        monto: totalPurchases,
-        base: totalSales > 0 ? (totalPurchases / totalSales) : 0,
-        badge: 'BadgeAmber'
-      },
-      {
-        concepto: '(=) MARGEN BRUTO OPERATIVO ESTIMADO',
-        puc: 'MARGEN',
-        naturaleza: 'Margen Bruto',
-        monto: (totalSales + totalAbonosVentas) - totalPurchases,
-        base: totalSales > 0 ? (((totalSales + totalAbonosVentas) - totalPurchases) / totalSales) : 0,
         badge: 'BadgeGreen'
       },
       {
@@ -13515,7 +13544,7 @@ class NexusApp {
         badge: 'BadgeRose'
       },
       {
-        concepto: '(=) UTILIDAD NETA OPERATIVA CONSOLIDADA',
+        concepto: '(=) UTILIDAD NETA OPERATIVA REAL CONSOLIDADA',
         puc: '59',
         naturaleza: 'Resultado Neto',
         monto: netProfit,
@@ -13778,14 +13807,16 @@ class NexusApp {
    <!-- KPI Cards Fila 1 -->
    <Row ss:Height="18">
     <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">INGRESOS BRUTOS POR VENTAS</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">COSTO DE VENTAS (COGS)</Data></Cell>
     <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">GASTOS OPERATIVOS (OPEX)</Data></Cell>
-    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">UTILIDAD NETA OPERATIVA</Data></Cell>
-    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">MARGEN NETO %</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">UTILIDAD NETA OPERATIVA REAL</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">MARGEN NETO REAL %</Data></Cell>
    </Row>
    <Row ss:Height="26">
     <Cell ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalSales}</Data></Cell>
+    <Cell ss:StyleID="KpiValAmber"><Data ss:Type="Number">${totalCOGS}</Data></Cell>
     <Cell ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalExp}</Data></Cell>
-    <Cell ss:MergeAcross="1" ss:StyleID="${netProfit >= 0 ? 'KpiValEmerald' : 'KpiValRose'}"><Data ss:Type="Number">${netProfit}</Data></Cell>
+    <Cell ss:StyleID="${netProfit >= 0 ? 'KpiValEmerald' : 'KpiValRose'}"><Data ss:Type="Number">${netProfit}</Data></Cell>
     <Cell ss:StyleID="KpiValAmber"><Data ss:Type="String">${netMarginPct.toFixed(1)}%</Data></Cell>
    </Row>
    <Row ss:Height="10"></Row>
