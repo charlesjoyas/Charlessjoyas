@@ -11188,7 +11188,7 @@ class NexusApp {
   }
 
   _downloadExcelWorkbook(xmlContent, baseFilename) {
-    const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF', xmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     const dateStr = new Date().toISOString().split('T')[0];
@@ -16212,9 +16212,9 @@ class NexusApp {
       const pctUtilidad = totalUtilidadAll > 0 ? (p.utilidad / totalUtilidadAll) : 0;
       const pctVentas = totalSalesAll > 0 ? (p.sales / totalSalesAll) : 0;
       let rankingMedal = `${idx + 1}° Puesto`;
-      if (idx === 0) rankingMedal = '🥇 1° Mejor Mes';
-      else if (idx === 1) rankingMedal = '🥈 2° Lugar';
-      else if (idx === 2) rankingMedal = '🥉 3° Lugar';
+      if (idx === 0) rankingMedal = '1° Mejor Mes (Líder)';
+      else if (idx === 1) rankingMedal = '2° Lugar';
+      else if (idx === 2) rankingMedal = '3° Lugar';
 
       rowsRanking += `
     <Row ss:Height="22">
@@ -16339,6 +16339,17 @@ class NexusApp {
    </Borders>
    <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
    <Interior ss:Color="#047857" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TableColHeaderRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#991B1B"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B91C1C"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B91C1C"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#991B1B"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#B91C1C" ss:Pattern="Solid"/>
   </Style>
   <Style ss:ID="CellLeft">
    <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
