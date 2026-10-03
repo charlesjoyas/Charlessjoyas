@@ -8176,6 +8176,15 @@ class NexusApp {
       this.finVentasDateTo = toIso(lastMonthEndObj);
       if (fromInput) fromInput.value = this.finVentasDateFrom;
       if (toInput) toInput.value = this.finVentasDateTo;
+    } else if (period === 'custom') {
+      const fromInput = document.getElementById('fin-ventas-date-from');
+      if (fromInput) {
+        fromInput.focus();
+        if (typeof fromInput.showPicker === 'function') {
+          try { fromInput.showPicker(); } catch(e){}
+        }
+      }
+      return;
     } else if (period === 'all') {
       this.finVentasDateFrom = '';
       this.finVentasDateTo = '';
@@ -8187,17 +8196,22 @@ class NexusApp {
   }
 
   onFinVentasDateChange() {
-    const fromVal = document.getElementById('fin-ventas-date-from')?.value || '';
-    const toVal = document.getElementById('fin-ventas-date-to')?.value || '';
+    const fromInput = document.getElementById('fin-ventas-date-from');
+    const toInput = document.getElementById('fin-ventas-date-to');
+    let fromVal = fromInput?.value || '';
+    let toVal = toInput?.value || '';
 
     // Si el usuario seleccionó fecha desde y no ha colocado hasta, sincronizar hasta
     if (fromVal && !toVal) {
-      const toInput = document.getElementById('fin-ventas-date-to');
       if (toInput) toInput.value = fromVal;
+      toVal = fromVal;
+    } else if (!fromVal && toVal) {
+      if (fromInput) fromInput.value = toVal;
+      fromVal = toVal;
     }
 
-    this.finVentasDateFrom = document.getElementById('fin-ventas-date-from')?.value || '';
-    this.finVentasDateTo = document.getElementById('fin-ventas-date-to')?.value || '';
+    this.finVentasDateFrom = fromVal;
+    this.finVentasDateTo = toVal;
     this.finVentasPeriod = 'custom';
 
     const pills = document.querySelectorAll('#fin-ventas-period-pills .finanzas-period-pill');
@@ -8295,15 +8309,24 @@ class NexusApp {
     const searchQuery = (this.finVentasSearch || '').toLowerCase();
 
     return txs.filter(tx => {
-      // 1. Filtro por fecha
+      // 1. Filtro por fecha robusto e inmune a desfase de huso horario
       if (period !== 'all' || (startIso || endIso)) {
-        if (!tx.date) return false;
-        const d = this.parseDateSafe(tx.date);
-        if (!d) return false;
-        const txIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        if (!tx.date && !tx.timestamp) return false;
+        const rawDateStr = String(tx.date || tx.timestamp || '').trim();
+        let txIso = '';
+        if (/^\d{4}-\d{2}-\d{2}/.test(rawDateStr)) {
+          txIso = rawDateStr.slice(0, 10);
+        } else {
+          const d = this.parseDateSafe(rawDateStr);
+          if (d) txIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        }
+        if (!txIso) return false;
 
-        if (startIso && txIso < startIso) return false;
-        if (endIso && txIso > endIso) return false;
+        const effectiveStart = startIso && endIso && startIso > endIso ? endIso : startIso;
+        const effectiveEnd = startIso && endIso && startIso > endIso ? startIso : endIso;
+
+        if (effectiveStart && txIso < effectiveStart) return false;
+        if (effectiveEnd && txIso > effectiveEnd) return false;
       }
 
       // 2. Filtro por búsqueda de texto
@@ -10028,31 +10051,170 @@ class NexusApp {
     this.showToast(`Auditoría de Activos Fijos (${assets.length} bienes) exportada a Excel exitosamente`, 'success');
   }
 
+  parseDateAndTimeToTimestamp(dateStr, timeStr) {
+    if (!dateStr) return 0;
+    let y = 0, m = 0, d = 0;
+    if (typeof dateStr === 'string' && dateStr.includes('/')) {
+      const p = dateStr.split('/');
+      d = parseInt(p[0], 10);
+      m = parseInt(p[1], 10) - 1;
+      y = parseInt(p[2], 10);
+    } else if (typeof dateStr === 'string' && dateStr.includes('-')) {
+      const p = dateStr.split('-');
+      y = parseInt(p[0], 10);
+      m = parseInt(p[1], 10) - 1;
+      d = parseInt(p[2], 10);
+    } else {
+      return 0;
+    }
+
+    let h = 0, min = 0, s = 0;
+    if (timeStr && typeof timeStr === 'string') {
+      const str = timeStr.trim().toLowerCase();
+      const isPm = str.includes('p.m.') || str.includes('pm') || str.includes('p. m.');
+      const isAm = str.includes('a.m.') || str.includes('am') || str.includes('a. m.');
+      const clean = str.replace(/[a-z.\s]/g, '');
+      const parts = clean.split(':').map(n => parseInt(n, 10) || 0);
+      h = parts[0] || 0;
+      min = parts[1] || 0;
+      s = parts[2] || 0;
+      if (isPm && h < 12) h += 12;
+      if (isAm && h === 12) h = 0;
+    }
+
+    const dt = new Date(y, m, d, h, min, s);
+    return isNaN(dt.getTime()) ? 0 : dt.getTime();
+  }
+
   getCashShiftTransactions() {
     const shift = this.data.cashShiftLog;
-    const today = new Date().toISOString().slice(0, 10);
-    const openedDate = shift?.openedDate || today;
-    const parts = openedDate.split('-');
-    const datePattern = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : openedDate;
-    const ddMm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '19/09';
+    if (!shift) return [];
+    const currentShiftId = shift.shiftId;
+
+    let openTimestamp = shift.openedTimestamp || 0;
+    if (!openTimestamp && shift.openedDate) {
+      openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
+    }
+
+    // Set of closed shift IDs to strictly exclude previous shifts
+    const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
 
     return (this.data.recentTransactions || []).filter(tx => {
       if (!tx.date) return false;
-      return tx.date === datePattern || tx.date.includes(datePattern) || tx.date.includes(openedDate) || tx.date.includes(ddMm);
+
+      // 1. Explicit shiftId match
+      if (tx.shiftId) {
+        return tx.shiftId === currentShiftId;
+      }
+
+      // 2. Exclude if marked as belonging to a closed shift
+      if (tx.closedShiftId || (tx.shiftId && closedShiftIds.has(tx.shiftId))) {
+        return false;
+      }
+
+      // 3. Timestamp verification: must be on or after shift was opened
+      if (openTimestamp > 0) {
+        const txTimestamp = tx.timestamp || this.parseDateAndTimeToTimestamp(tx.date, tx.time);
+        if (txTimestamp > 0) {
+          return txTimestamp >= (openTimestamp - 60000);
+        }
+      }
+
+      // 4. Fallback only if no timestamps exist
+      const openedDate = shift.openedDate || new Date().toISOString().slice(0, 10);
+      const parts = openedDate.split('-');
+      const datePattern = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : openedDate;
+      return tx.date === datePattern || tx.date.includes(datePattern) || tx.date.includes(openedDate);
     });
   }
 
   getCashShiftCustomerPayments() {
     const shift = this.data.cashShiftLog;
-    const today = new Date().toISOString().slice(0, 10);
-    const openedDate = shift?.openedDate || today;
-    const parts = openedDate.split('-');
-    const ddMm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '19/09';
+    if (!shift) return [];
+    let openTimestamp = shift.openedTimestamp || 0;
+    if (!openTimestamp && shift.openedDate) {
+      openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
+    }
 
     return (this.data.abonosVentas || []).filter(a => {
       if (!a.date) return false;
-      return a.date.includes(openedDate) || a.date.includes(ddMm);
+      if (a.shiftId) return a.shiftId === shift.shiftId;
+      if (openTimestamp > 0) {
+        const pDate = a.date.includes(' ') ? a.date.split(' ')[0] : a.date;
+        const pTime = a.date.includes(' ') ? a.date.split(' ')[1] : '';
+        const aTimestamp = this.parseDateAndTimeToTimestamp(pDate, pTime);
+        if (aTimestamp > 0) return aTimestamp >= (openTimestamp - 60000);
+      }
+      const openedDate = shift.openedDate || new Date().toISOString().slice(0, 10);
+      return a.date.includes(openedDate);
     });
+  }
+
+  calculateShiftTotals() {
+    const shift = this.data.cashShiftLog || { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Cerrado' };
+    const shiftTxs = this.getCashShiftTransactions();
+    const abonos = this.getCashShiftCustomerPayments();
+
+    let totalEfectivo = 0;
+    let totalTransferencia = 0;
+    let totalTarjeta = 0;
+    let totalCredito = 0;
+    let totalOtros = 0;
+    let totalFacturado = 0;
+
+    shiftTxs.forEach(t => {
+      const amt = Math.round(Math.abs(t.total || 0));
+      totalFacturado += amt;
+      const m = (t.paymentMethod || '').toLowerCase();
+      if (m.includes('efectivo') || m.includes('cash')) {
+        totalEfectivo += amt;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
+        totalTarjeta += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransferencia += amt;
+      } else if (m.includes('crédito') || m.includes('credito')) {
+        totalCredito += amt;
+      } else {
+        totalOtros += amt;
+      }
+    });
+
+    let totalAbonosEfectivo = 0;
+    abonos.forEach(a => {
+      const amt = Math.round(Math.abs(a.amount || 0));
+      const m = (a.method || '').toLowerCase();
+      if (m.includes('efectivo') || m.includes('cash')) {
+        totalAbonosEfectivo += amt;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
+        totalTarjeta += amt;
+      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
+        totalTransferencia += amt;
+      } else {
+        totalOtros += amt;
+      }
+    });
+
+    if (totalFacturado === 0) {
+      totalFacturado = totalEfectivo + totalTransferencia + totalTarjeta + totalCredito + totalOtros;
+    }
+
+    const openingCash = Math.round(Number(shift.openingCash) || 0);
+    const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
+    const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
+
+    return {
+      totalEfectivo,
+      totalAbonosEfectivo,
+      totalTransferencia,
+      totalTarjeta,
+      totalCredito,
+      totalOtros,
+      totalFacturado,
+      totalRecaudado: totalEfectivo + totalTransferencia + totalTarjeta + totalOtros,
+      openingCash,
+      cashExpenses,
+      expectedCashInDrawer: calculatedExpected
+    };
   }
 
   renderCashShiftIncomesSummary() {
@@ -10219,23 +10381,38 @@ class NexusApp {
 
   renderCashShiftExpensesSummary() {
     const shift = this.data.cashShiftLog;
-    const today = new Date().toISOString().slice(0, 10);
-    const openedDate = shift?.openedDate || today;
-    const parts = openedDate.split('-');
-    const ddMm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '19/09';
+    if (!shift) return '';
+    let openTimestamp = shift.openedTimestamp || 0;
+    if (!openTimestamp && shift.openedDate) {
+      openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
+    }
 
     const expensesToday = (this.data.expenses || []).filter(e => {
       if (!e.date) return false;
-      const isToday = e.date.includes(today) || e.date.includes(openedDate) || e.date.includes(ddMm) || e.date.includes('18/09') || e.date.includes('19/09');
       const isCash = (e.method || '').toLowerCase().includes('efectivo');
-      return isToday && isCash;
+      if (!isCash) return false;
+      if (e.shiftId) return e.shiftId === shift.shiftId;
+      if (openTimestamp > 0) {
+        const pDate = e.date.includes(' ') ? e.date.split(' ')[0] : e.date;
+        const pTime = e.date.includes(' ') ? e.date.split(' ')[1] : '';
+        const eTimestamp = this.parseDateAndTimeToTimestamp(pDate, pTime);
+        if (eTimestamp > 0) return eTimestamp >= (openTimestamp - 60000);
+      }
+      return e.date.includes(shift.openedDate);
     });
 
     const abonosToday = (this.data.abonosCompras || []).filter(a => {
       if (!a.date) return false;
-      const isToday = a.date.includes(today) || a.date.includes(openedDate) || a.date.includes(ddMm) || a.date.includes('18/09') || a.date.includes('19/09');
       const isCash = (a.method || '').toLowerCase().includes('efectivo');
-      return isToday && isCash;
+      if (!isCash) return false;
+      if (a.shiftId) return a.shiftId === shift.shiftId;
+      if (openTimestamp > 0) {
+        const pDate = a.date.includes(' ') ? a.date.split(' ')[0] : a.date;
+        const pTime = a.date.includes(' ') ? a.date.split(' ')[1] : '';
+        const aTimestamp = this.parseDateAndTimeToTimestamp(pDate, pTime);
+        if (aTimestamp > 0) return aTimestamp >= (openTimestamp - 60000);
+      }
+      return a.date.includes(shift.openedDate);
     });
 
     if (expensesToday.length === 0 && abonosToday.length === 0) {
@@ -10291,70 +10468,16 @@ class NexusApp {
     const shift = this.data.cashShiftLog || { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Cerrado' };
     const isOpen = shift.status === 'Abierto';
 
-    // Calculate shift revenue by payment method
-    const shiftTxs = this.getCashShiftTransactions();
-    const abonos = this.getCashShiftCustomerPayments();
-
-    let totalEfectivo = 0;
-    let totalTransferencia = 0;
-    let totalTarjeta = 0;
-    let totalCredito = 0;
-    let totalOtros = 0;
-    let totalFacturado = 0;
-
-    shiftTxs.forEach(t => {
-      const amt = Math.round(Math.abs(t.total || 0));
-      totalFacturado += amt;
-      const m = (t.paymentMethod || '').toLowerCase();
-      if (m.includes('efectivo') || m.includes('cash')) {
-        totalEfectivo += amt;
-      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-        totalTarjeta += amt;
-      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransferencia += amt;
-      } else if ((m.includes('crédito') || m.includes('credito'))) {
-        totalCredito += amt;
-      } else {
-        totalOtros += amt;
-      }
-    });
-
-    abonos.forEach(a => {
-      const amt = Math.round(Math.abs(a.amount || 0));
-      totalFacturado += amt;
-      const m = (a.method || '').toLowerCase();
-      if (m.includes('efectivo') || m.includes('cash')) {
-        totalEfectivo += amt;
-      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-        totalTarjeta += amt;
-      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransferencia += amt;
-      } else {
-        totalOtros += amt;
-      }
-    });
-
-    // Fallback if shift.cashSales has recorded cash
-    if (totalEfectivo === 0 && Number(shift.cashSales) > 0) {
-      totalEfectivo = Math.round(Number(shift.cashSales));
-    }
-    if (totalTransferencia === 0 && totalTarjeta === 0 && Number(shift.cardSales) > 0) {
-      if (Number(shift.tarjetaSales) > 0 || Number(shift.transferSales) > 0) {
-        totalTransferencia = Math.round(Number(shift.transferSales) || 0);
-        totalTarjeta = Math.round(Number(shift.tarjetaSales) || 0);
-      } else {
-        totalTransferencia = Math.round(Number(shift.cardSales));
-      }
-    }
-    if (totalFacturado === 0) {
-      totalFacturado = totalEfectivo + totalTransferencia + totalTarjeta + totalCredito + totalOtros;
-    }
-
-    const totalRecaudado = totalEfectivo + totalTransferencia + totalTarjeta + totalOtros;
-
-    const openingCash = Math.round(Number(shift.openingCash) || 0);
-    const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
-    const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
+    const totals = this.calculateShiftTotals();
+    const totalEfectivo = totals.totalEfectivo;
+    const totalTransferencia = totals.totalTransferencia;
+    const totalTarjeta = totals.totalTarjeta;
+    const totalCredito = totals.totalCredito;
+    const totalFacturado = totals.totalFacturado;
+    const totalRecaudado = totals.totalRecaudado;
+    const openingCash = totals.openingCash;
+    const cashExpenses = totals.cashExpenses;
+    const calculatedExpected = totals.expectedCashInDrawer;
     const expectedCashInDrawer = isOpen ? calculatedExpected : (Math.round(Number(shift.expectedCashInDrawer)) || calculatedExpected);
 
     container.innerHTML = `
@@ -10513,7 +10636,9 @@ class NexusApp {
       status: "Abierto",
       openedBy: currentOperator,
       openedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      openedDate: now.toISOString().slice(0, 10)
+      openedDate: now.toISOString().slice(0, 10),
+      openedTimestamp: now.getTime(),
+      openedIso: now.toISOString()
     };
 
     this.closeModal('open-cash-modal');
@@ -10524,35 +10649,14 @@ class NexusApp {
 
   openCashCloseModal() {
     const shift = this.data.cashShiftLog || { expectedCashInDrawer: 0, cashSales: 0 };
-    const shiftTxs = this.getCashShiftTransactions();
-    let totalCash = 0;
-    let totalTransfer = 0;
-    let totalTarjeta = 0;
-    let totalCredito = 0;
-    let totalSales = 0;
+    const totals = this.calculateShiftTotals();
+    const totalCash = totals.totalEfectivo;
+    const totalTransfer = totals.totalTransferencia;
+    const totalTarjeta = totals.totalTarjeta;
+    const totalCredito = totals.totalCredito;
+    const totalSales = totals.totalFacturado;
+    const calculatedExpected = totals.expectedCashInDrawer;
 
-    shiftTxs.forEach(t => {
-      const amt = Math.round(Math.abs(t.total || 0));
-      totalSales += amt;
-      const m = (t.paymentMethod || '').toLowerCase();
-      if (m.includes('efectivo') || m.includes('cash')) {
-        totalCash += amt;
-      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-        totalTarjeta += amt;
-      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransfer += amt;
-      } else if ((m.includes('crédito') || m.includes('credito'))) {
-        totalCredito += amt;
-      }
-    });
-
-    if (totalCash === 0 && Number(shift.cashSales) > 0) totalCash = Math.round(Number(shift.cashSales));
-    if (totalTransfer === 0 && Number(shift.cardSales) > 0) totalTransfer = Math.round(Number(shift.cardSales));
-    if (totalSales === 0) totalSales = totalCash + totalTransfer + totalTarjeta + totalCredito;
-
-    const openingCash = Math.round(Number(shift.openingCash) || 0);
-    const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
-    const calculatedExpected = openingCash + totalCash - cashExpenses;
     shift.expectedCashInDrawer = calculatedExpected;
     shift.cashSales = totalCash;
     shift.cardSales = totalTransfer + totalTarjeta;
@@ -10611,7 +10715,8 @@ class NexusApp {
 
   async finalizeCashClose() {
     const counted = this.parseCleanNumber(document.getElementById('cash-physical-counted')?.value);
-    const expected = this.data.cashShiftLog?.expectedCashInDrawer || 0;
+    const totals = this.calculateShiftTotals();
+    const expected = totals.expectedCashInDrawer;
     const diff = counted - expected;
     const currentOperator = this.currentUser?.name || 'Cajero';
     const now = new Date();
@@ -10622,22 +10727,25 @@ class NexusApp {
 
     const closedRecord = {
       id: `TRN-${Date.now().toString().slice(-6)}`,
+      shiftId: this.data.cashShiftLog?.shiftId || '',
       status: "Cerrado",
-      openingCash: this.data.cashShiftLog?.openingCash || 0,
-      cashSales: this.data.cashShiftLog?.cashSales || 0,
-      cardSales: this.data.cashShiftLog?.cardSales || 0,
-      transferSales: this.data.cashShiftLog?.transferSales || 0,
-      tarjetaSales: this.data.cashShiftLog?.tarjetaSales || 0,
-      creditSales: this.data.cashShiftLog?.creditSales || 0,
-      cashExpenses: this.data.cashShiftLog?.cashExpenses || 0,
+      openingCash: totals.openingCash,
+      cashSales: totals.totalEfectivo,
+      cardSales: totals.totalTransferencia + totals.totalTarjeta,
+      transferSales: totals.totalTransferencia,
+      tarjetaSales: totals.totalTarjeta,
+      creditSales: totals.totalCredito,
+      cashExpenses: totals.cashExpenses,
       expectedCashInDrawer: expected,
       closingCash: counted,
       difference: diff,
       openedBy: this.data.cashShiftLog?.openedBy || currentOperator,
       openedAt: this.data.cashShiftLog?.openedAt || '',
+      openedDate: this.data.cashShiftLog?.openedDate || now.toISOString().slice(0, 10),
       closedBy: currentOperator,
       closedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      date: now.toISOString().slice(0, 10)
+      date: now.toISOString().slice(0, 10),
+      closedTimestamp: now.getTime()
     };
     this.data.cashShiftsHistory.unshift(closedRecord);
 
@@ -10662,12 +10770,15 @@ class NexusApp {
     const isOpen = shift.status === 'Abierto';
 
     if (isOpen) {
+      const liveTotals = this.calculateShiftTotals();
+      const currentExpected = liveTotals.expectedCashInDrawer;
+      shift.expectedCashInDrawer = currentExpected;
       dotEl.style.backgroundColor = '#10B981';
       dotEl.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.25)';
       const op = shift.openedBy ? ` · Op: ${shift.openedBy}` : '';
-      textEl.innerText = `Caja #1 (Abierta: ${this.formatCurrency(shift.expectedCashInDrawer || 0)})${op}`;
+      textEl.innerText = `Caja #1 (Abierta: ${this.formatCurrency(currentExpected)})${op}`;
       if (pillEl) {
-        pillEl.title = `Turno ABIERTO por ${shift.openedBy || 'Cajero'}. Base: ${this.formatCurrency(shift.openingCash || 0)} · En caja: ${this.formatCurrency(shift.expectedCashInDrawer || 0)}. Clic para arqueo.`;
+        pillEl.title = `Turno ABIERTO por ${shift.openedBy || 'Cajero'}. Base: ${this.formatCurrency(liveTotals.openingCash || 0)} · En caja: ${this.formatCurrency(currentExpected)}. Clic para arqueo.`;
       }
     } else {
       dotEl.style.backgroundColor = '#EF4444';
