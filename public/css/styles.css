@@ -4610,6 +4610,13 @@ html, body {
 /* --------------------------------------------------------------------------
    THERMAL POS RECEIPT PRINT MEDIA (MANAGED CENTRALLY)
    -------------------------------------------------------------------------- */
+#receipt-modal-title,
+#receipt-modal-body,
+#receipt-modal-body *,
+.thermal-ticket-card,
+.thermal-ticket-card * {
+  text-transform: uppercase !important;
+}
 
 
 /* ==========================================================================
