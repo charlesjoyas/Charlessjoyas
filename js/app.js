@@ -14044,29 +14044,47 @@ class NexusApp {
     }).join('');
   }
 
-  renderInformesCarteraClientes() {
-    const tbody = document.getElementById('inf-cartera-tbody');
-    if (!tbody) return;
-
-    if (!this.currentCarteraFilter) this.currentCarteraFilter = 'todos';
-    if (!this.carteraSearchQuery) this.carteraSearchQuery = '';
-
+  getConsolidatedCarteraData() {
     const now = new Date();
+    const customers = this.data.customers || [];
+    const customerCredits = this.data.customerCredits || [];
+    const abonosVentas = this.data.abonosVentas || [];
 
-    // 1. Build comprehensive credit records merging customerCredits and customers
     const creditMap = new Map();
 
-    (this.data.customerCredits || []).forEach(cc => {
-      const cust = (this.data.customers || []).find(c => c.name?.toLowerCase() === cc.customer?.toLowerCase() || c.id === cc.customerId) || {};
+    // 1. Process customerCredits records
+    customerCredits.forEach((cc, index) => {
+      const cust = customers.find(c =>
+        (c.name && cc.customer && c.name.trim().toLowerCase() === cc.customer.trim().toLowerCase()) ||
+        (cc.customerId && c.id === cc.customerId)
+      ) || {};
+
       const balance = Number(cc.currentBalance) || 0;
       const granted = Number(cc.totalGranted) || (Number(cust.creditLimit) || balance);
-      
+
+      // Match abonos for this customer and/or credit
+      const custAbonos = abonosVentas.filter(ab =>
+        (ab.creditId && ab.creditId === cc.id) ||
+        (ab.customer && cc.customer && ab.customer.trim().toLowerCase() === cc.customer.trim().toLowerCase())
+      );
+
+      const sortedAbonos = [...custAbonos].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const lastAbono = sortedAbonos[0] || null;
+      const lastAbonoDate = lastAbono ? (lastAbono.date || '').slice(0, 10) : 'Sin abonos';
+      const lastAbonoAmount = lastAbono ? (Number(lastAbono.amount) || 0) : 0;
+
+      let totalAbonado = custAbonos.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+      if (totalAbonado === 0 && granted > balance) {
+        totalAbonado = granted - balance;
+      }
+      const amortizedPct = granted > 0 ? (totalAbonado / granted) : (balance === 0 ? 1 : 0);
+
       let diffDays = 0;
       let isOverdue = false;
       let isNearDue = false;
       let isPaid = balance <= 0 || cc.status === 'Saldado';
 
-      if (cc.dueDate) {
+      if (cc.dueDate && !isPaid) {
         const due = new Date(cc.dueDate + 'T23:59:59');
         diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
         if (diffDays < 0) isOverdue = true;
@@ -14078,85 +14096,180 @@ class NexusApp {
       // Risk level calculation
       let riskLevel = 'Bajo';
       let riskClass = 'badge-active';
+      let riskBadgeStyle = 'BadgeGreen';
       let riskColor = '#10B981';
 
       if (isPaid) {
         riskLevel = 'Saldado';
         riskClass = 'badge-active';
+        riskBadgeStyle = 'BadgeGreen';
         riskColor = '#10B981';
       } else if (daysOverdue > 60 || (daysOverdue > 30 && balance > 2000000)) {
         riskLevel = 'Crítico';
         riskClass = 'badge-danger';
+        riskBadgeStyle = 'BadgeRose';
         riskColor = '#DC2626';
       } else if (daysOverdue > 15 || (isOverdue && balance > 5000000)) {
         riskLevel = 'Alto';
         riskClass = 'badge-danger';
+        riskBadgeStyle = 'BadgeRose';
         riskColor = '#F43F5E';
       } else if (daysOverdue > 0 || isNearDue) {
         riskLevel = 'Medio';
         riskClass = 'badge-warning';
+        riskBadgeStyle = 'BadgeAmber';
         riskColor = '#F59E0B';
       }
 
       // Aging Bucket
       let bucket = 'corriente';
+      let bucketLabel = 'Corriente (Al Día)';
       if (isOverdue) {
-        if (daysOverdue <= 30) bucket = 'mora_1_30';
-        else if (daysOverdue <= 60) bucket = 'mora_31_60';
-        else if (daysOverdue <= 90) bucket = 'mora_61_90';
-        else bucket = 'mora_90_plus';
+        if (daysOverdue <= 30) {
+          bucket = 'mora_1_30';
+          bucketLabel = 'Mora 1 - 30 días';
+        } else if (daysOverdue <= 60) {
+          bucket = 'mora_31_60';
+          bucketLabel = 'Mora 31 - 60 días';
+        } else if (daysOverdue <= 90) {
+          bucket = 'mora_61_90';
+          bucketLabel = 'Mora 61 - 90 días';
+        } else {
+          bucket = 'mora_90_plus';
+          bucketLabel = 'Mora Crítica (>90 días)';
+        }
       }
 
-      creditMap.set(cc.customer, {
-        id: cc.id,
-        customer: cc.customer,
+      let estadoContable = 'Al Día';
+      let estadoBadgeStyle = 'BadgeGreen';
+      if (isPaid) {
+        estadoContable = 'Saldado';
+        estadoBadgeStyle = 'BadgeGreen';
+      } else if (isOverdue) {
+        estadoContable = `Vencido (${daysOverdue}d)`;
+        estadoBadgeStyle = 'BadgeRose';
+      } else if (isNearDue) {
+        estadoContable = `Por Vencer (${diffDays}d)`;
+        estadoBadgeStyle = 'BadgeAmber';
+      }
+
+      let suggestedAction = 'Monitoreo preventivo y fidelización comercial';
+      if (isPaid) {
+        suggestedAction = 'Cuenta al día / Fidelización y ampliación de cupo';
+      } else if (daysOverdue > 90) {
+        suggestedAction = 'Cobro jurídico inmediato / Bloqueo total de créditos';
+      } else if (daysOverdue > 60) {
+        suggestedAction = 'Gestión prejurídica / Requerimiento formal de pago';
+      } else if (daysOverdue > 30) {
+        suggestedAction = 'Gestión telefónica formal / Acuerdo y suspensión temporal';
+      } else if (daysOverdue > 0) {
+        suggestedAction = 'Recordatorio amigable WhatsApp / Aviso formal de mora';
+      } else if (isNearDue) {
+        suggestedAction = 'Recordatorio preventivo de vencimiento próximo';
+      }
+
+      const operationType = cc.status === 'Plan Separe' ? 'Plan Separe' : 'Crédito Directo';
+      const key = cc.id || `${cc.customer}_${index}`;
+
+      creditMap.set(key, {
+        id: cc.id || `CC-${String(index + 1).padStart(3, '0')}`,
+        customer: cc.customer || cust.name || 'Cliente sin nombre',
+        docType: cust.docType || 'CC',
+        document: cust.document || cust.nit || 'No Registrado',
         phone: cust.phone || '+57 300 000 0000',
         email: cust.email || 'contacto@cliente.com',
-        balance,
-        granted,
+        address: cust.address || 'Medellín, Colombia',
+        operationType,
+        issueDate: cc.date || cc.createdDate || 'N/A',
         dueDate: cc.dueDate || 'Sin fecha',
         diffDays,
         daysOverdue,
         isOverdue,
         isNearDue,
         isPaid,
+        granted,
+        balance,
+        totalAbonado,
+        amortizedPct,
+        lastAbonoDate,
+        lastAbonoAmount,
+        estadoContable,
+        estadoBadgeStyle,
+        bucket,
+        bucketLabel,
         riskLevel,
         riskClass,
+        riskBadgeStyle,
         riskColor,
-        bucket
+        suggestedAction
       });
     });
 
-    // Also check if any customer has creditBalance > 0 not present in creditMap
-    (this.data.customers || []).forEach(cust => {
-      if (cust.creditBalance > 0 && !creditMap.has(cust.name)) {
-        const balance = Number(cust.creditBalance);
-        creditMap.set(cust.name, {
-          id: `CC-${cust.id.replace('CLI-', '9')}`,
-          customer: cust.name,
-          phone: cust.phone || '+57 300 000 0000',
-          email: cust.email || 'contacto@cliente.com',
-          balance,
-          granted: Number(cust.creditLimit) || balance,
-          dueDate: '2026-09-20',
-          diffDays: 12,
-          daysOverdue: 0,
-          isOverdue: false,
-          isNearDue: false,
-          isPaid: false,
-          riskLevel: 'Bajo',
-          riskClass: 'badge-active',
-          riskColor: '#10B981',
-          bucket: 'corriente'
-        });
+    // 2. Cross-check customers with positive creditBalance not yet in creditMap
+    customers.forEach((cust, cIndex) => {
+      const balance = Number(cust.creditBalance) || 0;
+      if (balance > 0) {
+        const alreadyExists = Array.from(creditMap.values()).some(cr =>
+          cr.customer && cust.name && cr.customer.trim().toLowerCase() === cust.name.trim().toLowerCase()
+        );
+        if (!alreadyExists) {
+          const granted = Number(cust.creditLimit) || balance;
+          const custAbonos = abonosVentas.filter(ab =>
+            ab.customer && cust.name && ab.customer.trim().toLowerCase() === cust.name.trim().toLowerCase()
+          );
+          const sortedAbonos = [...custAbonos].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+          const lastAbono = sortedAbonos[0] || null;
+          const lastAbonoDate = lastAbono ? (lastAbono.date || '').slice(0, 10) : 'Sin abonos';
+          const lastAbonoAmount = lastAbono ? (Number(lastAbono.amount) || 0) : 0;
+          let totalAbonado = custAbonos.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+          if (totalAbonado === 0 && granted > balance) {
+            totalAbonado = granted - balance;
+          }
+          const amortizedPct = granted > 0 ? (totalAbonado / granted) : 0;
+
+          const key = `CLI-${cust.id || cIndex}`;
+          creditMap.set(key, {
+            id: `CC-${String(cust.id || '').replace('CLI-', '9') || String(cIndex + 1).padStart(3, '0')}`,
+            customer: cust.name,
+            docType: cust.docType || 'CC',
+            document: cust.document || cust.nit || 'No Registrado',
+            phone: cust.phone || '+57 300 000 0000',
+            email: cust.email || 'contacto@cliente.com',
+            address: cust.address || 'Medellín, Colombia',
+            operationType: 'Crédito Directo',
+            issueDate: 'N/A',
+            dueDate: 'N/A',
+            diffDays: 30,
+            daysOverdue: 0,
+            isOverdue: false,
+            isNearDue: false,
+            isPaid: false,
+            granted,
+            balance,
+            totalAbonado,
+            amortizedPct,
+            lastAbonoDate,
+            lastAbonoAmount,
+            estadoContable: 'Al Día',
+            estadoBadgeStyle: 'BadgeGreen',
+            bucket: 'corriente',
+            bucketLabel: 'Corriente (Al Día)',
+            riskLevel: 'Bajo',
+            riskClass: 'badge-active',
+            riskBadgeStyle: 'BadgeGreen',
+            riskColor: '#10B981',
+            suggestedAction: 'Monitoreo preventivo y fidelización comercial'
+          });
+        }
       }
     });
 
     const allCredits = Array.from(creditMap.values());
-
-    // 2. Metrics calculation
     const activeDebts = allCredits.filter(c => c.balance > 0);
     const totalCartera = activeDebts.reduce((acc, c) => acc + c.balance, 0);
+    const totalGranted = allCredits.reduce((acc, c) => acc + c.granted, 0);
+    const totalAbonadoGlobal = allCredits.reduce((acc, c) => acc + c.totalAbonado, 0);
+
     const moraDebts = activeDebts.filter(c => c.isOverdue);
     const totalMora = moraDebts.reduce((acc, c) => acc + c.balance, 0);
     const proximosDebts = activeDebts.filter(c => !c.isOverdue && c.isNearDue);
@@ -14166,8 +14279,8 @@ class NexusApp {
     const altoRiesgoDebts = activeDebts.filter(c => c.riskLevel === 'Alto' || c.riskLevel === 'Crítico');
 
     const pctMorosidad = totalCartera > 0 ? ((totalMora / totalCartera) * 100).toFixed(1) : "0.0";
+    const pctAmortizadoGlobal = totalGranted > 0 ? ((totalAbonadoGlobal / totalGranted) * 100).toFixed(1) : "0.0";
 
-    // Aging Buckets totals
     const buckets = {
       corriente: activeDebts.filter(c => c.bucket === 'corriente'),
       mora_1_30: activeDebts.filter(c => c.bucket === 'mora_1_30'),
@@ -14183,6 +14296,50 @@ class NexusApp {
       mora_61_90: buckets.mora_61_90.reduce((acc, c) => acc + c.balance, 0),
       mora_90_plus: buckets.mora_90_plus.reduce((acc, c) => acc + c.balance, 0)
     };
+
+    return {
+      allCredits,
+      activeDebts,
+      totalCartera,
+      totalGranted,
+      totalAbonadoGlobal,
+      pctAmortizadoGlobal,
+      moraDebts,
+      totalMora,
+      proximosDebts,
+      totalProximos,
+      alDiaDebts,
+      totalAlDia,
+      altoRiesgoDebts,
+      pctMorosidad,
+      buckets,
+      bucketTotals,
+      abonosVentas
+    };
+  }
+
+  renderInformesCarteraClientes() {
+    const tbody = document.getElementById('inf-cartera-tbody');
+    if (!tbody) return;
+
+    if (!this.currentCarteraFilter) this.currentCarteraFilter = 'todos';
+    if (!this.carteraSearchQuery) this.carteraSearchQuery = '';
+
+    const {
+      allCredits,
+      activeDebts,
+      totalCartera,
+      moraDebts,
+      totalMora,
+      proximosDebts,
+      totalProximos,
+      alDiaDebts,
+      totalAlDia,
+      altoRiesgoDebts,
+      pctMorosidad,
+      buckets,
+      bucketTotals
+    } = this.getConsolidatedCarteraData();
 
     // 3. Render KPI Summary Cards
     const kpiContainer = document.getElementById('cartera-kpi-container');
@@ -14450,39 +14607,520 @@ class NexusApp {
     window.open(url, '_blank');
   }
 
-  exportCarteraCSV() {
-    const activeDebts = (this.data.customerCredits || []).filter(c => (Number(c.currentBalance) || 0) > 0);
-    if (activeDebts.length === 0) {
-      this.showToast('No hay cuentas por cobrar activas para exportar', 'warning');
+  exportCarteraExcel() {
+    const data = this.getConsolidatedCarteraData();
+    const {
+      allCredits,
+      activeDebts,
+      totalCartera,
+      totalGranted,
+      totalAbonadoGlobal,
+      pctAmortizadoGlobal,
+      moraDebts,
+      totalMora,
+      proximosDebts,
+      totalProximos,
+      alDiaDebts,
+      totalAlDia,
+      pctMorosidad,
+      buckets,
+      bucketTotals,
+      abonosVentas
+    } = data;
+
+    if (allCredits.length === 0 && (!abonosVentas || abonosVentas.length === 0)) {
+      this.showToast('No hay cuentas por cobrar ni abonos registrados para exportar', 'warning');
       return;
     }
 
     const now = new Date();
-    const rows = [
-      ['Ref Credito', 'Cliente', 'Telefono', 'Credito Otorgado', 'Saldo Pendiente', 'Fecha Vencimiento', 'Dias Mora', 'Estado']
+    const dateStr = now.toISOString().slice(0, 10);
+    const escapeXml = (str) => this.escapeXml(str);
+
+    // Sort credits for sheet 2: active debts first sorted by balance desc, then paid debts
+    const sortedCredits = [...allCredits].sort((a, b) => {
+      if (b.balance !== a.balance) return b.balance - a.balance;
+      return (b.daysOverdue || 0) - (a.daysOverdue || 0);
+    });
+
+    let sumGranted = 0;
+    let sumAbonado = 0;
+    let sumBalance = 0;
+    let sumUltimoAbono = 0;
+
+    // --- HOJA 2: ROWS DETALLE CARTERA ---
+    let rowsDetalle = '';
+    sortedCredits.forEach((c, idx) => {
+      sumGranted += Number(c.granted) || 0;
+      sumAbonado += Number(c.totalAbonado) || 0;
+      sumBalance += Number(c.balance) || 0;
+      sumUltimoAbono += Number(c.lastAbonoAmount) || 0;
+
+      let diasTexto = 'Al día';
+      let diasBadge = 'BadgeGreen';
+      if (c.isPaid) {
+        diasTexto = 'Saldado';
+        diasBadge = 'BadgeGreen';
+      } else if (c.isOverdue) {
+        diasTexto = `Mora (${c.daysOverdue} d)`;
+        diasBadge = c.daysOverdue > 60 ? 'BadgeRose' : 'BadgeRose';
+      } else if (c.isNearDue) {
+        diasTexto = `Vence en ${c.diffDays} d`;
+        diasBadge = 'BadgeAmber';
+      } else {
+        diasTexto = `Al día (${c.diffDays} d)`;
+        diasBadge = 'BadgeGreen';
+      }
+
+      let riskBadge = 'BadgeGreen';
+      if (c.riskLevel === 'Crítico' || c.riskLevel === 'Alto') riskBadge = 'BadgeRose';
+      else if (c.riskLevel === 'Medio') riskBadge = 'BadgeAmber';
+
+      rowsDetalle += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(c.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.docType)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.document)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(c.customer)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.phone)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(c.email)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(c.address)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.operationType)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.issueDate)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(c.dueDate)}</Data></Cell>
+      <Cell ss:StyleID="${diasBadge}"><Data ss:Type="String">${escapeXml(diasTexto)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${c.granted}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${c.totalAbonado}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${c.amortizedPct}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${c.balance}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.lastAbonoDate)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${c.lastAbonoAmount}</Data></Cell>
+      <Cell ss:StyleID="${c.estadoBadgeStyle}"><Data ss:Type="String">${escapeXml(c.estadoContable)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.bucketLabel)}</Data></Cell>
+      <Cell ss:StyleID="${riskBadge}"><Data ss:Type="String">${escapeXml(c.riskLevel)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(c.suggestedAction)}</Data></Cell>
+    </Row>`;
+    });
+
+    // --- HOJA 1: MATRIZ AGING ROWS ---
+    const agingSpecs = [
+      {
+        tramo: 'Corriente / Al Día (Sin Mora)',
+        count: buckets.corriente.length,
+        saldo: bucketTotals.corriente,
+        riesgo: 'Bajo (Cartera Sana)',
+        riesgoBadge: 'BadgeGreen',
+        accion: 'Monitoreo preventivo y fidelización comercial'
+      },
+      {
+        tramo: 'Mora Temprana: 1 a 30 días',
+        count: buckets.mora_1_30.length,
+        saldo: bucketTotals.mora_1_30,
+        riesgo: 'Moderado (Alerta Temprana)',
+        riesgoBadge: 'BadgeAmber',
+        accion: 'Recordatorio amistoso por WhatsApp y aviso de vencimiento'
+      },
+      {
+        tramo: 'Mora Media: 31 a 60 días',
+        count: buckets.mora_31_60.length,
+        saldo: bucketTotals.mora_31_60,
+        riesgo: 'Alto (Riesgo Financiero)',
+        riesgoBadge: 'BadgeAmber',
+        accion: 'Gestión telefónica de cobro, acuerdo formal y suspensión temporal'
+      },
+      {
+        tramo: 'Mora Tardía: 61 a 90 días',
+        count: buckets.mora_61_90.length,
+        saldo: bucketTotals.mora_61_90,
+        riesgo: 'Severo (Cobro Prejurídico)',
+        riesgoBadge: 'BadgeRose',
+        accion: 'Requerimiento formal escrito y bloqueo total de compras a crédito'
+      },
+      {
+        tramo: 'Mora Crítica: Mayor a 90 días',
+        count: buckets.mora_90_plus.length,
+        saldo: bucketTotals.mora_90_plus,
+        riesgo: 'Crítico (Pérdida Potencial)',
+        riesgoBadge: 'BadgeRose',
+        accion: 'Traslado inmediato a cobro judicial y provisión contable de cartera'
+      }
     ];
 
-    activeDebts.forEach(c => {
-      const cust = (this.data.customers || []).find(cu => cu.name === c.customer) || {};
-      let diffDays = 0;
-      let isOverdue = false;
-      if (c.dueDate) {
-        const due = new Date(c.dueDate + 'T23:59:59');
-        diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) isOverdue = true;
-      }
-      const daysOverdue = isOverdue ? Math.abs(diffDays) : 0;
-      const estado = isOverdue ? `Vencido (${daysOverdue}d)` : `Al dia (${diffDays}d)`;
+    let rowsAging = '';
+    agingSpecs.forEach(item => {
+      const partPct = totalCartera > 0 ? (item.saldo / totalCartera) : 0;
+      rowsAging += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(item.tramo)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${item.count}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${item.saldo}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${partPct}</Data></Cell>
+      <Cell ss:StyleID="${item.riesgoBadge}"><Data ss:Type="String">${escapeXml(item.riesgo)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(item.accion)}</Data></Cell>
+    </Row>`;
+    });
+
+    // --- HOJA 3: HISTORIAL DE ABONOS ROWS ---
+    let totalRecaudadoAbonos = 0;
+    let rowsAbonos = '';
+    const sortedAbonosList = [...(abonosVentas || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    sortedAbonosList.forEach((ab, idx) => {
+      const amount = Number(ab.amount) || 0;
+      totalRecaudadoAbonos += amount;
+      const cust = (this.data.customers || []).find(c => c.name && ab.customer && c.name.trim().toLowerCase() === ab.customer.trim().toLowerCase()) || {};
+
+      rowsAbonos += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(ab.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.date)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(ab.customer || 'Cliente')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(cust.document || cust.nit || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.creditId || ab.invoiceId || 'N/A')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${amount}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.method || 'Efectivo')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(ab.method === 'Efectivo' ? 'Caja Principal' : 'Bancos / Transferencia')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(ab.cashier || 'Cajero')}</Data></Cell>
+      <Cell ss:StyleID="BadgeGreen"><Data ss:Type="String">Aplicado</Data></Cell>
+    </Row>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>Charles Joyas SAS</Author>
+  <Company>Inversiones Charles Joyas S.A.S</Company>
+  <Created>${now.toISOString()}</Created>
+ </DocumentProperties>
+ <Styles>
+  ${this._getExcelCommonStyles()}
+  <Style ss:ID="BadgePurple">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:Size="9" ss:Bold="1" ss:Color="#7E22CE"/>
+   <Interior ss:Color="#F3E8FF" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E9D5FF"/></Borders>
+  </Style>
+  <Style ss:ID="BadgeBlue">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:Size="9" ss:Bold="1" ss:Color="#1D4ED8"/>
+   <Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#BFDBFE"/></Borders>
+  </Style>
+ </Styles>
+
+ <!-- HOJA 1: RESUMEN EJECUTIVO Y AGING DE CARTERA -->
+ <Worksheet ss:Name="1. Resumen &amp; Aging">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="230"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="330"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="5" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — TABLERO DE CONTROL Y MATRIZ DE AGING DE CARTERA</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="5" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Indicadores de Cartera, Cobranzas y Antigüedad de Saldos</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="5" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Clientes con Saldo: ${activeDebts.length} | Créditos Registrados: ${allCredits.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- KPI Cards Fila 1 -->
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL CARTERA ACTIVA (SALDO PENDIENTE)</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">CRÉDITOS OTORGADOS</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL ABONOS RECAUDADOS</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">% RECUPERACIÓN / AMORTIZACIÓN</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalCartera}</Data></Cell>
+    <Cell ss:StyleID="KpiVal"><Data ss:Type="Number">${totalGranted}</Data></Cell>
+    <Cell ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalAbonadoGlobal}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValAmber"><Data ss:Type="String">${pctAmortizadoGlobal}%</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- KPI Cards Fila 2 -->
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">CARTERA AL DÍA / SANA</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">EN ALERTA (VENCE &lt;= 7 DÍAS)</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">CARTERA EN MORA / VENCIDA</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">ÍNDICE DE MOROSIDAD GLOBAL</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalAlDia}</Data></Cell>
+    <Cell ss:StyleID="KpiValAmber"><Data ss:Type="Number">${totalProximos}</Data></Cell>
+    <Cell ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalMora}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValRose"><Data ss:Type="String">${pctMorosidad}%</Data></Cell>
+   </Row>
+   <Row ss:Height="14"></Row>
+
+   <!-- Section: Matriz Aging -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="5" ss:StyleID="SectionHeader"><Data ss:Type="String">  MATRIZ OFICIAL DE ANTIGÜEDAD DE SALDOS (AGING MATRIX)</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TRAMO DE ANTIGÜEDAD DE SALDOS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">N° CUENTAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% CARTERA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NIVEL DE RIESGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">POLÍTICA &amp; ACCIÓN DE COBRANZA RECOMENDADA</Data></Cell>
+   </Row>
+
+   ${rowsAging}
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CARTERA ACTIVA AUDITADA</Data></Cell>
+    <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${activeDebts.length}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalCartera}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalLabel"><Data ss:Type="String">${pctMorosidad}% morosidad actual</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>12</SplitHorizontal>
+   <TopRowBottomPane>12</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- HOJA 2: DETALLE NOMINAL DE CARTERA DE CLIENTES -->
+ <Worksheet ss:Name="2. Detalle Cartera Clientes">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="65"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="115"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="115"/>
+   <Column ss:Width="125"/>
+   <Column ss:Width="125"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="135"/>
+   <Column ss:Width="115"/>
+   <Column ss:Width="125"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="135"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="230"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="21" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — LIBRO MAESTRO DE CARTERA Y CRÉDITOS DE CLIENTES</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="21" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Auditoría Nominal de Cuentas por Cobrar, Vencimientos, Abonos, Morosidad y Acciones de Cobranza</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="21" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Total Cuentas: ${sortedCredits.length} | Cartera Activa: $ ${Number(totalCartera).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID CRÉDITO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DOC</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">N° IDENTIFICACIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CLIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TELÉFONO / WHATSAPP</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CORREO ELECTRÓNICO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DIRECCIÓN / CIUDAD</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MODALIDAD</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA APERTURA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VENCIMIENTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DÍAS MORA / VENCE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CRÉDITO OTORGADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL ABONADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% AMORTIZADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA ÚLT. ABONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VALOR ÚLT. ABONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO CONTABLE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TRAMO AGING</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">RIESGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ACCIÓN SUGERIDA COBRANZA</Data></Cell>
+   </Row>
+
+   ${rowsDetalle || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="21" ss:StyleID="CellCenter"><Data ss:Type="String">No se encontraron registros de cartera de clientes.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="11" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES CONSOLIDADOS CARTERA DE CLIENTES</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumGranted}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumAbonado}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${sumGranted > 0 ? ((sumAbonado / sumGranted) * 100).toFixed(1) + '%' : '0.0%'}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumBalance}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">-</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumUltimoAbono}</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">${sortedCredits.length} cuentas registradas</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- HOJA 3: HISTORIAL DE ABONOS RECIBIDOS -->
+ <Worksheet ss:Name="3. Historial de Abonos">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="190"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="135"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="100"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="10" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — HISTORIAL DE ABONOS Y RECAUDOS DE CARTERA</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="10" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Registro Cronológico de Cobranzas, Pagos en Caja y Transferencias de Créditos y Planes Separe</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="10" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Total Abonos: ${sortedAbonosList.length} | Recaudado: $ ${Number(totalRecaudadoAbonos).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">ID ABONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">FECHA Y HORA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">CLIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">DOCUMENTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">REF CRÉDITO / VENTA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">MONTO ABONADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">MEDIO DE PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">DESTINO / CAJA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">CAJERO / USUARIO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsAbonos || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="10" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran abonos en el sistema todavía.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL RECAUDADO POR CONCEPTO DE ABONOS</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalRecaudadoAbonos}</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">${sortedAbonosList.length} cobros procesados</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+
+    this._downloadExcelWorkbook(xml, `Cartera_Clientes_SuperCompleto_CharlesJoyas_${dateStr}`);
+    this.showToast('Libro Excel de Cartera descargado exitosamente (3 Hojas)', 'success');
+  }
+
+  exportCarteraCSV() {
+    const data = this.getConsolidatedCarteraData();
+    const { allCredits } = data;
+
+    if (allCredits.length === 0) {
+      this.showToast('No hay cuentas por cobrar activas para exportar', 'warning');
+      return;
+    }
+
+    const headers = [
+      'Item',
+      'ID Credito',
+      'Tipo Doc',
+      'Numero Documento',
+      'Cliente',
+      'Telefono / WhatsApp',
+      'Correo Electronico',
+      'Direccion',
+      'Modalidad',
+      'Fecha Apertura',
+      'Fecha Vencimiento',
+      'Dias Vencimiento / Mora',
+      'Credito Otorgado COP',
+      'Total Abonado COP',
+      '% Amortizado',
+      'Saldo Pendiente COP',
+      'Fecha Ultimo Abono',
+      'Valor Ultimo Abono COP',
+      'Estado Contable',
+      'Tramo Aging',
+      'Semaforo Riesgo',
+      'Accion Sugerida Cobranza'
+    ];
+
+    const sortedCredits = [...allCredits].sort((a, b) => {
+      if (b.balance !== a.balance) return b.balance - a.balance;
+      return (b.daysOverdue || 0) - (a.daysOverdue || 0);
+    });
+
+    const rows = [headers];
+
+    sortedCredits.forEach((c, idx) => {
+      let diasTexto = 'Al dia';
+      if (c.isPaid) diasTexto = 'Saldado';
+      else if (c.isOverdue) diasTexto = `Vencido (${c.daysOverdue} dias)`;
+      else if (c.isNearDue) diasTexto = `Por vencer (${c.diffDays} dias)`;
+      else diasTexto = `Al dia (${c.diffDays} dias)`;
 
       rows.push([
+        idx + 1,
         c.id,
+        c.docType,
+        `"${(c.document || '').replace(/"/g, '""')}"`,
         `"${(c.customer || '').replace(/"/g, '""')}"`,
-        `"${cust.phone || ''}"`,
-        c.totalGranted || c.currentBalance,
-        c.currentBalance,
-        c.dueDate || '',
-        daysOverdue,
-        estado
+        `"${(c.phone || '').replace(/"/g, '""')}"`,
+        `"${(c.email || '').replace(/"/g, '""')}"`,
+        `"${(c.address || '').replace(/"/g, '""')}"`,
+        c.operationType,
+        c.issueDate,
+        c.dueDate,
+        diasTexto,
+        c.granted,
+        c.totalAbonado,
+        `${(c.amortizedPct * 100).toFixed(1)}%`,
+        c.balance,
+        c.lastAbonoDate,
+        c.lastAbonoAmount,
+        c.estadoContable,
+        c.bucketLabel,
+        c.riskLevel,
+        `"${(c.suggestedAction || '').replace(/"/g, '""')}"`
       ]);
     });
 
@@ -14490,11 +15128,11 @@ class NexusApp {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Cartera_Clientes_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Cartera_Clientes_Detallada_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    this.showToast('Reporte de cartera exportado exitosamente', 'success');
+    this.showToast('Reporte detallado de cartera exportado en CSV', 'success');
   }
 
   renderInformesMargenReal() {
