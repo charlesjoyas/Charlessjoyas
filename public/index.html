@@ -2020,6 +2020,45 @@
               </div>
             </div>
 
+            <!-- Toolbar de Selección de Período y Filtros -->
+            <div class="fin-ventas-filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; background:var(--card-bg, #fff); padding:0.85rem 1.15rem; border-radius:10px; border:1px solid var(--border-color); margin-bottom:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+              <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                  <label for="inf-periodos-select" style="font-size:0.82rem; font-weight:700; color:var(--text-muted); display:flex; align-items:center; gap:4px; margin:0;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span>Período:</span>
+                  </label>
+                  <select id="inf-periodos-select" onchange="app.onInfPeriodoSelectChange(this.value)" class="form-control" style="font-weight:700; min-width:240px; cursor:pointer; height:36px; border-radius:8px; border:1px solid var(--border-color); background:var(--card-bg, #fff); color:var(--text-main); padding:0 0.75rem; font-size:0.85rem;">
+                    <option value="all">🌐 Todos los Períodos (Histórico Completo)</option>
+                  </select>
+                </div>
+
+                <div class="radar-filter-pills" style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin:0;">
+                  <button type="button" class="radar-filter-pill active" id="inf-pill-periodo-all" onclick="app.setInfPeriodoQuickFilter('all')">Todos</button>
+                  <button type="button" class="radar-filter-pill" id="inf-pill-periodo-current" onclick="app.setInfPeriodoQuickFilter('current')">Mes Actual</button>
+                  <button type="button" class="radar-filter-pill" id="inf-pill-periodo-prev" onclick="app.setInfPeriodoQuickFilter('prev')">Mes Anterior</button>
+                  <button type="button" class="radar-filter-pill" id="inf-pill-periodo-year" onclick="app.setInfPeriodoQuickFilter('year')">Año Actual</button>
+                </div>
+
+                <div id="inf-periodos-custom-dates" style="display:none; align-items:center; gap:0.4rem;">
+                  <span style="font-size:0.8rem; font-weight:600; color:var(--text-muted);">Desde:</span>
+                  <input type="date" id="inf-periodos-date-from" onchange="app.onInfPeriodoDateRangeChange()" class="form-control" style="width:130px; height:34px; font-size:0.8rem; padding:0 6px;">
+                  <span style="font-size:0.8rem; font-weight:600; color:var(--text-muted);">Hasta:</span>
+                  <input type="date" id="inf-periodos-date-to" onchange="app.onInfPeriodoDateRangeChange()" class="form-control" style="width:130px; height:34px; font-size:0.8rem; padding:0 6px;">
+                  <button type="button" class="btn btn-sm btn-primary" onclick="app.applyInfPeriodoCustomRange()" style="height:34px; padding:0 10px; font-size:0.8rem;">Filtrar</button>
+                </div>
+
+                <button type="button" class="btn btn-sm btn-outline" onclick="app.resetInfPeriodosFilter()" style="display:inline-flex; align-items:center; gap:4px; height:34px; padding:0 10px; font-size:0.8rem;" title="Restablecer a todos los períodos">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                  <span>Restablecer</span>
+                </button>
+              </div>
+
+              <div id="inf-periodo-active-badge" style="font-size:0.82rem; font-weight:700; color:var(--brand-primary); background:rgba(16,185,129,0.08); padding:0.35rem 0.75rem; border-radius:6px; border:1px solid rgba(16,185,129,0.2); white-space:nowrap;">
+                📅 Período Activo: Todos los Períodos
+              </div>
+            </div>
+
             <!-- Resumen de Tarjetas KPI -->
             <div id="inf-periodos-kpi-grid" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:1rem; margin-bottom:1.5rem;"></div>
 
@@ -4587,6 +4626,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=68" defer></script>
+  <script src="js/app.js?v=69" defer></script>
 </body>
 </html>

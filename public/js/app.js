@@ -15622,7 +15622,7 @@ class NexusApp {
     this.renderInformesVentasProductoTable();
   }
 
-  getComparativaPeriodosData() {
+  getComparativaPeriodosData(filterOverride) {
     const txs = (this.data.recentTransactions || []).filter(tx => (Number(tx.total) || 0) > 0);
     const exps = this.data.expenses || [];
 
@@ -15630,6 +15630,10 @@ class NexusApp {
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     const now = new Date();
     const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    // Mes anterior
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
 
     const getMonthKey = (dateStr) => {
       if (!dateStr) return currentMonthKey;
@@ -15700,7 +15704,7 @@ class NexusApp {
     }
 
     const sortedKeys = Array.from(monthsMap.keys()).sort().reverse();
-    const periodList = sortedKeys.map(k => {
+    const periodListAll = sortedKeys.map(k => {
       const data = monthsMap.get(k);
       const [year, month] = k.split('-');
       const monthIdx = parseInt(month, 10) - 1;
@@ -15740,10 +15744,10 @@ class NexusApp {
       };
     });
 
-    // Calcular variación MoM (mes sobre mes)
-    for (let i = 0; i < periodList.length; i++) {
-      const current = periodList[i];
-      const previous = periodList[i + 1]; // Al estar ordenado descendente, el siguiente es el mes anterior
+    // Calcular variación MoM (mes sobre mes) en toda la serie
+    for (let i = 0; i < periodListAll.length; i++) {
+      const current = periodListAll[i];
+      const previous = periodListAll[i + 1];
       if (previous && previous.sales > 0) {
         current.momSalesGrowth = (((current.sales - previous.sales) / previous.sales) * 100);
       } else {
@@ -15756,25 +15760,78 @@ class NexusApp {
       }
     }
 
-    const totalSalesAll = periodList.reduce((acc, p) => acc + p.sales, 0);
-    const totalExpensesAll = periodList.reduce((acc, p) => acc + p.expenses, 0);
-    const totalCogsAll = periodList.reduce((acc, p) => acc + p.cogs, 0);
+    // APLICAR FILTRO DE PERÍODO ACTIVO
+    const activeFilter = filterOverride || this.infPeriodoSelected || 'all';
+    let filteredPeriodList = [...periodListAll];
+    let periodLabel = 'Todos los Períodos (Histórico Completo)';
+
+    if (activeFilter === 'current') {
+      filteredPeriodList = periodListAll.filter(p => p.isCurrent);
+      periodLabel = filteredPeriodList[0] ? `${filteredPeriodList[0].monthLabel} (En Curso)` : 'Mes Actual';
+    } else if (activeFilter === 'prev') {
+      filteredPeriodList = periodListAll.filter(p => p.key === prevMonthKey);
+      periodLabel = filteredPeriodList[0] ? `${filteredPeriodList[0].monthLabel}` : 'Mes Anterior';
+    } else if (activeFilter === 'year' || activeFilter.startsWith('year_')) {
+      const y = activeFilter === 'year' ? String(now.getFullYear()) : activeFilter.split('_')[1];
+      filteredPeriodList = periodListAll.filter(p => p.year === y);
+      periodLabel = `Año ${y} Completo`;
+    } else if (activeFilter === 'custom') {
+      const from = this.infPeriodoDateFrom || '';
+      const to = this.infPeriodoDateTo || '';
+      if (from || to) {
+        filteredPeriodList = periodListAll.filter(p => {
+          const startOfMonth = `${p.key}-01`;
+          const endOfMonth = `${p.key}-31`;
+          if (from && endOfMonth < from) return false;
+          if (to && startOfMonth > to) return false;
+          return true;
+        });
+        periodLabel = `Rango: ${from || 'Inicio'} al ${to || 'Hoy'}`;
+      } else {
+        periodLabel = 'Rango Personalizado';
+      }
+    } else if (activeFilter !== 'all') {
+      const found = periodListAll.filter(p => p.key === activeFilter);
+      if (found.length > 0) {
+        filteredPeriodList = found;
+        periodLabel = `${found[0].monthLabel}${found[0].isCurrent ? ' (En Curso)' : ''}`;
+      }
+    }
+
+    // Totales calculados a partir de los períodos filtrados
+    const totalSalesAll = filteredPeriodList.reduce((acc, p) => acc + p.sales, 0);
+    const totalExpensesAll = filteredPeriodList.reduce((acc, p) => acc + p.expenses, 0);
+    const totalCogsAll = filteredPeriodList.reduce((acc, p) => acc + p.cogs, 0);
     const totalUtilidadAll = totalSalesAll - totalExpensesAll;
     const totalUtilidadNetaAll = totalSalesAll - totalCogsAll - totalExpensesAll;
     const globalMargin = totalSalesAll > 0 ? ((totalUtilidadAll / totalSalesAll) * 100) : 0;
     const globalMarginNeto = totalSalesAll > 0 ? ((totalUtilidadNetaAll / totalSalesAll) * 100) : 0;
-    const totalTicketsAll = periodList.reduce((acc, p) => acc + p.salesCount, 0);
+    const totalTicketsAll = filteredPeriodList.reduce((acc, p) => acc + p.salesCount, 0);
+
+    // Listas consolidadas de transacciones y gastos para los períodos filtrados
+    let filteredTxs = [];
+    let filteredExps = [];
+    filteredPeriodList.forEach(p => {
+      filteredTxs = filteredTxs.concat(p.txList);
+      filteredExps = filteredExps.concat(p.expList);
+    });
 
     // Mejor mes en ventas y en utilidad
     let bestSalesPeriod = null;
     let bestProfitPeriod = null;
-    periodList.forEach(p => {
+    const listForBest = filteredPeriodList.length > 1 ? filteredPeriodList : periodListAll;
+    listForBest.forEach(p => {
       if (!bestSalesPeriod || p.sales > bestSalesPeriod.sales) bestSalesPeriod = p;
       if (!bestProfitPeriod || p.utilidad > bestProfitPeriod.utilidad) bestProfitPeriod = p;
     });
 
     return {
-      periodList,
+      periodListAll,
+      periodList: filteredPeriodList,
+      activeFilter,
+      periodLabel,
+      currentMonthKey,
+      prevMonthKey,
       totalSalesAll,
       totalExpensesAll,
       totalCogsAll,
@@ -15785,9 +15842,58 @@ class NexusApp {
       totalTicketsAll,
       bestSalesPeriod,
       bestProfitPeriod,
-      allTxs: txs,
-      allExps: exps
+      allTxs: filteredTxs,
+      allExps: filteredExps
     };
+  }
+
+  onInfPeriodoSelectChange(val) {
+    this.infPeriodoSelected = val;
+    const customDiv = document.getElementById('inf-periodos-custom-dates');
+    if (customDiv) {
+      customDiv.style.display = val === 'custom' ? 'inline-flex' : 'none';
+    }
+    this.renderInformesPeriodos();
+    const data = this.getComparativaPeriodosData();
+    this.showToast(`Período seleccionado: ${data.periodLabel}`, 'info');
+  }
+
+  setInfPeriodoQuickFilter(filterKey) {
+    this.infPeriodoSelected = filterKey;
+    const customDiv = document.getElementById('inf-periodos-custom-dates');
+    if (customDiv) customDiv.style.display = 'none';
+    this.renderInformesPeriodos();
+    const data = this.getComparativaPeriodosData();
+    this.showToast(`Filtro aplicado: ${data.periodLabel}`, 'info');
+  }
+
+  onInfPeriodoDateRangeChange() {
+    const fromInput = document.getElementById('inf-periodos-date-from');
+    const toInput = document.getElementById('inf-periodos-date-to');
+    if (fromInput) this.infPeriodoDateFrom = fromInput.value;
+    if (toInput) this.infPeriodoDateTo = toInput.value;
+  }
+
+  applyInfPeriodoCustomRange() {
+    this.onInfPeriodoDateRangeChange();
+    this.infPeriodoSelected = 'custom';
+    this.renderInformesPeriodos();
+    const data = this.getComparativaPeriodosData();
+    this.showToast(`Rango personalizado aplicado: ${data.periodLabel}`, 'success');
+  }
+
+  resetInfPeriodosFilter() {
+    this.infPeriodoSelected = 'all';
+    this.infPeriodoDateFrom = '';
+    this.infPeriodoDateTo = '';
+    const fromInput = document.getElementById('inf-periodos-date-from');
+    const toInput = document.getElementById('inf-periodos-date-to');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+    const customDiv = document.getElementById('inf-periodos-custom-dates');
+    if (customDiv) customDiv.style.display = 'none';
+    this.renderInformesPeriodos();
+    this.showToast('Mostrando todos los períodos (Histórico Completo)', 'info');
   }
 
   renderInformesPeriodos() {
@@ -15796,7 +15902,10 @@ class NexusApp {
 
     const data = this.getComparativaPeriodosData();
     const {
+      periodListAll,
       periodList,
+      activeFilter,
+      periodLabel,
       totalSalesAll,
       totalExpensesAll,
       totalUtilidadAll,
@@ -15805,32 +15914,74 @@ class NexusApp {
       bestProfitPeriod
     } = data;
 
-    // Renderizar KPI Cards de Resumen Histórico si existe el contenedor
+    // Actualizar el selector <select id="inf-periodos-select">
+    const select = document.getElementById('inf-periodos-select');
+    if (select) {
+      let optHtml = `<option value="all" ${activeFilter === 'all' ? 'selected' : ''}>🌐 Todos los Períodos (Histórico Completo)</option>`;
+      optHtml += `<option value="current" ${activeFilter === 'current' ? 'selected' : ''}>📅 Mes Actual (En Curso)</option>`;
+      optHtml += `<option value="prev" ${activeFilter === 'prev' ? 'selected' : ''}>⏪ Mes Anterior</option>`;
+      optHtml += `<option value="year" ${activeFilter === 'year' ? 'selected' : ''}>🗓️ Año Actual (${new Date().getFullYear()})</option>`;
+      optHtml += `<optgroup label="── Períodos Específicos ──">`;
+      periodListAll.forEach(p => {
+        const isSel = activeFilter === p.key;
+        optHtml += `<option value="${p.key}" ${isSel ? 'selected' : ''}>${p.isCurrent ? '📅' : '📁'} ${p.monthLabel} ${p.isCurrent ? '(En Curso)' : '(Cerrado)'}</option>`;
+      });
+      optHtml += `</optgroup>`;
+      select.innerHTML = optHtml;
+    }
+
+    // Actualizar estado de las pills de filtrado rápido
+    const pills = [
+      { id: 'inf-pill-periodo-all', key: 'all' },
+      { id: 'inf-pill-periodo-current', key: 'current' },
+      { id: 'inf-pill-periodo-prev', key: 'prev' },
+      { id: 'inf-pill-periodo-year', key: 'year' }
+    ];
+    pills.forEach(p => {
+      const el = document.getElementById(p.id);
+      if (el) {
+        const isActive = (activeFilter === p.key) || 
+          (p.key === 'current' && activeFilter === data.currentMonthKey) ||
+          (p.key === 'prev' && activeFilter === data.prevMonthKey);
+        el.classList.toggle('active', isActive);
+      }
+    });
+
+    // Actualizar Badge de Período Activo
+    const activeBadge = document.getElementById('inf-periodo-active-badge');
+    if (activeBadge) {
+      activeBadge.innerHTML = `📅 Filtrando: <strong>${this.escapeXml(periodLabel)}</strong> (${periodList.length} período${periodList.length === 1 ? '' : 's'})`;
+    }
+
+    // Renderizar KPI Cards con los datos correspondientes al filtro activo
     const kpiGrid = document.getElementById('inf-periodos-kpi-grid');
     if (kpiGrid) {
+      const isSinglePeriod = periodList.length === 1;
+      const singleP = isSinglePeriod ? periodList[0] : null;
+
       kpiGrid.innerHTML = `
         <div class="kpi-card">
-          <div class="kpi-title">Facturación Histórica Total</div>
+          <div class="kpi-title">${isSinglePeriod ? 'Facturación del Período' : 'Facturación Total'}</div>
           <div class="kpi-value" style="color:var(--emerald-text);">${this.formatCurrency(totalSalesAll)}</div>
-          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${totalTicketsAll} ventas registradas en ${periodList.length} períodos</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${totalTicketsAll} ventas registradas</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">Gastos Operativos Totales</div>
+          <div class="kpi-title">${isSinglePeriod ? 'Gastos del Período' : 'Gastos Operativos'}</div>
           <div class="kpi-value" style="color:var(--rose-text);">${this.formatCurrency(totalExpensesAll)}</div>
           <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Egresos de operación, nómina y taller</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">Utilidad Acumulada Total</div>
-          <div class="kpi-value" style="color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(totalUtilidadAll)}</div>
-          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Global: ${globalMargin.toFixed(1)}% (Facturación - Gastos)</div>
+          <div class="kpi-title">${isSinglePeriod ? 'Utilidad del Período' : 'Utilidad Acumulada'}</div>
+          <div class="kpi-value" style="color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${totalUtilidadAll >= 0 ? '+' : ''}${this.formatCurrency(totalUtilidadAll)}</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen: ${globalMargin.toFixed(1)}% (Facturación - Gastos)</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">Mejor Período Financiero</div>
-          <div class="kpi-value" style="color:#D97706; font-size:1.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${bestProfitPeriod ? bestProfitPeriod.monthLabel : 'N/A'}
+          <div class="kpi-title">${isSinglePeriod ? 'Estado del Período' : 'Mejor Período Financiero'}</div>
+          <div class="kpi-value" style="color:${isSinglePeriod ? (singleP.isCurrent ? 'var(--emerald-text)' : 'var(--text-muted)') : '#D97706'}; font-size:1.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${isSinglePeriod ? (singleP.isCurrent ? 'Abierto (En Curso)' : 'Cerrado') : (bestProfitPeriod ? bestProfitPeriod.monthLabel : 'N/A')}
           </div>
           <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">
-            ${bestProfitPeriod ? `+${this.formatCurrency(bestProfitPeriod.utilidad)} de utilidad` : 'Sin registros'}
+            ${isSinglePeriod ? `${singleP.monthLabel}` : (bestProfitPeriod ? `+${this.formatCurrency(bestProfitPeriod.utilidad)} de utilidad` : 'Sin registros')}
           </div>
         </div>
       `;
@@ -15840,7 +15991,7 @@ class NexusApp {
       tbody.innerHTML = `
         <tr>
           <td colspan="6" style="text-align:center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.95rem;">
-            No hay transacciones ni gastos registrados para comparar periodos
+            No hay transacciones ni gastos registrados para el período seleccionado (${this.escapeXml(periodLabel)})
           </td>
         </tr>
       `;
@@ -15892,7 +16043,7 @@ class NexusApp {
     if (tfoot) {
       tfoot.innerHTML = `
         <tr style="background:rgba(241,245,249,0.7); font-weight:800; border-top:2px solid var(--border-color);">
-          <td style="font-size:0.95rem; color:var(--text-main);">TOTAL CONSOLIDADO</td>
+          <td style="font-size:0.95rem; color:var(--text-main);">TOTAL SELECCIONADO</td>
           <td style="text-align:right; color:var(--emerald-text); font-size:0.95rem;">${this.formatCurrency(totalSalesAll)}</td>
           <td style="text-align:right; color:var(--rose-text); font-size:0.95rem;">${this.formatCurrency(totalExpensesAll)}</td>
           <td style="text-align:right; color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'}; font-size:1.05rem;">
@@ -15902,7 +16053,7 @@ class NexusApp {
             ${globalMargin.toFixed(1)}%
           </td>
           <td style="text-align:center; font-size:0.8rem; color:var(--text-muted);">
-            ${periodList.length} Periodos
+            ${periodList.length} Periodo${periodList.length === 1 ? '' : 's'}
           </td>
         </tr>
       `;
@@ -15913,6 +16064,7 @@ class NexusApp {
     const data = this.getComparativaPeriodosData();
     const {
       periodList,
+      periodLabel,
       totalSalesAll,
       totalExpensesAll,
       totalCogsAll,
@@ -15928,7 +16080,7 @@ class NexusApp {
     } = data;
 
     if (periodList.length === 0) {
-      this.showToast('No hay datos históricos ni períodos para exportar', 'warning');
+      this.showToast(`No hay datos registrados para el período seleccionado: ${periodLabel}`, 'warning');
       return;
     }
 
@@ -16379,18 +16531,18 @@ class NexusApp {
     <Cell ss:MergeAcross="14" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Auditoría Mensual de Facturación, Gastos, Utilidades y Márgenes</Data></Cell>
    </Row>
    <Row ss:Height="18">
-    <Cell ss:MergeAcross="14" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Períodos Analizados: ${periodList.length}</Data></Cell>
+    <Cell ss:MergeAcross="14" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Período Seleccionado: ${escapeXml(periodLabel)} (${periodList.length} período${periodList.length === 1 ? '' : 's'})</Data></Cell>
    </Row>
    <Row ss:Height="10"></Row>
 
    <!-- Tarjetas KPI -->
    <Row ss:Height="18">
-    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">FACTURACIÓN HISTÓRICA TOTAL</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">FACTURACIÓN DEL PERÍODO</Data></Cell>
     <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">COSTO MERCANCÍA (COGS)</Data></Cell>
-    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">GASTOS OPERATIVOS TOTALES</Data></Cell>
-    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">UTILIDAD DEL HISTÓRICO</Data></Cell>
-    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">MARGEN OPERATIVO GLOBAL</Data></Cell>
-    <Cell ss:MergeAcross="4" ss:StyleID="KpiTitle"><Data ss:Type="String">MEJOR PERÍODO FINANCIERO</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">GASTOS OPERATIVOS</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">UTILIDAD GENERADA</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">MARGEN OPERATIVO %</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="KpiTitle"><Data ss:Type="String">PERÍODO AUDITADO</Data></Cell>
    </Row>
    <Row ss:Height="26">
     <Cell ss:MergeAcross="1" ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalSalesAll}</Data></Cell>
@@ -16398,7 +16550,7 @@ class NexusApp {
     <Cell ss:MergeAcross="1" ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalExpensesAll}</Data></Cell>
     <Cell ss:MergeAcross="1" ss:StyleID="${totalUtilidadAll >= 0 ? 'KpiValEmerald' : 'KpiValRose'}"><Data ss:Type="Number">${totalUtilidadAll}</Data></Cell>
     <Cell ss:MergeAcross="1" ss:StyleID="KpiValAmber"><Data ss:Type="Number">${(globalMargin / 100).toFixed(4)}</Data></Cell>
-    <Cell ss:MergeAcross="4" ss:StyleID="KpiTitle"><Data ss:Type="String">${escapeXml(bestProfitPeriod ? `${bestProfitPeriod.monthLabel} (+$${bestProfitPeriod.utilidad.toLocaleString('es-CO')})` : 'N/A')}</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="KpiTitle"><Data ss:Type="String">${escapeXml(periodLabel)}</Data></Cell>
    </Row>
    <Row ss:Height="12"></Row>
 
@@ -16665,13 +16817,14 @@ class NexusApp {
  </Worksheet>
 </Workbook>`;
 
-    this._downloadExcelWorkbook(xml, `Comparativa_Periodos_Utilidades_CharlesJoyas_${dateStr}`);
-    this.showToast('Libro de Comparativa de Periodos descargado en Excel exitosamente (5 Hojas)', 'success');
+    const cleanPeriodName = (periodLabel || dateStr).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
+    this._downloadExcelWorkbook(xml, `Comparativa_Periodos_${cleanPeriodName}_CharlesJoyas`);
+    this.showToast(`Libro de Comparativa de Periodos (${periodLabel}) descargado exitosamente`, 'success');
   }
 
   exportComparativaPeriodosCSV() {
     const data = this.getComparativaPeriodosData();
-    const { periodList } = data;
+    const { periodList, periodLabel } = data;
 
     if (periodList.length === 0) {
       this.showToast('No hay datos históricos para exportar en CSV', 'warning');
@@ -16719,11 +16872,12 @@ class NexusApp {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Comparativa_Periodos_Utilidades_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
+    const cleanPeriodName = (periodLabel || new Date().toISOString().slice(0, 10)).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
+    link.setAttribute('download', `Comparativa_Periodos_${cleanPeriodName}_CharlesJoyas.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    this.showToast('Comparativa de Periodos exportada en CSV', 'success');
+    this.showToast(`Comparativa de Periodos (${periodLabel}) exportada en CSV`, 'success');
   }
 
   getConsolidatedCarteraData() {
