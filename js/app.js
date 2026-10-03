@@ -15622,23 +15622,9 @@ class NexusApp {
     this.renderInformesVentasProductoTable();
   }
 
-  renderInformesPeriodos() {
-    const tbody = document.getElementById('inf-periodos-tbody');
-    if (!tbody) return;
-
+  getComparativaPeriodosData() {
     const txs = (this.data.recentTransactions || []).filter(tx => (Number(tx.total) || 0) > 0);
     const exps = this.data.expenses || [];
-
-    if (txs.length === 0 && exps.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="5" style="text-align:center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.95rem;">
-            No hay transacciones ni gastos registrados para comparar periodos
-          </td>
-        </tr>
-      `;
-      return;
-    }
 
     const monthsMap = new Map();
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -15647,48 +15633,1097 @@ class NexusApp {
 
     const getMonthKey = (dateStr) => {
       if (!dateStr) return currentMonthKey;
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return currentMonthKey;
+      const d = this.parseDateSafe(dateStr);
+      if (!d || isNaN(d.getTime())) return currentMonthKey;
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     };
 
     txs.forEach(t => {
       const key = getMonthKey(t.date || t.timestamp);
-      if (!monthsMap.has(key)) monthsMap.set(key, { sales: 0, expenses: 0 });
-      monthsMap.get(key).sales += (Number(t.total) || 0);
+      if (!monthsMap.has(key)) {
+        monthsMap.set(key, { 
+          sales: 0, 
+          expenses: 0, 
+          cogs: 0, 
+          salesCount: 0, 
+          expensesCount: 0, 
+          txList: [], 
+          expList: [] 
+        });
+      }
+      const entry = monthsMap.get(key);
+      const total = Number(t.total) || 0;
+      entry.sales += total;
+      entry.salesCount += 1;
+      entry.txList.push(t);
+
+      // Calcular COGS de mercancía vendida en el período
+      const isTxService = String(t.type || '').toLowerCase().includes('servicio');
+      if (Array.isArray(t.items) && t.items.length > 0) {
+        t.items.forEach(it => {
+          entry.cogs += this.calculateTransactionItemCOGS(it);
+        });
+      } else {
+        entry.cogs += isTxService ? Math.round(total * 0.20) : Math.round(total * 0.65);
+      }
     });
 
     exps.forEach(e => {
       const key = getMonthKey(e.date || e.createdAt);
-      if (!monthsMap.has(key)) monthsMap.set(key, { sales: 0, expenses: 0 });
-      monthsMap.get(key).expenses += (Number(e.amount) || 0);
+      if (!monthsMap.has(key)) {
+        monthsMap.set(key, { 
+          sales: 0, 
+          expenses: 0, 
+          cogs: 0, 
+          salesCount: 0, 
+          expensesCount: 0, 
+          txList: [], 
+          expList: [] 
+        });
+      }
+      const entry = monthsMap.get(key);
+      entry.expenses += (Number(e.amount) || 0);
+      entry.expensesCount += 1;
+      entry.expList.push(e);
     });
 
     if (!monthsMap.has(currentMonthKey) && (txs.length > 0 || exps.length > 0)) {
-      monthsMap.set(currentMonthKey, { sales: 0, expenses: 0 });
+      monthsMap.set(currentMonthKey, { 
+        sales: 0, 
+        expenses: 0, 
+        cogs: 0, 
+        salesCount: 0, 
+        expensesCount: 0, 
+        txList: [], 
+        expList: [] 
+      });
     }
 
     const sortedKeys = Array.from(monthsMap.keys()).sort().reverse();
-    tbody.innerHTML = sortedKeys.map(k => {
+    const periodList = sortedKeys.map(k => {
       const data = monthsMap.get(k);
       const [year, month] = k.split('-');
-      const monthLabel = `${monthNames[parseInt(month, 10) - 1] || month} ${year}`;
+      const monthIdx = parseInt(month, 10) - 1;
+      const monthName = monthNames[monthIdx] || month;
+      const monthLabel = `${monthName} ${year}`;
       const isCurrent = k === currentMonthKey;
-      const margin = data.sales > 0 ? (((data.sales - data.expenses) / data.sales) * 100).toFixed(1) + '%' : '0.0%';
+      
+      const sales = data.sales;
+      const expenses = data.expenses;
+      const cogs = data.cogs;
+      const utilidad = sales - expenses; // Utilidad del Periodo (solicitada expresamente por el cliente)
+      const utilidadNetaReal = sales - cogs - expenses; // Utilidad Neta Real considerando costo de joyería
+      const margin = sales > 0 ? ((utilidad / sales) * 100) : 0;
+      const marginNetoReal = sales > 0 ? ((utilidadNetaReal / sales) * 100) : 0;
+      const ticketPromedio = data.salesCount > 0 ? (sales / data.salesCount) : 0;
+
+      return {
+        key: k,
+        year,
+        month,
+        monthName,
+        monthLabel,
+        isCurrent,
+        status: isCurrent ? 'Abierto' : 'Cerrado',
+        sales,
+        expenses,
+        cogs,
+        utilidad,
+        utilidadNetaReal,
+        margin,
+        marginNetoReal,
+        salesCount: data.salesCount,
+        expensesCount: data.expensesCount,
+        ticketPromedio,
+        txList: data.txList,
+        expList: data.expList
+      };
+    });
+
+    // Calcular variación MoM (mes sobre mes)
+    for (let i = 0; i < periodList.length; i++) {
+      const current = periodList[i];
+      const previous = periodList[i + 1]; // Al estar ordenado descendente, el siguiente es el mes anterior
+      if (previous && previous.sales > 0) {
+        current.momSalesGrowth = (((current.sales - previous.sales) / previous.sales) * 100);
+      } else {
+        current.momSalesGrowth = null;
+      }
+      if (previous && previous.utilidad !== 0) {
+        current.momProfitGrowth = (((current.utilidad - previous.utilidad) / Math.abs(previous.utilidad)) * 100);
+      } else {
+        current.momProfitGrowth = null;
+      }
+    }
+
+    const totalSalesAll = periodList.reduce((acc, p) => acc + p.sales, 0);
+    const totalExpensesAll = periodList.reduce((acc, p) => acc + p.expenses, 0);
+    const totalCogsAll = periodList.reduce((acc, p) => acc + p.cogs, 0);
+    const totalUtilidadAll = totalSalesAll - totalExpensesAll;
+    const totalUtilidadNetaAll = totalSalesAll - totalCogsAll - totalExpensesAll;
+    const globalMargin = totalSalesAll > 0 ? ((totalUtilidadAll / totalSalesAll) * 100) : 0;
+    const globalMarginNeto = totalSalesAll > 0 ? ((totalUtilidadNetaAll / totalSalesAll) * 100) : 0;
+    const totalTicketsAll = periodList.reduce((acc, p) => acc + p.salesCount, 0);
+
+    // Mejor mes en ventas y en utilidad
+    let bestSalesPeriod = null;
+    let bestProfitPeriod = null;
+    periodList.forEach(p => {
+      if (!bestSalesPeriod || p.sales > bestSalesPeriod.sales) bestSalesPeriod = p;
+      if (!bestProfitPeriod || p.utilidad > bestProfitPeriod.utilidad) bestProfitPeriod = p;
+    });
+
+    return {
+      periodList,
+      totalSalesAll,
+      totalExpensesAll,
+      totalCogsAll,
+      totalUtilidadAll,
+      totalUtilidadNetaAll,
+      globalMargin,
+      globalMarginNeto,
+      totalTicketsAll,
+      bestSalesPeriod,
+      bestProfitPeriod,
+      allTxs: txs,
+      allExps: exps
+    };
+  }
+
+  renderInformesPeriodos() {
+    const tbody = document.getElementById('inf-periodos-tbody');
+    if (!tbody) return;
+
+    const data = this.getComparativaPeriodosData();
+    const {
+      periodList,
+      totalSalesAll,
+      totalExpensesAll,
+      totalUtilidadAll,
+      globalMargin,
+      totalTicketsAll,
+      bestProfitPeriod
+    } = data;
+
+    // Renderizar KPI Cards de Resumen Histórico si existe el contenedor
+    const kpiGrid = document.getElementById('inf-periodos-kpi-grid');
+    if (kpiGrid) {
+      kpiGrid.innerHTML = `
+        <div class="kpi-card">
+          <div class="kpi-title">Facturación Histórica Total</div>
+          <div class="kpi-value" style="color:var(--emerald-text);">${this.formatCurrency(totalSalesAll)}</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${totalTicketsAll} ventas registradas en ${periodList.length} períodos</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Gastos Operativos Totales</div>
+          <div class="kpi-value" style="color:var(--rose-text);">${this.formatCurrency(totalExpensesAll)}</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Egresos de operación, nómina y taller</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Utilidad Acumulada Total</div>
+          <div class="kpi-value" style="color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(totalUtilidadAll)}</div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Global: ${globalMargin.toFixed(1)}% (Facturación - Gastos)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Mejor Período Financiero</div>
+          <div class="kpi-value" style="color:#D97706; font-size:1.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${bestProfitPeriod ? bestProfitPeriod.monthLabel : 'N/A'}
+          </div>
+          <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">
+            ${bestProfitPeriod ? `+${this.formatCurrency(bestProfitPeriod.utilidad)} de utilidad` : 'Sin registros'}
+          </div>
+        </div>
+      `;
+    }
+
+    if (periodList.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.95rem;">
+            No hay transacciones ni gastos registrados para comparar periodos
+          </td>
+        </tr>
+      `;
+      const tfoot = document.getElementById('inf-periodos-tfoot');
+      if (tfoot) tfoot.innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = periodList.map(item => {
+      const isCurrent = item.isCurrent;
       const statusBadge = isCurrent
-        ? '<span class="badge badge-active">Abierto</span>'
+        ? '<span class="badge badge-active" style="display:inline-flex; align-items:center; gap:4px;"><span style="width:6px; height:6px; border-radius:50%; background:#10B981; display:inline-block;"></span> Abierto</span>'
         : '<span class="badge" style="background:rgba(148,163,184,0.15); color:var(--text-muted);">Cerrado</span>';
+
+      const utilidadFormatted = this.formatCurrency(item.utilidad);
+      const utilidadColor = item.utilidad > 0 
+        ? 'var(--emerald-text)' 
+        : (item.utilidad < 0 ? 'var(--rose-text)' : 'var(--text-muted)');
+      const utilidadSign = item.utilidad > 0 ? '+' : '';
 
       return `
         <tr>
-          <td style="font-weight:600;">${monthLabel} ${isCurrent ? '(En Curso)' : ''}</td>
-          <td style="font-weight:700; color:var(--emerald-text);">${this.formatCurrency(data.sales)}</td>
-          <td style="font-weight:600; color:var(--rose-text);">${this.formatCurrency(data.expenses)}</td>
-          <td style="font-weight:700;">${margin}</td>
-          <td>${statusBadge}</td>
+          <td style="font-weight:700; color:var(--text-main);">
+            ${item.monthLabel} ${isCurrent ? '<span style="color:var(--brand-primary); font-size:0.8rem; font-weight:600; margin-left:4px;">(En Curso)</span>' : ''}
+          </td>
+          <td style="text-align:right; font-weight:700; color:var(--emerald-text);">
+            ${this.formatCurrency(item.sales)}
+          </td>
+          <td style="text-align:right; font-weight:600; color:var(--rose-text);">
+            ${this.formatCurrency(item.expenses)}
+          </td>
+          <td style="text-align:right; font-weight:800; color:${utilidadColor};">
+            ${utilidadSign}${utilidadFormatted}
+          </td>
+          <td style="text-align:center; font-weight:700;">
+            <span class="badge ${item.margin > 50 ? 'badge-active' : (item.margin > 0 ? 'badge-amber' : 'badge-danger')}">
+              ${item.margin.toFixed(1)}%
+            </span>
+          </td>
+          <td style="text-align:center;">
+            ${statusBadge}
+          </td>
         </tr>
       `;
     }).join('');
+
+    // Fila de totales en tfoot
+    const tfoot = document.getElementById('inf-periodos-tfoot');
+    if (tfoot) {
+      tfoot.innerHTML = `
+        <tr style="background:rgba(241,245,249,0.7); font-weight:800; border-top:2px solid var(--border-color);">
+          <td style="font-size:0.95rem; color:var(--text-main);">TOTAL CONSOLIDADO</td>
+          <td style="text-align:right; color:var(--emerald-text); font-size:0.95rem;">${this.formatCurrency(totalSalesAll)}</td>
+          <td style="text-align:right; color:var(--rose-text); font-size:0.95rem;">${this.formatCurrency(totalExpensesAll)}</td>
+          <td style="text-align:right; color:${totalUtilidadAll >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'}; font-size:1.05rem;">
+            ${totalUtilidadAll >= 0 ? '+' : ''}${this.formatCurrency(totalUtilidadAll)}
+          </td>
+          <td style="text-align:center; color:var(--text-main); font-size:0.95rem;">
+            ${globalMargin.toFixed(1)}%
+          </td>
+          <td style="text-align:center; font-size:0.8rem; color:var(--text-muted);">
+            ${periodList.length} Periodos
+          </td>
+        </tr>
+      `;
+    }
+  }
+
+  exportComparativaPeriodosExcel() {
+    const data = this.getComparativaPeriodosData();
+    const {
+      periodList,
+      totalSalesAll,
+      totalExpensesAll,
+      totalCogsAll,
+      totalUtilidadAll,
+      totalUtilidadNetaAll,
+      globalMargin,
+      globalMarginNeto,
+      totalTicketsAll,
+      bestSalesPeriod,
+      bestProfitPeriod,
+      allTxs,
+      allExps
+    } = data;
+
+    if (periodList.length === 0) {
+      this.showToast('No hay datos históricos ni períodos para exportar', 'warning');
+      return;
+    }
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const escapeXml = (str) => this.escapeXml(str);
+
+    // ==========================================
+    // HOJA 1: RESUMEN COMPARATIVA Y UTILIDADES
+    // ==========================================
+    let rowsPeriodos = '';
+    periodList.forEach((p, idx) => {
+      const evalRendimiento = p.sales === 0 ? 'Sin Ventas' : (p.margin >= 60 ? 'Excelente Rendimiento' : (p.margin >= 30 ? 'Saludable' : (p.margin > 0 ? 'Margen Ajustado' : 'Déficit en Período')));
+      const momSalesStr = p.momSalesGrowth !== null ? `${p.momSalesGrowth >= 0 ? '+' : ''}${p.momSalesGrowth.toFixed(1)}%` : 'Base Inicial';
+
+      rowsPeriodos += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.year)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.monthName)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.monthLabel)} ${p.isCurrent ? '(En Curso)' : ''}</Data></Cell>
+      <Cell ss:StyleID="${p.isCurrent ? 'BadgeOpen' : 'BadgeClosed'}"><Data ss:Type="String">${escapeXml(p.status)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${p.salesCount}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${p.sales}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyAmber"><Data ss:Type="Number">${p.cogs}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${p.expenses}</Data></Cell>
+      <Cell ss:StyleID="${p.utilidad >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose'}"><Data ss:Type="Number">${p.utilidad}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${(p.margin / 100).toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="${p.utilidadNetaReal >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose'}"><Data ss:Type="Number">${p.utilidadNetaReal}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${(p.marginNetoReal / 100).toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(momSalesStr)}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(evalRendimiento)}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 2: VENTAS DETALLADAS POR PERÍODO
+    // ==========================================
+    let rowsVentas = '';
+    allTxs.forEach((tx, idx) => {
+      const d = this.parseDateSafe(tx.date || tx.timestamp);
+      const txPeriod = d ? `${d.toLocaleString('es-CO', { month: 'long' })} ${d.getFullYear()}` : 'Sin Fecha';
+      let itemsDesc = '';
+      let txPieces = 0;
+      let txGrams = 0;
+
+      if (Array.isArray(tx.items) && tx.items.length > 0) {
+        itemsDesc = tx.items.map(it => {
+          const itQty = Number(it.qty || it.quantity) || 1;
+          const itName = it.name || it.product?.name || 'Joya';
+          const itUnit = it.unit || (it.measureType === 'Pesaje' ? 'g' : 'u.');
+          const itWeight = Number(it.pieceWeight || it.weight || 0);
+
+          if (itUnit === 'g' || it.measureType === 'Pesaje') {
+            txGrams += (itQty * (itWeight > 0 ? itWeight : 1));
+            txPieces += 1;
+          } else {
+            txPieces += itQty;
+            if (itWeight > 0) txGrams += (itQty * itWeight);
+          }
+          return `${itName} (${itQty}${itUnit})`;
+        }).join('; ');
+      } else {
+        itemsDesc = tx.type || 'Venta POS';
+        txPieces = 1;
+      }
+
+      rowsVentas += `
+    <Row ss:Height="20">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(tx.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(txPeriod.charAt(0).toUpperCase() + txPeriod.slice(1))}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.date || '')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.time || '')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(tx.cashier || 'Cajero Principal')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(tx.customer || 'Cliente Mostrador')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.type || 'Venta POS')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(itemsDesc)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${txPieces}</Data></Cell>
+      <Cell ss:StyleID="CellRight"><Data ss:Type="Number">${Number(txGrams.toFixed(2))}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(tx.paymentMethod || 'Efectivo')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${Number(tx.total) || 0}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.status || 'Completado')}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 3: GASTOS DETALLADOS POR PERÍODO
+    // ==========================================
+    let rowsGastos = '';
+    allExps.forEach((exp, idx) => {
+      const d = this.parseDateSafe(exp.date || exp.createdAt);
+      const expPeriod = d ? `${d.toLocaleString('es-CO', { month: 'long' })} ${d.getFullYear()}` : 'Sin Fecha';
+      rowsGastos += `
+    <Row ss:Height="20">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(exp.id || `EXP-${idx + 1}`)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(expPeriod.charAt(0).toUpperCase() + expPeriod.slice(1))}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(exp.date || '')}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(exp.category || 'Gasto General')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.description || 'Sin detalle')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${Number(exp.amount) || 0}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.paymentMethod || 'Efectivo Caja')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.responsible || exp.user || 'Administración')}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 4: RANKING DE PERIODOS POR UTILIDAD
+    // ==========================================
+    const rankingPeriods = [...periodList].sort((a, b) => b.utilidad - a.utilidad);
+    let rowsRanking = '';
+    rankingPeriods.forEach((p, idx) => {
+      const pctUtilidad = totalUtilidadAll > 0 ? (p.utilidad / totalUtilidadAll) : 0;
+      const pctVentas = totalSalesAll > 0 ? (p.sales / totalSalesAll) : 0;
+      let rankingMedal = `${idx + 1}° Puesto`;
+      if (idx === 0) rankingMedal = '🥇 1° Mejor Mes';
+      else if (idx === 1) rankingMedal = '🥈 2° Lugar';
+      else if (idx === 2) rankingMedal = '🥉 3° Lugar';
+
+      rowsRanking += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(rankingMedal)}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.monthLabel)}</Data></Cell>
+      <Cell ss:StyleID="${p.utilidad >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose'}"><Data ss:Type="Number">${p.utilidad}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pctUtilidad.toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${p.sales}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pctVentas.toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${p.expenses}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${(p.margin / 100).toFixed(4)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${p.salesCount}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Math.round(p.ticketPromedio)}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // WORKBOOK XML GENERATION
+    // ==========================================
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>Charles Joyas SAS - Sistema POS</Author>
+  <LastAuthor>${escapeXml(this.currentUser?.name || 'Administración')}</LastAuthor>
+  <Created>${now.toISOString()}</Created>
+  <Company>CHARLES JOYAS SAS</Company>
+ </DocumentProperties>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="TitleHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="SubTitleHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#D97706"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="MetaHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#94A3B8"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="KpiTitle">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#475569"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="KpiValEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="KpiValRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#991B1B"/>
+   <Interior ss:Color="#FEF2F2" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="KpiValAmber">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#92400E"/>
+   <Interior ss:Color="#FFFBEB" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <Style ss:ID="TableColHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TableColHeaderEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#059669"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#059669"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#047857"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#047857" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="CellLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellLeftBold">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellCenterBold">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="CellRight">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#0F172A"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyEmerald">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#047857"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyRose">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#B91C1C"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyAmber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#D97706"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="CellPercent">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#1E293B"/>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <Style ss:ID="TotalLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="TotalCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalCurrencyEmerald">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#047857"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalCurrencyRose">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#B91C1C"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalPercent">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <Style ss:ID="BadgeOpen">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="BadgeClosed">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#475569"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+
+ <!-- ========================================== -->
+ <!-- HOJA 1: RESUMEN COMPARATIVA Y UTILIDADES   -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Comparativa Mensual">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="35"/>
+   <Column ss:Width="55"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="160"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="14" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — INFORME COMPARATIVA DE PERIODOS Y UTILIDADES</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="14" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Auditoría Mensual de Facturación, Gastos, Utilidades y Márgenes</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="14" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Períodos Analizados: ${periodList.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- Tarjetas KPI -->
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">FACTURACIÓN HISTÓRICA TOTAL</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">COSTO MERCANCÍA (COGS)</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">GASTOS OPERATIVOS TOTALES</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">UTILIDAD DEL HISTÓRICO</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">MARGEN OPERATIVO GLOBAL</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="KpiTitle"><Data ss:Type="String">MEJOR PERÍODO FINANCIERO</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalSalesAll}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValAmber"><Data ss:Type="Number">${totalCogsAll}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalExpensesAll}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="${totalUtilidadAll >= 0 ? 'KpiValEmerald' : 'KpiValRose'}"><Data ss:Type="Number">${totalUtilidadAll}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValAmber"><Data ss:Type="Number">${(globalMargin / 100).toFixed(4)}</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="KpiTitle"><Data ss:Type="String">${escapeXml(bestProfitPeriod ? `${bestProfitPeriod.monthLabel} (+$${bestProfitPeriod.utilidad.toLocaleString('es-CO')})` : 'N/A')}</Data></Cell>
+   </Row>
+   <Row ss:Height="12"></Row>
+
+   <!-- Encabezados de Tabla Principal -->
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">AÑO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MES</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PERIODO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TICKETS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FACTURACIÓN TOTAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">COSTO MERCANCÍA (COGS)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GASTOS OPERATIVOS (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">UTILIDAD PERIODO (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MARGEN OP. %</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">UTILIDAD NETA REAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MARGEN NETO %</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VARIACIÓN MoM %</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CALIFICACIÓN</Data></Cell>
+   </Row>
+
+   ${rowsPeriodos}
+
+   <!-- Fila de Totales -->
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO HISTÓRICO</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="Number">${totalTicketsAll}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyEmerald"><Data ss:Type="Number">${totalSalesAll}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrency"><Data ss:Type="Number">${totalCogsAll}</Data></Cell>
+    <Cell ss:StyleID="TotalCurrencyRose"><Data ss:Type="Number">${totalExpensesAll}</Data></Cell>
+    <Cell ss:StyleID="${totalUtilidadAll >= 0 ? 'TotalCurrencyEmerald' : 'TotalCurrencyRose'}"><Data ss:Type="Number">${totalUtilidadAll}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${(globalMargin / 100).toFixed(4)}</Data></Cell>
+    <Cell ss:StyleID="${totalUtilidadNetaAll >= 0 ? 'TotalCurrencyEmerald' : 'TotalCurrencyRose'}"><Data ss:Type="Number">${totalUtilidadNetaAll}</Data></Cell>
+    <Cell ss:StyleID="TotalPercent"><Data ss:Type="Number">${(globalMarginNeto / 100).toFixed(4)}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">-</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${periodList.length} Periodos Evaluados</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>7</SplitHorizontal>
+   <TopRowBottomPane>7</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 2: VENTAS DETALLADAS POR PERÍODO     -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Detalle Ventas">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="260"/>
+   <Column ss:Width="65"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="100"/>
+
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="13" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — REGISTRO HISTÓRICO DETALLADO DE VENTAS POR PERÍODO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="13" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Desglose de cada transacción, artículos vendidos, clientes, medios de pago y facturación</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID TICKET</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PERIODO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">HORA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CAJERO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CLIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TIPO OPERACIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DETALLE ARTÍCULOS / JOYAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PIEZAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GRAMAJE (g)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MEDIO DE PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">TOTAL FACTURADO (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsVentas || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="13" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran ventas para este informe.</Data></Cell>
+   </Row>`}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>4</SplitHorizontal>
+   <TopRowBottomPane>4</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 3: GASTOS DETALLADOS POR PERÍODO     -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Detalle Gastos">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="260"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="150"/>
+
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="8" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — REGISTRO HISTÓRICO DE GASTOS OPERATIVOS POR PERÍODO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="8" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Auditoría de egresos, conceptos, nómina, alquiler, taller y responsables</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID GASTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PERIODO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DESCRIPCIÓN / CONCEPTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">MONTO GASTO (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MEDIO DE PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">RESPONSABLE</Data></Cell>
+   </Row>
+
+   ${rowsGastos || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="8" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran gastos operativos para este informe.</Data></Cell>
+   </Row>`}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>4</SplitHorizontal>
+   <TopRowBottomPane>4</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 4: RANKING DE RENTABILIDAD           -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Ranking y Rentabilidad">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="110"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="140"/>
+
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="9" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — RANKING HISTÓRICO DE MESES POR UTILIDAD GENERADA</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="9" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Análisis de contribución a la utilidad, participación en facturación y ticket promedio</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">POSICIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PERIODO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">UTILIDAD GENERADA (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% DE UTILIDAD</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FACTURACIÓN TOTAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% DE VENTAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GASTOS OPERATIVOS (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MARGEN OP. %</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TICKETS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TICKET PROMEDIO (COP)</Data></Cell>
+   </Row>
+
+   ${rowsRanking}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>4</SplitHorizontal>
+   <TopRowBottomPane>4</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ========================================== -->
+ <!-- HOJA 5: GUÍA CONTABLE Y FÓRMULAS          -->
+ <!-- ========================================== -->
+ <Worksheet ss:Name="Guia Contable">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="200"/>
+   <Column ss:Width="260"/>
+   <Column ss:Width="360"/>
+
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="2" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — METODOLOGÍA CONTABLE Y FÓRMULAS DE CÁLCULO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="2" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Glosario explicativo de cada indicador de la Comparativa de Periodos</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">INDICADOR FINANCIERO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FÓRMULA / METODOLOGÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">INTERPRETACIÓN EN JOYERÍA</Data></Cell>
+   </Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Facturación Total (COP)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">SUMA(Ventas Mostrador + Facturación POS)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Total de ingresos brutos por venta de joyas, oro, piezas y servicios del mes.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Gastos Operativos (COP)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">SUMA(Gastos OPEX registrados en el mes)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Egresos corrientes del negocio: nómina, arriendo de local, servicios y taller.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Utilidad del Periodo (COP)</Data></Cell>
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Facturación Total - Gastos Operativos</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Resultado financiero directo del mes. Indica el excedente disponible del periodo.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Margen Operativo %</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">(Utilidad del Periodo / Facturación Total) * 100</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Porcentaje de cada peso vendido que se convierte en utilidad operativa.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Costo de Mercancía (COGS)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">SUMA(Costo Oro 18k + Piedras + Insumos de Joyas Vendidas)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Costo de adquisición de las piezas y gramaje de oro efectivamente vendido.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Utilidad Neta Real (COP)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Facturación Total - COGS - Gastos Operativos</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Ganancia neta final depurando tanto el costo del oro como los egresos fijos.</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Crecimiento MoM %</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">((Mes Actual - Mes Anterior) / Mes Anterior) * 100</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Ritmo de aceleración o contracción comercial con respecto al mes previo.</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    this._downloadExcelWorkbook(xml, `Comparativa_Periodos_Utilidades_CharlesJoyas_${dateStr}`);
+    this.showToast('Libro de Comparativa de Periodos descargado en Excel exitosamente (5 Hojas)', 'success');
+  }
+
+  exportComparativaPeriodosCSV() {
+    const data = this.getComparativaPeriodosData();
+    const { periodList } = data;
+
+    if (periodList.length === 0) {
+      this.showToast('No hay datos históricos para exportar en CSV', 'warning');
+      return;
+    }
+
+    const headers = [
+      '#',
+      'Año',
+      'Mes',
+      'Periodo',
+      'Estado',
+      'Tickets Vendidos',
+      'Facturacion Total COP',
+      'Costo Mercancia COGS COP',
+      'Gastos Operativos COP',
+      'Utilidad Periodo COP',
+      'Margen Operativo %',
+      'Utilidad Neta Real COP',
+      'Margen Neto Real %',
+      'Variacion MoM %'
+    ];
+
+    const rows = [headers];
+    periodList.forEach((p, idx) => {
+      rows.push([
+        idx + 1,
+        p.year,
+        `"${p.monthName}"`,
+        `"${p.monthLabel}"`,
+        p.status,
+        p.salesCount,
+        p.sales,
+        p.cogs,
+        p.expenses,
+        p.utilidad,
+        `${p.margin.toFixed(1)}%`,
+        p.utilidadNetaReal,
+        `${p.marginNetoReal.toFixed(1)}%`,
+        p.momSalesGrowth !== null ? `${p.momSalesGrowth.toFixed(1)}%` : 'Base'
+      ]);
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(';')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Comparativa_Periodos_Utilidades_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    this.showToast('Comparativa de Periodos exportada en CSV', 'success');
   }
 
   getConsolidatedCarteraData() {
