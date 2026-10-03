@@ -26,6 +26,11 @@ class NexusApp {
     this.repProdEndDate = null;
     this.repProdSearchQuery = '';
 
+    this.finVentasPeriod = 'all';
+    this.finVentasDateFrom = '';
+    this.finVentasDateTo = '';
+    this.finVentasSearch = '';
+
     this.MODULES_LIST = [
       { id: 'dashboard', label: '📊 Dashboard / Inicio' },
       { id: 'pos', label: '🛒 Punto de Venta (POS)' },
@@ -6253,14 +6258,276 @@ class NexusApp {
     };
   }
 
+  setFinVentasPeriod(period, btnEl) {
+    this.finVentasPeriod = period;
+    const pills = document.querySelectorAll('#fin-ventas-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    if (btnEl) {
+      btnEl.classList.add('active');
+    } else {
+      const target = document.querySelector(`#fin-ventas-period-pills [data-period="${period}"]`);
+      if (target) target.classList.add('active');
+    }
+
+    const pad = n => String(n).padStart(2, '0');
+    const now = new Date();
+    const toIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const fromInput = document.getElementById('fin-ventas-date-from');
+    const toInput = document.getElementById('fin-ventas-date-to');
+
+    if (period === 'today') {
+      const todayIso = toIso(now);
+      this.finVentasDateFrom = todayIso;
+      this.finVentasDateTo = todayIso;
+      if (fromInput) fromInput.value = todayIso;
+      if (toInput) toInput.value = todayIso;
+    } else if (period === 'yesterday') {
+      const yDate = new Date(now);
+      yDate.setDate(yDate.getDate() - 1);
+      const yesterdayIso = toIso(yDate);
+      this.finVentasDateFrom = yesterdayIso;
+      this.finVentasDateTo = yesterdayIso;
+      if (fromInput) fromInput.value = yesterdayIso;
+      if (toInput) toInput.value = yesterdayIso;
+    } else if (period === 'this_week') {
+      const d7 = new Date(now);
+      d7.setDate(d7.getDate() - 6);
+      d7.setHours(0, 0, 0, 0);
+      this.finVentasDateFrom = toIso(d7);
+      this.finVentasDateTo = toIso(now);
+      if (fromInput) fromInput.value = this.finVentasDateFrom;
+      if (toInput) toInput.value = this.finVentasDateTo;
+    } else if (period === 'this_month') {
+      const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      const monthEndObj = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      this.finVentasDateFrom = monthStart;
+      this.finVentasDateTo = toIso(monthEndObj);
+      if (fromInput) fromInput.value = this.finVentasDateFrom;
+      if (toInput) toInput.value = this.finVentasDateTo;
+    } else if (period === 'last_month') {
+      const lastMonthStartObj = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEndObj = new Date(now.getFullYear(), now.getMonth(), 0);
+      this.finVentasDateFrom = toIso(lastMonthStartObj);
+      this.finVentasDateTo = toIso(lastMonthEndObj);
+      if (fromInput) fromInput.value = this.finVentasDateFrom;
+      if (toInput) toInput.value = this.finVentasDateTo;
+    } else if (period === 'all') {
+      this.finVentasDateFrom = '';
+      this.finVentasDateTo = '';
+      if (fromInput) fromInput.value = '';
+      if (toInput) toInput.value = '';
+    }
+
+    this.renderFinVentasTable();
+  }
+
+  onFinVentasDateChange() {
+    const fromVal = document.getElementById('fin-ventas-date-from')?.value || '';
+    const toVal = document.getElementById('fin-ventas-date-to')?.value || '';
+
+    // Si el usuario seleccionó fecha desde y no ha colocado hasta, sincronizar hasta
+    if (fromVal && !toVal) {
+      const toInput = document.getElementById('fin-ventas-date-to');
+      if (toInput) toInput.value = fromVal;
+    }
+
+    this.finVentasDateFrom = document.getElementById('fin-ventas-date-from')?.value || '';
+    this.finVentasDateTo = document.getElementById('fin-ventas-date-to')?.value || '';
+    this.finVentasPeriod = 'custom';
+
+    const pills = document.querySelectorAll('#fin-ventas-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    const customPill = document.getElementById('fin-ventas-pill-custom');
+    if (customPill) customPill.classList.add('active');
+
+    this.renderFinVentasTable();
+  }
+
+  applyFinVentasCustomRange() {
+    const fromVal = document.getElementById('fin-ventas-date-from')?.value || '';
+    const toVal = document.getElementById('fin-ventas-date-to')?.value || '';
+
+    if (!fromVal && !toVal) {
+      this.showToast('Por favor selecciona una fecha o rango para filtrar', 'warning');
+      return;
+    }
+
+    this.finVentasDateFrom = fromVal || toVal;
+    this.finVentasDateTo = toVal || fromVal;
+    this.finVentasPeriod = 'custom';
+
+    const pills = document.querySelectorAll('#fin-ventas-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    const customPill = document.getElementById('fin-ventas-pill-custom');
+    if (customPill) customPill.classList.add('active');
+
+    this.renderFinVentasTable();
+    this.showToast(`Historial filtrado: ${this.finVentasDateFrom} al ${this.finVentasDateTo}`, 'info');
+  }
+
+  resetFinVentasFilter() {
+    this.finVentasPeriod = 'all';
+    this.finVentasDateFrom = '';
+    this.finVentasDateTo = '';
+    this.finVentasSearch = '';
+
+    const fromInput = document.getElementById('fin-ventas-date-from');
+    const toInput = document.getElementById('fin-ventas-date-to');
+    const searchInput = document.getElementById('fin-ventas-search');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+    if (searchInput) searchInput.value = '';
+
+    const pills = document.querySelectorAll('#fin-ventas-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    const allPill = document.querySelector('#fin-ventas-period-pills [data-period="all"]');
+    if (allPill) allPill.classList.add('active');
+
+    this.renderFinVentasTable();
+    this.showToast('Historial completo de ventas restablecido', 'info');
+  }
+
+  onFinVentasSearch(query) {
+    this.finVentasSearch = String(query || '').trim();
+    this.renderFinVentasTable();
+  }
+
+  getFilteredFinVentas() {
+    const txs = this.data.recentTransactions || [];
+    const period = this.finVentasPeriod || 'all';
+    const pad = n => String(n).padStart(2, '0');
+    const now = new Date();
+    const toIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    let startIso = this.finVentasDateFrom || '';
+    let endIso = this.finVentasDateTo || '';
+
+    if (period === 'today') {
+      startIso = toIso(now);
+      endIso = startIso;
+    } else if (period === 'yesterday') {
+      const yDate = new Date(now);
+      yDate.setDate(yDate.getDate() - 1);
+      startIso = toIso(yDate);
+      endIso = startIso;
+    } else if (period === 'this_week') {
+      const d7 = new Date(now);
+      d7.setDate(d7.getDate() - 6);
+      d7.setHours(0, 0, 0, 0);
+      startIso = toIso(d7);
+      endIso = toIso(now);
+    } else if (period === 'this_month') {
+      startIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      const monthEndObj = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endIso = toIso(monthEndObj);
+    } else if (period === 'last_month') {
+      const lastMonthStartObj = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEndObj = new Date(now.getFullYear(), now.getMonth(), 0);
+      startIso = toIso(lastMonthStartObj);
+      endIso = toIso(lastMonthEndObj);
+    }
+
+    const searchQuery = (this.finVentasSearch || '').toLowerCase();
+
+    return txs.filter(tx => {
+      // 1. Filtro por fecha
+      if (period !== 'all' || (startIso || endIso)) {
+        if (!tx.date) return false;
+        const d = this.parseDateSafe(tx.date);
+        if (!d) return false;
+        const txIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+        if (startIso && txIso < startIso) return false;
+        if (endIso && txIso > endIso) return false;
+      }
+
+      // 2. Filtro por búsqueda de texto
+      if (searchQuery) {
+        const idMatch = String(tx.id || '').toLowerCase().includes(searchQuery);
+        const custMatch = String(tx.customer || '').toLowerCase().includes(searchQuery);
+        const docMatch = String(tx.customerDoc || '').toLowerCase().includes(searchQuery);
+        const cashierMatch = String(tx.cashier || '').toLowerCase().includes(searchQuery);
+        const methodMatch = String(tx.paymentMethod || '').toLowerCase().includes(searchQuery);
+        const voucherMatch = String(tx.voucher || '').toLowerCase().includes(searchQuery);
+        const typeMatch = String(tx.type || '').toLowerCase().includes(searchQuery);
+        if (!idMatch && !custMatch && !docMatch && !cashierMatch && !methodMatch && !voucherMatch && !typeMatch) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
   renderFinVentasTable() {
     const tbody = document.getElementById('fin-ventas-tbody');
     if (!tbody) return;
-    const txs = this.data.recentTransactions || [];
+
+    const txs = this.getFilteredFinVentas();
+
+    // Calcular métricas del período filtrado
+    const totalFacturado = txs.reduce((sum, tx) => sum + Math.abs(Number(tx.total) || 0), 0);
+
+    // Actualizar badges en la interfaz
+    const countBadge = document.getElementById('fin-ventas-count-badge');
+    if (countBadge) {
+      countBadge.textContent = `${txs.length} ${txs.length === 1 ? 'Venta encontrada' : 'Ventas encontradas'}`;
+    }
+
+    const totalBadge = document.getElementById('fin-ventas-total-badge');
+    if (totalBadge) {
+      totalBadge.textContent = `Total Facturado: ${this.formatCurrency(totalFacturado)}`;
+    }
+
+    const periodBadge = document.getElementById('fin-ventas-period-badge');
+    if (periodBadge) {
+      let label = '📅 Período: Histórico Completo';
+      if (this.finVentasPeriod === 'today') {
+        label = `📅 Período: Hoy (${this.finVentasDateFrom || 'Hoy'})`;
+      } else if (this.finVentasPeriod === 'yesterday') {
+        label = `📅 Período: Ayer (${this.finVentasDateFrom || 'Ayer'})`;
+      } else if (this.finVentasPeriod === 'this_week') {
+        label = `📅 Período: Esta Semana (${this.finVentasDateFrom} a ${this.finVentasDateTo})`;
+      } else if (this.finVentasPeriod === 'this_month') {
+        label = `📅 Período: Este Mes (${this.finVentasDateFrom} a ${this.finVentasDateTo})`;
+      } else if (this.finVentasPeriod === 'last_month') {
+        label = `📅 Período: Mes Pasado (${this.finVentasDateFrom} a ${this.finVentasDateTo})`;
+      } else if (this.finVentasPeriod === 'custom' || this.finVentasDateFrom || this.finVentasDateTo) {
+        if (this.finVentasDateFrom && this.finVentasDateTo && this.finVentasDateFrom === this.finVentasDateTo) {
+          label = `📅 Día Específico: ${this.finVentasDateFrom}`;
+        } else if (this.finVentasDateFrom && this.finVentasDateTo) {
+          label = `📅 Rango: ${this.finVentasDateFrom} al ${this.finVentasDateTo}`;
+        } else if (this.finVentasDateFrom) {
+          label = `📅 Desde: ${this.finVentasDateFrom}`;
+        } else if (this.finVentasDateTo) {
+          label = `📅 Hasta: ${this.finVentasDateTo}`;
+        }
+      }
+      if (this.finVentasSearch) {
+        label += ` · Búsqueda: "${this.finVentasSearch}"`;
+      }
+      periodBadge.textContent = label;
+    }
+
     if (txs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:2rem; color:var(--text-muted);">No hay ventas registradas en el sistema.</td></tr>`;
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" style="text-align:center; padding:3rem 1.5rem; color:var(--text-muted);">
+            <div style="font-size:2.2rem; margin-bottom:0.6rem;">📅</div>
+            <div style="font-weight:700; font-size:1.05rem; color:var(--text-main);">No se encontraron ventas para las fechas o criterios seleccionados</div>
+            <div style="font-size:0.85rem; margin-top:0.35rem; color:var(--text-muted);">Intenta ajustar el rango de fechas en el calendario o restablecer el filtro para ver todo el historial.</div>
+            <div style="margin-top:1.25rem;">
+              <button type="button" class="btn btn-secondary text-sm" onclick="app.resetFinVentasFilter()" style="font-weight:700; display:inline-flex; align-items:center; gap:0.4rem;">
+                🔄 Ver Todo el Histórico
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
       return;
     }
+
     tbody.innerHTML = txs.map(tx => {
       const dateDisplay = tx.date ? `
         <div style="font-weight:600; color:var(--text-main); font-size:0.86rem; line-height:1.2;">${this.escapeHtml(tx.date)}</div>
@@ -6303,6 +6570,320 @@ class NexusApp {
       </tr>
     `;
     }).join('');
+  }
+
+  exportFinVentasExcel() {
+    const txs = this.getFilteredFinVentas();
+    if (txs.length === 0) {
+      this.showToast('No hay ventas registradas para el período o fechas seleccionadas', 'warning');
+      return;
+    }
+
+    const escapeXml = (str) => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const now = new Date();
+    const genDateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const cashierName = this.currentUser?.name || this.data.store?.cashier || 'Administrador';
+
+    // Determinar texto del período filtrado
+    let periodText = 'Histórico Completo';
+    if (this.finVentasPeriod === 'today') periodText = 'Hoy';
+    else if (this.finVentasPeriod === 'yesterday') periodText = 'Ayer';
+    else if (this.finVentasPeriod === 'this_week') periodText = 'Esta Semana';
+    else if (this.finVentasPeriod === 'this_month') periodText = 'Este Mes';
+    else if (this.finVentasPeriod === 'last_month') periodText = 'Mes Pasado';
+    else if (this.finVentasPeriod === 'custom' || this.finVentasDateFrom || this.finVentasDateTo) {
+      const f = this.finVentasDateFrom || 'Inicio';
+      const t = this.finVentasDateTo || 'Actualidad';
+      periodText = f === t ? `Día ${f}` : `Desde ${f} hasta ${t}`;
+    }
+
+    let totalFacturado = 0;
+    const methodsMap = {};
+
+    let rowsXml = '';
+    txs.forEach((tx, idx) => {
+      const tot = Number(tx.total) || 0;
+      totalFacturado += Math.abs(tot);
+
+      const method = tx.paymentMethod || 'Efectivo';
+      if (!methodsMap[method]) {
+        methodsMap[method] = { count: 0, total: 0 };
+      }
+      methodsMap[method].count++;
+      methodsMap[method].total += Math.abs(tot);
+
+      const qtyInfo = this.formatTransactionQty(tx);
+
+      rowsXml += `
+      <Row ss:Height="22">
+        <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(tx.id || '')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.date || '')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.time || '')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(tx.cashier || 'Cajero')}</Data></Cell>
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(tx.customer || 'Cliente Mostrador')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.customerDocType || 'CC')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.customerDoc || 'N/A')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(tx.type || 'Venta POS')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(qtyInfo.main || '')}</Data></Cell>
+        <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(method)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.voucher || '—')}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Math.abs(tot)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.status || 'Completado')}</Data></Cell>
+      </Row>`;
+    });
+
+    // Filas de resumen de métodos de pago
+    let methodsRowsXml = '';
+    Object.keys(methodsMap).forEach((mKey) => {
+      const mData = methodsMap[mKey];
+      const pct = totalFacturado > 0 ? (mData.total / totalFacturado) : 0;
+      methodsRowsXml += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(mKey)}</Data></Cell>
+        <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${mData.count}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${mData.total}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pct.toFixed(4)}</Data></Cell>
+      </Row>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#1E293B"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="HeaderTitle">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="HeaderSub">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Italic="1" ss:Color="#64748B"/>
+  </Style>
+  <Style ss:ID="MetaLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#334155"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="MetaVal">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="MetaValCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#047857"/>
+   <Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="ColHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#059669" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="DataRowEven">
+   <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="DataRowOdd">
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="CellLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellLeftBold">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+  </Style>
+  <Style ss:ID="CellCenterBold">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="CellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#047857"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CellPercent">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <Style ss:ID="TotalRow">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="TotalLabel">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#0F172A"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+
+ <Worksheet ss:Name="Historial de Ventas">
+  <Table ss:DefaultRowHeight="18">
+   <Column ss:Width="85"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="65"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="170"/>
+   <Column ss:Width="50"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="115"/>
+   <Column ss:Width="85"/>
+
+   <!-- ENCABEZADO -->
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="12" ss:StyleID="HeaderTitle"><Data ss:Type="String">CHARLES JOYAS S.A.S. - HISTORIAL DE VENTAS &amp; FACTURACIÓN</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="12" ss:StyleID="HeaderSub"><Data ss:Type="String">Reporte oficial de transacciones emitidas en punto de venta y mostrador comercial</Data></Cell>
+   </Row>
+   <Row ss:Height="6"><Cell ss:MergeAcross="12"/></Row>
+
+   <!-- METADATOS -->
+   <Row ss:Height="19">
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Período Seleccionado:</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="MetaVal"><Data ss:Type="String">${escapeXml(periodText)}</Data></Cell>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Fecha Emisión:</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="MetaVal"><Data ss:Type="String">${escapeXml(genDateStr)}</Data></Cell>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Generado por:</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="MetaVal"><Data ss:Type="String">${escapeXml(cashierName)}</Data></Cell>
+   </Row>
+   <Row ss:Height="19">
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Ventas Encontradas:</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="MetaVal"><Data ss:Type="String">${txs.length} comprobantes</Data></Cell>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Total Facturado:</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="MetaValCurrency"><Data ss:Type="Number">${totalFacturado}</Data></Cell>
+    <Cell ss:StyleID="MetaLabel"><Data ss:Type="String">Estado:</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="MetaVal"><Data ss:Type="String">Verificado en tiempo real</Data></Cell>
+   </Row>
+   <Row ss:Height="10"><Cell ss:MergeAcross="12"/></Row>
+
+   <!-- TABLA HEADERS -->
+   <Row ss:Height="25">
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">N° Factura / Ticket</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Fecha</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Hora</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Cajero / Operador</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Cliente</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Tipo Doc.</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">N° Documento</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Tipo de Venta</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Cantidad / Gramaje</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Método de Pago</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">N° Comprobante</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Total Facturado</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Estado</Data></Cell>
+   </Row>
+
+   <!-- FILAS DE VENTAS -->
+   ${rowsXml}
+
+   <!-- FILA DE TOTALES -->
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="10" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GENERAL FACTURADO (${txs.length} VENTAS):</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totalFacturado}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">COP</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+
+ <Worksheet ss:Name="Resumen Métodos de Pago">
+  <Table ss:DefaultRowHeight="18">
+   <Column ss:Width="160"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="110"/>
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="HeaderTitle"><Data ss:Type="String">DISTRIBUCIÓN POR MÉTODO DE PAGO</Data></Cell>
+   </Row>
+   <Row ss:Height="16">
+    <Cell ss:MergeAcross="3" ss:StyleID="HeaderSub"><Data ss:Type="String">Consolidado del período: ${escapeXml(periodText)}</Data></Cell>
+   </Row>
+   <Row ss:Height="8"><Cell ss:MergeAcross="3"/></Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Método de Pago</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Cantidad de Ventas</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Total Recaudado</Data></Cell>
+    <Cell ss:StyleID="ColHeader"><Data ss:Type="String">% Participación</Data></Cell>
+   </Row>
+
+   ${methodsRowsXml}
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO:</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${txs.length}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totalFacturado}</Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">1.0</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const periodClean = periodText.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+    this._downloadExcelWorkbook(xml, `Historial_Ventas_${periodClean}`);
+    this.showToast(`Historial de ventas (${txs.length} registros) exportado exitosamente a Excel`, 'success');
   }
 
   renderFinComprasTable() {
@@ -12802,7 +13383,11 @@ class NexusApp {
   }
 
   exportReportExcel() {
-    this.exportReportGeneralExcel();
+    if (this.currentSubView === 'ventas') {
+      this.exportFinVentasExcel();
+    } else {
+      this.exportReportGeneralExcel();
+    }
   }
 
   exportReportGeneralExcel() {

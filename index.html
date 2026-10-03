@@ -838,13 +838,83 @@
                 <h1 class="section-title">Historial de Ventas & Facturación</h1>
                 <p class="section-subtitle">Consulta comprobantes emitidos, cajero responsable, estado de pagos y método utilizado.</p>
               </div>
-              <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-secondary" onclick="app.exportReportExcel()" title="Exportar reporte en formato Excel (.xls)" style="display:inline-flex; align-items:center; gap:0.35rem; color:#059669; font-weight:700;">
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-secondary" onclick="app.exportFinVentasExcel()" title="Exportar historial filtrado a Excel (.xls)" style="display:inline-flex; align-items:center; gap:0.35rem; color:#059669; font-weight:700; border-color:#059669;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
                   Exportar Excel
                 </button>
               </div>
             </div>
+
+            <!-- TOOLBAR DE FILTRADO POR FECHAS Y RANGOS ESPECÍFICOS -->
+            <div class="card" style="padding: 1rem 1.25rem; margin-bottom: 1.25rem; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.85rem;">
+                <div>
+                  <h3 style="margin: 0 0 0.25rem 0; font-size: 0.98rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 0.45rem;">
+                    <span>📅</span> Filtrar Historial por Fechas Específicas
+                  </h3>
+                  <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">
+                    Selecciona un período rápido o elige las fechas exactas desde y hasta para consultar comprobantes y ventas.
+                  </p>
+                </div>
+                <!-- BUSCADOR RÁPIDO DE TICKETS / CLIENTE -->
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <div style="position: relative; min-width: 220px;">
+                    <input type="text" id="fin-ventas-search" class="form-input" placeholder="Buscar ticket, cliente, cajero..." style="padding: 0.35rem 0.65rem 0.35rem 1.85rem; font-size: 0.82rem; height: 32px; width: 100%; border-radius: 6px;" oninput="app.onFinVentasSearch(this.value)">
+                    <span style="position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--text-muted); pointer-events: none;">🔍</span>
+                  </div>
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.resetFinVentasFilter()" style="height: 32px; padding: 0 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;" title="Restablecer todos los filtros y ver histórico completo">
+                    🔄 Restablecer
+                  </button>
+                </div>
+              </div>
+
+              <!-- FILAS DE FILTROS: PILLS Y DATE PICKERS -->
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <!-- PILLS DE PERÍODOS -->
+                <div class="finanzas-period-selector" id="fin-ventas-period-pills" style="display: flex; flex-wrap: wrap; gap: 2px;">
+                  <button type="button" class="finanzas-period-pill active" data-period="all" onclick="app.setFinVentasPeriod('all', this)">Histórico Completo</button>
+                  <button type="button" class="finanzas-period-pill" data-period="today" onclick="app.setFinVentasPeriod('today', this)">Hoy</button>
+                  <button type="button" class="finanzas-period-pill" data-period="yesterday" onclick="app.setFinVentasPeriod('yesterday', this)">Ayer</button>
+                  <button type="button" class="finanzas-period-pill" data-period="this_week" onclick="app.setFinVentasPeriod('this_week', this)">Esta Semana</button>
+                  <button type="button" class="finanzas-period-pill" data-period="this_month" onclick="app.setFinVentasPeriod('this_month', this)">Este Mes</button>
+                  <button type="button" class="finanzas-period-pill" data-period="last_month" onclick="app.setFinVentasPeriod('last_month', this)">Mes Pasado</button>
+                  <button type="button" class="finanzas-period-pill" data-period="custom" id="fin-ventas-pill-custom" onclick="app.setFinVentasPeriod('custom', this)">Personalizado</button>
+                </div>
+
+                <!-- SELECTOR DE FECHAS DESDE Y HASTA -->
+                <div class="finanzas-date-range-box" id="fin-ventas-date-range-box" style="padding: 3px 8px;">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    Desde:
+                  </span>
+                  <input type="date" id="fin-ventas-date-from" title="Fecha inicial para filtrar ventas" onchange="app.onFinVentasDateChange()">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">Hasta:</span>
+                  <input type="date" id="fin-ventas-date-to" title="Fecha final para filtrar ventas" onchange="app.onFinVentasDateChange()">
+                  <button type="button" class="btn btn-primary text-xs" onclick="app.applyFinVentasCustomRange()" style="padding: 0.25rem 0.65rem; height: 28px; font-weight: 700; border-radius: 6px;" title="Aplicar filtro por rango de fechas">
+                    Filtrar
+                  </button>
+                </div>
+              </div>
+
+              <!-- BARRA DE RESUMEN DEL FILTRO / KPIS DE VENTAS ENCONTRADAS -->
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-color); font-size: 0.82rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <span id="fin-ventas-period-badge" class="badge" style="background: rgba(99, 102, 241, 0.1); color: #4F46E5; font-weight: 700; padding: 4px 10px; border-radius: 12px;">
+                    📅 Período: Histórico Completo
+                  </span>
+                  <span id="fin-ventas-count-badge" class="badge" style="background: var(--bg-surface-elevated, #F1F5F9); border: 1px solid var(--border-color); color: var(--text-main); font-weight: 700; padding: 4px 10px; border-radius: 12px;">
+                    0 Ventas
+                  </span>
+                </div>
+                <div>
+                  <span id="fin-ventas-total-badge" class="badge" style="background: rgba(16, 185, 129, 0.12); color: #047857; font-weight: 800; font-size: 0.86rem; padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.25);">
+                    Total Facturado: $0 COP
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div class="table-wrapper">
               <div class="table-container">
                 <table class="data-table">
@@ -4429,6 +4499,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=63" defer></script>
+  <script src="js/app.js?v=64" defer></script>
 </body>
 </html>
