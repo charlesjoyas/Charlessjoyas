@@ -4615,7 +4615,7 @@ html, body {
 #receipt-modal-body *,
 .thermal-ticket-card,
 .thermal-ticket-card * {
-  text-transform: uppercase !important;
+  font-weight: 700 !important;
 }
 
 
