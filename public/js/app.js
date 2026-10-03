@@ -20,6 +20,12 @@ class NexusApp {
     this.cashShiftHistoryCustomEnd = '';
     this.currentModalShift = null;
 
+    this.repProdMetric = 'revenue';
+    this.repProdLimit = '10';
+    this.repProdStartDate = null;
+    this.repProdEndDate = null;
+    this.repProdSearchQuery = '';
+
     this.MODULES_LIST = [
       { id: 'dashboard', label: '📊 Dashboard / Inicio' },
       { id: 'pos', label: '🛒 Punto de Venta (POS)' },
@@ -258,6 +264,16 @@ class NexusApp {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  escapeXml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
   normalizeSearchStr(str) {
@@ -1810,6 +1826,9 @@ class NexusApp {
       }
       if (subViewId === 'rep_finanzas') {
         this.renderRepFinanzas();
+      }
+      if (subViewId === 'inf_ventas_producto') {
+        this.renderInformesVentasProducto();
       }
       if (this.charts) {
         Object.values(this.charts).forEach(c => c && c.resize && c.resize());
@@ -5679,34 +5698,7 @@ class NexusApp {
 
     const infTopCtx = document.getElementById('infTopProductsChart');
     if (infTopCtx) {
-      if (this.charts.infTopProducts) this.charts.infTopProducts.destroy();
-      const sortedProds = [...this.data.products]
-        .sort((a, b) => ((b.sold30d || 0) * b.price) - ((a.sold30d || 0) * a.price))
-        .slice(0, 6);
-      this.charts.infTopProducts = new Chart(infTopCtx, {
-        type: 'bar',
-        indexAxis: 'y',
-        data: {
-          labels: sortedProds.map(p => p.name),
-          datasets: [{
-            label: 'Facturación ($)',
-            data: sortedProds.map(p => Math.round((p.sold30d || 0) * p.price)),
-            backgroundColor: '#6366F1',
-            borderRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: (ctx) => ` Facturación: $ ${Number(ctx.raw).toLocaleString('es-CO')} COP`
-              }
-            }
-          }
-        }
-      });
+      this.renderInformesVentasProductoChart();
     }
 
     const tendenciaCtx = document.getElementById('tendenciaDailyChart');
@@ -5754,6 +5746,7 @@ class NexusApp {
     if (sv === 'rep_compras') this.renderRepCompras();
     if (sv === 'rep_general') this.renderRepGeneral();
     if (sv === 'inf_balance') this.renderInformesBalance();
+    if (sv === 'inf_ventas_producto') this.renderInformesVentasProducto();
     if (sv === 'inf_listado_periodos') this.renderInformesPeriodos();
     if (sv === 'inf_cartera_clientes') this.renderInformesCarteraClientes();
     if (sv === 'inf_margen_real') this.renderInformesMargenReal();
@@ -5784,6 +5777,7 @@ class NexusApp {
     if (sub === 'abonos_ventas') this.renderAbonosVentasTable();
     if (sub === 'abonos_compras') this.renderAbonosComprasTable();
     if (sub === 'inf_balance') this.renderInformesBalance();
+    if (sub === 'inf_ventas_producto') this.renderInformesVentasProducto();
     if (sub === 'inf_listado_periodos') this.renderInformesPeriodos();
     if (sub === 'inf_radar_stock') this.renderRadarStock();
     if (sub === 'inf_cartera_clientes') this.renderInformesCarteraClientes();
@@ -12772,31 +12766,28 @@ class NexusApp {
   }
 
   exportTopProductsCSV() {
-    const prods = this.data.products || [];
-    if (prods.length === 0) {
-      this.showToast('No hay productos en el catálogo para exportar', 'warning');
+    const { list, totalRevenue } = this.getTopProductsRankingData();
+    if (list.length === 0) {
+      this.showToast('No hay datos de ventas de productos para exportar en este período', 'warning');
       return;
     }
-    const headers = ['ID', 'Código', 'Producto', 'Categoría', 'Unidad de Medida', 'Stock Actual', 'Precio Venta COP', 'Costo Unitario COP', 'Margen Bruto %', 'Estado'];
-    const rows = prods.map(p => {
+    const headers = ['Ranking', 'Código SKU', 'Producto', 'Categoría', 'Tipo Medida', 'Cantidad Vendida', 'N° Tickets', 'Precio Promedio COP', 'Facturación Total COP', '% Participación', 'Stock Actual'];
+    const rows = list.map((p, idx) => {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
-      const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
-      const cat = this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName);
-      const costPerGram = Number(p.cost || cat?.cost || 0);
-      const unitPieceCost = (!isPesaje && pWeight > 0) ? Math.round(pWeight * costPerGram) : costPerGram;
-      const effectivePrice = p.price && Number(p.price) > 0 ? Number(p.price) : unitPieceCost;
-      const margin = (effectivePrice > 0 && unitPieceCost > 0) ? (((effectivePrice - unitPieceCost) / effectivePrice) * 100).toFixed(1) : '0.0';
+      const pct = totalRevenue > 0 ? ((p.revenue / totalRevenue) * 100).toFixed(1) : '0.0';
+      const avgPrice = p.qty > 0 ? Math.round(p.revenue / p.qty) : 0;
       return [
-        p.id,
-        p.sku || '',
+        idx + 1,
+        p.sku || p.id || '',
         p.name || '',
-        p.categoryName || p.category || '',
-        isPesaje ? 'Gramos (g)' : 'Unidades (u)',
-        p.stock,
-        p.price,
-        unitPieceCost,
-        `${margin}%`,
-        p.status
+        p.category || 'General',
+        isPesaje ? 'Pesaje (g)' : 'Unidades (u)',
+        p.qty.toFixed(2),
+        p.txCount,
+        avgPrice,
+        Math.round(p.revenue),
+        `${pct}%`,
+        p.stock !== null && p.stock !== undefined ? p.stock : '-'
       ];
     });
     const csvContent = "\uFEFF" + [
@@ -12808,12 +12799,189 @@ class NexusApp {
     const link = document.createElement('a');
     const dateStr = new Date().toISOString().split('T')[0];
     link.setAttribute('href', url);
-    link.setAttribute('download', `Ranking_Catalogo_Productos_${dateStr}.csv`);
+    link.setAttribute('download', `Ranking_Ventas_Productos_${dateStr}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    this.showToast('Ranking de productos exportado en CSV', 'success');
+    this.showToast('Ranking de ventas por producto exportado en CSV', 'success');
+  }
+
+  exportTopProductsExcel() {
+    const { list, totalRevenue, totalQty } = this.getTopProductsRankingData();
+    if (list.length === 0) {
+      this.showToast('No hay datos de ventas de productos para exportar en este período', 'warning');
+      return;
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const storeName = this.data.store?.name || 'Charles Joyas';
+    const periodText = (this.repProdStartDate && this.repProdEndDate)
+      ? `Período: ${this.repProdStartDate.toISOString().split('T')[0]} al ${this.repProdEndDate.toISOString().split('T')[0]}`
+      : 'Histórico Completo Consolidado';
+
+    const xmlRows = list.map((p, idx) => {
+      const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
+      const pct = totalRevenue > 0 ? (p.revenue / totalRevenue) : 0;
+      const avgPrice = p.qty > 0 ? Math.round(p.revenue / p.qty) : 0;
+      const stockVal = p.stock !== null && p.stock !== undefined ? p.stock : '-';
+
+      return `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${this.escapeXml(p.sku || p.id || '')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${this.escapeXml(p.name)}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${this.escapeXml(p.category || 'General')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${isPesaje ? 'Pesaje (g)' : 'Unidades (u)'}</Data></Cell>
+        <Cell ss:StyleID="CellNumber"><Data ss:Type="Number">${p.qty.toFixed(2)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${p.txCount}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${avgPrice}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Math.round(p.revenue)}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pct.toFixed(4)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${this.escapeXml(String(stockVal))}</Data></Cell>
+      </Row>`;
+    }).join('');
+
+    const xmlTemplate = `<?xml version="1.0" encoding="utf-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="Title">
+   <Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#1E3A8A"/>
+  </Style>
+  <Style ss:ID="Subtitle">
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Italic="1" ss:Color="#64748B"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#475569"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#3730A3" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="CellLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellNumber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <NumberFormat ss:Format="#,##0.00"/>
+  </Style>
+  <Style ss:ID="CellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <NumberFormat ss:Format="&quot;$&quot;\\ #,##0"/>
+  </Style>
+  <Style ss:ID="CellPercent">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <Style ss:ID="TotalRow">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#3730A3"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#3730A3"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#1E3A8A"/>
+   <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="&quot;$&quot;\\ #,##0"/>
+  </Style>
+  <Style ss:ID="TotalLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#3730A3"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#3730A3"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#1E3A8A"/>
+   <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Ranking Ventas">
+  <Table ss:DefaultRowHeight="18">
+   <Column ss:Width="50"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="200"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="80"/>
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="10" ss:StyleID="Title"><Data ss:Type="String">${this.escapeXml(storeName)} - RANKING DE VENTAS POR PRODUCTO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="10" ss:StyleID="Subtitle"><Data ss:Type="String">${this.escapeXml(periodText)} | Fecha de emisión: ${dateStr}</Data></Cell>
+   </Row>
+   <Row ss:Height="12"><Cell ss:MergeAcross="10"><Data ss:Type="String"></Data></Cell></Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="Header"><Data ss:Type="String"># Rank</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Código SKU</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Producto</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Categoría</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Tipo Medida</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Cant. Vendida</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">N° Tickets</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Precio Promedio</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Facturación Total COP</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">% Aporte</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Stock Actual</Data></Cell>
+   </Row>
+   ${xmlRows}
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO GENERAL</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totalQty.toFixed(2)}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${Math.round(totalRevenue)}</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xmlTemplate], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Ranking_Ventas_Productos_${dateStr}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    this.showToast('Ranking de productos exportado exitosamente a Excel (.xls)', 'success');
   }
 
   getLeyMetalFromItems(items) {
@@ -13363,6 +13531,448 @@ class NexusApp {
         </div>
       `;
     }
+  }
+
+  getTopProductsRankingData() {
+    let txs = (this.data.recentTransactions || []).filter(t => {
+      const st = String(t.status || '').toLowerCase();
+      return st !== 'cancelado' && st !== 'anulado' && st !== 'cancelled';
+    });
+
+    // Date range filtering
+    if (this.repProdStartDate || this.repProdEndDate) {
+      txs = txs.filter(t => {
+        if (!t.date) return false;
+        const d = this.parseDateSafe(t.date);
+        if (!d) return false;
+        if (this.repProdStartDate && d < this.repProdStartDate) return false;
+        if (this.repProdEndDate && d > this.repProdEndDate) return false;
+        return true;
+      });
+    }
+
+    const prodMap = new Map();
+    let totalRevenue = 0;
+    let totalQty = 0;
+
+    // 1. Process all sold items in filtered transactions
+    txs.forEach(t => {
+      (t.items || []).forEach(it => {
+        if (!it) return;
+        const itId = it.id || '';
+        const itSku = it.sku || '';
+        const itName = it.name ? it.name.trim() : '';
+        const key = itId || itSku || itName || 'item_desconocido';
+
+        const q = Number(it.qty !== undefined ? it.qty : (it.quantity || 1)) || 0;
+        const price = Number(it.price) || 0;
+        const rev = Number(it.total) || (price * q) || 0;
+
+        if (!prodMap.has(key)) {
+          const catalogProd = (this.data.products || []).find(p =>
+            (itId && p.id === itId) ||
+            (itSku && p.sku === itSku) ||
+            (itName && p.name && p.name.trim().toLowerCase() === itName.toLowerCase())
+          );
+
+          prodMap.set(key, {
+            id: itId || catalogProd?.id || '',
+            sku: itSku || catalogProd?.sku || '',
+            name: itName || catalogProd?.name || 'Producto sin nombre',
+            category: catalogProd?.categoryName || catalogProd?.category || 'General',
+            measureType: it.measureType || catalogProd?.measureType || 'Pesaje',
+            unit: it.unit || (catalogProd?.measureType === 'Unidades' ? 'u.' : 'g'),
+            stock: catalogProd?.stock !== undefined ? catalogProd.stock : null,
+            cost: catalogProd?.cost || 0,
+            qty: 0,
+            revenue: 0,
+            txCount: 0
+          });
+        }
+
+        const entry = prodMap.get(key);
+        entry.qty += q;
+        entry.revenue += rev;
+        entry.txCount += 1;
+        totalRevenue += rev;
+        totalQty += q;
+      });
+    });
+
+    // 2. Fallback: if no transactions in selected period or store, also incorporate catalog products with sold30d
+    if (prodMap.size === 0 && !this.repProdStartDate && !this.repProdEndDate) {
+      (this.data.products || []).forEach(p => {
+        if (Number(p.sold30d) > 0) {
+          const key = p.id || p.sku || p.name;
+          const sQty = Number(p.sold30d) || 0;
+          const pPrice = Number(p.price) || Number(p.cost) || 0;
+          const sRev = sQty * pPrice;
+          prodMap.set(key, {
+            id: p.id || '',
+            sku: p.sku || '',
+            name: p.name || 'Producto',
+            category: p.categoryName || p.category || 'General',
+            measureType: p.measureType || 'Pesaje',
+            unit: p.unit || (p.measureType === 'Unidades' ? 'u.' : 'g'),
+            stock: p.stock !== undefined ? p.stock : null,
+            cost: p.cost || 0,
+            qty: sQty,
+            revenue: sRev,
+            txCount: 1
+          });
+          totalRevenue += sRev;
+          totalQty += sQty;
+        }
+      });
+    }
+
+    let list = Array.from(prodMap.values());
+
+    // Sort according to metric
+    if (this.repProdMetric === 'qty') {
+      list.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
+    } else {
+      list.sort((a, b) => b.revenue - a.revenue || b.qty - a.qty);
+    }
+
+    const starProduct = list.length > 0 ? list[0] : null;
+
+    return {
+      list,
+      totalRevenue,
+      totalQty,
+      starProduct,
+      totalTransactions: txs.length
+    };
+  }
+
+  renderInformesVentasProducto() {
+    const summary = this.getTopProductsRankingData();
+    this.renderInformesVentasProductoKPIs(summary);
+    this.renderInformesVentasProductoChart(summary);
+    this.renderInformesVentasProductoTable(summary);
+  }
+
+  renderInformesVentasProductoKPIs(summary) {
+    const { list, totalRevenue, totalQty, starProduct } = summary || this.getTopProductsRankingData();
+
+    // Rev Val
+    const revEl = document.getElementById('rep-prod-kpi-rev-val');
+    if (revEl) revEl.textContent = `$ ${Math.round(totalRevenue).toLocaleString('es-CO')}`;
+
+    // Qty Val
+    const qtyEl = document.getElementById('rep-prod-kpi-qty-val');
+    if (qtyEl) qtyEl.textContent = `${totalQty.toFixed(2)} u/g`;
+
+    // Star Product
+    const starValEl = document.getElementById('rep-prod-kpi-star-val');
+    const starPctEl = document.getElementById('rep-prod-kpi-star-pct');
+    const starSubEl = document.getElementById('rep-prod-kpi-star-sub');
+    if (starValEl) {
+      if (starProduct) {
+        starValEl.textContent = starProduct.name;
+        starValEl.title = starProduct.name;
+        const starPct = totalRevenue > 0 ? ((starProduct.revenue / totalRevenue) * 100).toFixed(1) : '0.0';
+        if (starPctEl) starPctEl.textContent = `${starPct}% aporte`;
+        if (starSubEl) starSubEl.textContent = `$ ${Math.round(starProduct.revenue).toLocaleString('es-CO')} COP (${starProduct.qty.toFixed(2)} ${starProduct.unit})`;
+      } else {
+        starValEl.textContent = 'Sin ventas registradas';
+        if (starPctEl) starPctEl.textContent = '0%';
+        if (starSubEl) starSubEl.textContent = 'No hay ventas en el periodo';
+      }
+    }
+
+    // Product Count
+    const prodsValEl = document.getElementById('rep-prod-kpi-prods-val');
+    if (prodsValEl) prodsValEl.textContent = `${list.length}`;
+  }
+
+  renderInformesVentasProductoChart(summary) {
+    const canvas = document.getElementById('infTopProductsChart');
+    if (!canvas) return;
+
+    if (this.charts.infTopProducts) {
+      try {
+        this.charts.infTopProducts.destroy();
+      } catch (e) {
+        console.warn('Destroying previous infTopProducts chart:', e);
+      }
+      this.charts.infTopProducts = null;
+    }
+
+    const { list, totalRevenue } = summary || this.getTopProductsRankingData();
+    const isQtyMetric = this.repProdMetric === 'qty';
+    const limit = this.repProdLimit === 'all' ? list.length : (Number(this.repProdLimit) || 10);
+    const topItems = list.slice(0, limit);
+
+    // Update chart title/subtitle
+    const titleEl = document.getElementById('rep-prod-chart-title');
+    const subEl = document.getElementById('rep-prod-chart-subtitle');
+    if (titleEl) {
+      titleEl.textContent = `Gráfica: Ranking de Productos más Vendidos (${isQtyMetric ? 'Por Cantidad' : 'Por Facturación'})`;
+    }
+    if (subEl) {
+      const limitText = this.repProdLimit === 'all' ? 'todos los' : `Top ${limit}`;
+      subEl.textContent = `Mostrando ${limitText} productos líderes con mayor ${isQtyMetric ? 'volumen vendido (gramos/unidades)' : 'facturación aportada en COP'}`;
+    }
+
+    if (topItems.length === 0) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    const labels = topItems.map(p => {
+      const name = p.name || 'Sin nombre';
+      return name.length > 25 ? name.substring(0, 23) + '...' : name;
+    });
+
+    const dataValues = topItems.map(p => isQtyMetric ? Math.round(p.qty * 100) / 100 : Math.round(p.revenue));
+
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 450, 0);
+    if (isQtyMetric) {
+      grad.addColorStop(0, '#0D9488');
+      grad.addColorStop(1, '#14B8A6');
+    } else {
+      grad.addColorStop(0, '#4338CA');
+      grad.addColorStop(1, '#6366F1');
+    }
+
+    this.charts.infTopProducts = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: isQtyMetric ? 'Cantidad Vendida' : 'Facturación ($ COP)',
+          data: dataValues,
+          backgroundColor: grad,
+          borderColor: isQtyMetric ? '#0F766E' : '#4F46E5',
+          borderWidth: 1,
+          borderRadius: 6,
+          maxBarThickness: 32
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: { right: 25, left: 5, top: 10, bottom: 10 }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(148, 163, 184, 0.12)'
+            },
+            ticks: {
+              callback: (val) => {
+                if (isQtyMetric) return val.toLocaleString('es-CO');
+                if (val >= 1000000) return `$ ${(val / 1000000).toFixed(1)}M`;
+                if (val >= 1000) return `$ ${(val / 1000).toFixed(0)}k`;
+                return `$ ${val.toLocaleString('es-CO')}`;
+              },
+              font: { size: 11 }
+            }
+          },
+          y: {
+            grid: {
+              display: false
+            },
+            ticks: {
+              font: {
+                weight: '600',
+                size: 12
+              },
+              color: 'var(--text-main)'
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            titleFont: { size: 13, weight: 'bold' },
+            bodyFont: { size: 12 },
+            padding: 10,
+            cornerRadius: 6,
+            callbacks: {
+              title: (items) => {
+                const idx = items[0].dataIndex;
+                const prod = topItems[idx];
+                return prod ? `${prod.name} ${prod.sku ? `(SKU: ${prod.sku})` : ''}` : '';
+              },
+              label: (item) => {
+                const idx = item.dataIndex;
+                const prod = topItems[idx];
+                if (!prod) return '';
+                const pct = totalRevenue > 0 ? ((prod.revenue / totalRevenue) * 100).toFixed(1) : '0.0';
+                if (isQtyMetric) {
+                  return [
+                    ` Cantidad: ${prod.qty.toFixed(2)} ${prod.unit}`,
+                    ` Facturación: $ ${Math.round(prod.revenue).toLocaleString('es-CO')} COP`,
+                    ` Participación: ${pct}% de ventas`
+                  ];
+                } else {
+                  return [
+                    ` Facturación: $ ${Math.round(prod.revenue).toLocaleString('es-CO')} COP`,
+                    ` Cantidad vendida: ${prod.qty.toFixed(2)} ${prod.unit} en ${prod.txCount} tickets`,
+                    ` Aporte al total: ${pct}% de ventas`
+                  ];
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  renderInformesVentasProductoTable(summary) {
+    const tbody = document.getElementById('rep-productos-tbody');
+    if (!tbody) return;
+
+    const { list, totalRevenue } = summary || this.getTopProductsRankingData();
+    const query = (this.repProdSearchQuery || '').trim().toLowerCase();
+
+    const filtered = query
+      ? list.filter(p =>
+          (p.name && p.name.toLowerCase().includes(query)) ||
+          (p.sku && p.sku.toLowerCase().includes(query)) ||
+          (p.category && p.category.toLowerCase().includes(query))
+        )
+      : list;
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" style="text-align:center; padding: 2.5rem 1rem; color: var(--text-muted);">
+            <div style="font-size: 1.8rem; margin-bottom: 0.5rem;">🔍</div>
+            <div style="font-weight: 700;">No se encontraron productos en el ranking</div>
+            <div style="font-size: 0.8rem; margin-top: 0.25rem;">Intenta cambiar el término de búsqueda o el rango de fechas seleccionado.</div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map((p) => {
+      const overallRank = list.indexOf(p) + 1;
+      let medalBadge = `<span style="font-weight:700; color:var(--text-muted);">${overallRank}</span>`;
+      if (overallRank === 1) medalBadge = `<span style="font-size:1.15rem;" title="1er Lugar">🥇</span>`;
+      else if (overallRank === 2) medalBadge = `<span style="font-size:1.15rem;" title="2do Lugar">🥈</span>`;
+      else if (overallRank === 3) medalBadge = `<span style="font-size:1.15rem;" title="3er Lugar">🥉</span>`;
+
+      const pct = totalRevenue > 0 ? ((p.revenue / totalRevenue) * 100).toFixed(1) : '0.0';
+      const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
+      const qtyStr = `${p.qty.toFixed(2)} ${p.unit || (isPesaje ? 'g' : 'u.')}`;
+
+      const stockBadge = (p.stock !== null && p.stock !== undefined)
+        ? (Number(p.stock) <= 0
+            ? `<span class="badge badge-danger" style="font-size:0.72rem;">Agotado</span>`
+            : `<span class="badge badge-success" style="font-size:0.72rem;">${Number(p.stock).toFixed(isPesaje ? 2 : 0)} ${p.unit || (isPesaje ? 'g' : 'u.')}</span>`)
+        : `<span style="color:var(--text-muted); font-size:0.75rem;">-</span>`;
+
+      return `
+        <tr>
+          <td style="text-align: center; vertical-align: middle;">${medalBadge}</td>
+          <td>
+            <span style="font-family: monospace; font-size: 0.8rem; font-weight: 700; background: var(--bg-hover); padding: 2px 6px; border-radius: 4px;">
+              ${this.escapeHtml(p.sku || p.id || '-')}
+            </span>
+          </td>
+          <td>
+            <div style="font-weight: 700; color: var(--text-main);">${this.escapeHtml(p.name)}</div>
+          </td>
+          <td>
+            <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #6366F1; font-size: 0.72rem; font-weight: 600;">
+              ${this.escapeHtml(p.category || 'General')}
+            </span>
+          </td>
+          <td>
+            <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">
+              ${isPesaje ? '⚖️ Pesaje (Gramos)' : '📦 Unidades'}
+            </span>
+          </td>
+          <td style="text-align: right; font-weight: 700; color: var(--text-main);">
+            ${qtyStr}
+          </td>
+          <td style="text-align: center;">
+            <span style="font-weight: 600; font-size: 0.82rem; background: rgba(148, 163, 184, 0.15); padding: 2px 8px; border-radius: 12px;">
+              ${p.txCount}
+            </span>
+          </td>
+          <td style="text-align: right; font-weight: 800; color: #10B981; font-size: 0.92rem;">
+            $ ${Math.round(p.revenue).toLocaleString('es-CO')}
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <div style="flex: 1; height: 6px; background: rgba(148, 163, 184, 0.2); border-radius: 3px; overflow: hidden;">
+                <div style="width: ${Math.min(100, Math.max(0, Number(pct)))}%; height: 100%; background: #6366F1; border-radius: 3px;"></div>
+              </div>
+              <span style="font-size: 0.76rem; font-weight: 700; min-width: 38px; text-align: right; color: var(--text-muted);">${pct}%</span>
+            </div>
+          </td>
+          <td style="text-align: center;">
+            ${stockBadge}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  setRepProductosMetric(metric) {
+    this.repProdMetric = metric;
+    const revBtn = document.getElementById('rep-prod-metric-revenue-btn');
+    const qtyBtn = document.getElementById('rep-prod-metric-qty-btn');
+    if (revBtn) revBtn.classList.toggle('active', metric === 'revenue');
+    if (qtyBtn) qtyBtn.classList.toggle('active', metric === 'qty');
+    this.renderInformesVentasProducto();
+  }
+
+  setRepProductosLimit(limit) {
+    this.repProdLimit = limit;
+    this.renderInformesVentasProductoChart();
+  }
+
+  applyRepProductosDateRange() {
+    const fromEl = document.getElementById('rep-prod-date-from');
+    const toEl = document.getElementById('rep-prod-date-to');
+    const fromVal = fromEl ? fromEl.value : '';
+    const toVal = toEl ? toEl.value : '';
+
+    if (!fromVal || !toVal) {
+      this.showToast('Por favor selecciona ambas fechas (Desde y Hasta)', 'warning');
+      return;
+    }
+    if (fromVal > toVal) {
+      this.showToast('La fecha inicial no puede ser posterior a la fecha final', 'warning');
+      return;
+    }
+
+    this.repProdStartDate = new Date(fromVal + 'T00:00:00');
+    this.repProdEndDate = new Date(toVal + 'T23:59:59');
+    this.renderInformesVentasProducto();
+    this.showToast(`Ranking filtrado del ${fromVal} al ${toVal}`, 'success');
+  }
+
+  clearRepProductosDateRange() {
+    const fromEl = document.getElementById('rep-prod-date-from');
+    const toEl = document.getElementById('rep-prod-date-to');
+    if (fromEl) fromEl.value = '';
+    if (toEl) toEl.value = '';
+    this.repProdStartDate = null;
+    this.repProdEndDate = null;
+    this.renderInformesVentasProducto();
+    this.showToast('Filtro de fechas restablecido: mostrando histórico completo', 'info');
+  }
+
+  filterTopProductsTable(query) {
+    this.repProdSearchQuery = query;
+    this.renderInformesVentasProductoTable();
   }
 
   renderInformesPeriodos() {

@@ -1568,10 +1568,187 @@
           </div>
 
           <div class="sub-view-pane" id="pane-informes-inf_ventas_producto">
-            <div class="section-header"><div><h1 class="section-title">Informe: Ventas por Producto</h1><p class="section-subtitle">Ranking de productos más vendidos y facturación aportada.</p></div>
-              <button class="btn btn-secondary text-sm" onclick="app.exportTopProductsCSV()">📥 Exportar Ranking</button>
+            <!-- HEADER -->
+            <div style="margin-bottom: 1.25rem;">
+              <h1 style="font-size: 1.55rem; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.25rem 0; font-family: var(--font-heading);">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #6366F1;">
+                  <line x1="18" y1="20" x2="18" y2="10"></line>
+                  <line x1="12" y1="20" x2="12" y2="4"></line>
+                  <line x1="6" y1="20" x2="6" y2="14"></line>
+                </svg>
+                Informe: Ventas por Producto
+              </h1>
+              <p style="color: var(--text-muted); font-size: 0.88rem; margin: 0;">
+                Ranking de productos más vendidos, rotación de inventario y facturación aportada en tiempo real.
+              </p>
             </div>
-            <div class="card"><div class="chart-container"><canvas id="infTopProductsChart"></canvas></div></div>
+
+            <!-- TOOLBAR: METRIC SELECTOR, TOP LIMIT, DATE RANGE & ACTIONS -->
+            <div class="finanzas-toolbar" style="margin-bottom: 1.25rem;">
+              <!-- METRIC TYPE -->
+              <div class="finanzas-period-selector" id="rep-prod-metric-btns">
+                <button type="button" class="finanzas-period-pill active" id="rep-prod-metric-revenue-btn" onclick="app.setRepProductosMetric('revenue')">Por Facturación ($)</button>
+                <button type="button" class="finanzas-period-pill" id="rep-prod-metric-qty-btn" onclick="app.setRepProductosMetric('qty')">Por Cantidad (u/g)</button>
+              </div>
+
+              <!-- LIMIT SELECTOR -->
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <span style="font-size: 0.76rem; font-weight: 700; color: var(--text-muted);">Mostrar:</span>
+                <select id="rep-prod-limit-select" class="form-control" style="width: auto; height: 32px; padding: 0 0.5rem; font-size: 0.78rem; font-weight: 600; border-radius: 6px;" onchange="app.setRepProductosLimit(this.value)">
+                  <option value="5">Top 5</option>
+                  <option value="10" selected>Top 10</option>
+                  <option value="20">Top 20</option>
+                  <option value="all">Todos</option>
+                </select>
+              </div>
+
+              <!-- DATE RANGE BOX -->
+              <div class="finanzas-date-range-box" id="rep-prod-date-range-box">
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                  Desde:
+                </span>
+                <input type="date" id="rep-prod-date-from" title="Fecha inicial del ranking">
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">Hasta:</span>
+                <input type="date" id="rep-prod-date-to" title="Fecha final del ranking">
+                <button type="button" class="btn btn-primary" onclick="app.applyRepProductosDateRange()" style="padding: 0.2rem 0.65rem; font-size: 0.76rem; height: 28px; font-weight: 700; border-radius: 6px;" title="Filtrar ranking">
+                  Filtrar
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="app.clearRepProductosDateRange()" style="padding: 0.2rem 0.5rem; font-size: 0.76rem; height: 28px; border-radius: 6px;" title="Limpiar filtro de fechas">
+                  Limpiar
+                </button>
+              </div>
+
+              <!-- EXPORT & REFRESH -->
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-left: auto;">
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportTopProductsExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;" title="Exportar Ranking detallado a Excel (.xls)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar Ranking (.xls)
+                </button>
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.exportTopProductsCSV()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600;" title="Exportar CSV">
+                  CSV
+                </button>
+                <button type="button" class="btn btn-secondary text-sm" onclick="app.renderInformesVentasProducto(); app.showToast('Ranking actualizado', 'success')" title="Actualizar datos">
+                  🔄
+                </button>
+              </div>
+            </div>
+
+            <!-- KPI GRID (4 CARDS) -->
+            <div class="finanzas-kpi-grid" id="rep-prod-kpi-grid">
+              <!-- CARD 1: FACTURACIÓN TOTAL -->
+              <div class="finanzas-kpi-card" style="background: linear-gradient(135deg, #3730A3 0%, #4F46E5 100%); border: 1px solid rgba(255, 255, 255, 0.12);">
+                <div class="finanzas-kpi-label">
+                  <span>Facturación Total</span>
+                  <span class="finanzas-kpi-badge" id="rep-prod-kpi-rev-badge">100%</span>
+                </div>
+                <div class="finanzas-kpi-val" id="rep-prod-kpi-rev-val">$ 0</div>
+                <div class="finanzas-kpi-sub">Ventas brutas acumuladas</div>
+                <div class="finanzas-kpi-watermark">
+                  <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                </div>
+              </div>
+
+              <!-- CARD 2: CANTIDAD VENDIDA -->
+              <div class="finanzas-kpi-card" style="background: linear-gradient(135deg, #0F766E 0%, #14B8A6 100%); border: 1px solid rgba(255, 255, 255, 0.12);">
+                <div class="finanzas-kpi-label">
+                  <span>Volumen Total Vendido</span>
+                  <span class="finanzas-kpi-badge" id="rep-prod-kpi-qty-badge">Unidades / g</span>
+                </div>
+                <div class="finanzas-kpi-val" id="rep-prod-kpi-qty-val">0</div>
+                <div class="finanzas-kpi-sub">Gramos y piezas entregadas</div>
+                <div class="finanzas-kpi-watermark">
+                  <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                </div>
+              </div>
+
+              <!-- CARD 3: PRODUCTO ESTRELLA (TOP 1) -->
+              <div class="finanzas-kpi-card" style="background: linear-gradient(135deg, #B45309 0%, #F59E0B 100%); border: 1px solid rgba(255, 255, 255, 0.12);">
+                <div class="finanzas-kpi-label">
+                  <span>Producto Estrella</span>
+                  <span class="finanzas-kpi-badge" id="rep-prod-kpi-star-pct">0%</span>
+                </div>
+                <div class="finanzas-kpi-val" id="rep-prod-kpi-star-val" style="font-size: 1.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</div>
+                <div class="finanzas-kpi-sub" id="rep-prod-kpi-star-sub">Mayor facturación aportada</div>
+                <div class="finanzas-kpi-watermark">
+                  <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                </div>
+              </div>
+
+              <!-- CARD 4: VARIEDAD DE PRODUCTOS CON VENTAS -->
+              <div class="finanzas-kpi-card" style="background: linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%); border: 1px solid rgba(255, 255, 255, 0.12);">
+                <div class="finanzas-kpi-label">
+                  <span>Productos con Venta</span>
+                  <span class="finanzas-kpi-badge" id="rep-prod-kpi-prods-badge">Catálogo</span>
+                </div>
+                <div class="finanzas-kpi-val" id="rep-prod-kpi-prods-val">0</div>
+                <div class="finanzas-kpi-sub" id="rep-prod-kpi-prods-sub">Ítems con rotación activa</div>
+                <div class="finanzas-kpi-watermark">
+                  <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                </div>
+              </div>
+            </div>
+
+            <!-- CHART CARD -->
+            <div class="card" style="margin-bottom: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin: 0;" id="rep-prod-chart-title">
+                    Gráfica: Ranking de Ventas por Producto
+                  </h3>
+                  <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0.2rem 0 0 0;" id="rep-prod-chart-subtitle">
+                    Comparativa de facturación generada por los productos más demandados
+                  </p>
+                </div>
+              </div>
+              <div style="position: relative; height: 380px; width: 100%;">
+                <canvas id="infTopProductsChart"></canvas>
+              </div>
+            </div>
+
+            <!-- DETAILED RANKING TABLE CARD -->
+            <div class="card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                <div>
+                  <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin: 0;">
+                    Tabla Detallada de Rendimiento por Producto
+                  </h3>
+                  <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0.2rem 0 0 0;">
+                    Desglose exhaustivo de unidades, transacciones, ingresos y participación sobre la facturación global
+                  </p>
+                </div>
+                <div style="position: relative; min-width: 260px;">
+                  <input type="text" id="rep-prod-search-input" class="form-control" placeholder="Buscar por código, nombre o categoría..." style="padding-left: 2rem; font-size: 0.85rem;" oninput="app.filterTopProductsTable(this.value)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="table-wrapper">
+                <div class="table-container">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 70px; text-align: center;"># Rank</th>
+                        <th style="width: 100px;">Código</th>
+                        <th>Producto</th>
+                        <th>Categoría</th>
+                        <th>Tipo Medida</th>
+                        <th style="text-align: right;">Cant. Vendida</th>
+                        <th style="text-align: center;">N° Tickets</th>
+                        <th style="text-align: right;">Facturación COP</th>
+                        <th style="width: 140px;">% Aporte</th>
+                        <th style="text-align: center;">Stock Actual</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rep-productos-tbody">
+                      <!-- Renderizado dinámicamente -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- PANE: TENDENCIA DE PRODUCTO (EVOLUCIÓN DIARIA DEL MES ACTUAL) -->
@@ -4236,6 +4413,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=60" defer></script>
+  <script src="js/app.js?v=61" defer></script>
 </body>
 </html>
