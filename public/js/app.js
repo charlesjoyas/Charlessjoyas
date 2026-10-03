@@ -31,6 +31,10 @@ class NexusApp {
     this.finVentasDateTo = '';
     this.finVentasSearch = '';
 
+    this.repGeneralPeriod = 'all';
+    this.repGeneralDateFrom = '';
+    this.repGeneralDateTo = '';
+
     this.MODULES_LIST = [
       { id: 'dashboard', label: '📊 Dashboard / Inicio' },
       { id: 'pos', label: '🛒 Punto de Venta (POS)' },
@@ -13143,21 +13147,189 @@ class NexusApp {
   }
 
 
+  setRepGeneralPeriod(period, btnEl = null) {
+    this.repGeneralPeriod = period;
+    const pills = document.querySelectorAll('#rep-general-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    if (btnEl) {
+      btnEl.classList.add('active');
+    } else {
+      const target = document.querySelector(`#rep-general-period-pills [data-period="${period}"]`);
+      if (target) target.classList.add('active');
+    }
+
+    const pad = n => String(n).padStart(2, '0');
+    const now = new Date();
+    const toIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const fromInput = document.getElementById('rep-general-date-from');
+    const toInput = document.getElementById('rep-general-date-to');
+
+    if (period === 'today') {
+      const todayIso = toIso(now);
+      this.repGeneralDateFrom = todayIso;
+      this.repGeneralDateTo = todayIso;
+      if (fromInput) fromInput.value = todayIso;
+      if (toInput) toInput.value = todayIso;
+    } else if (period === 'yesterday') {
+      const yDate = new Date(now);
+      yDate.setDate(yDate.getDate() - 1);
+      const yIso = toIso(yDate);
+      this.repGeneralDateFrom = yIso;
+      this.repGeneralDateTo = yIso;
+      if (fromInput) fromInput.value = yIso;
+      if (toInput) toInput.value = yIso;
+    } else if (period === 'this_week') {
+      const dayOfWeek = now.getDay();
+      const diffToMonday = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diffToMonday);
+      this.repGeneralDateFrom = toIso(monday);
+      this.repGeneralDateTo = toIso(now);
+      if (fromInput) fromInput.value = this.repGeneralDateFrom;
+      if (toInput) toInput.value = this.repGeneralDateTo;
+    } else if (period === 'this_month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      this.repGeneralDateFrom = toIso(firstDay);
+      this.repGeneralDateTo = toIso(now);
+      if (fromInput) fromInput.value = this.repGeneralDateFrom;
+      if (toInput) toInput.value = this.repGeneralDateTo;
+    } else if (period === 'last_month') {
+      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      this.repGeneralDateFrom = toIso(firstDayLastMonth);
+      this.repGeneralDateTo = toIso(lastDayLastMonth);
+      if (fromInput) fromInput.value = this.repGeneralDateFrom;
+      if (toInput) toInput.value = this.repGeneralDateTo;
+    } else if (period === 'all') {
+      this.repGeneralDateFrom = '';
+      this.repGeneralDateTo = '';
+      if (fromInput) fromInput.value = '';
+      if (toInput) toInput.value = '';
+    }
+
+    this.renderRepGeneral();
+  }
+
+  onRepGeneralDateChange() {
+    const fromInput = document.getElementById('rep-general-date-from');
+    const toInput = document.getElementById('rep-general-date-to');
+    const fromVal = fromInput ? fromInput.value : '';
+    const toVal = toInput ? toInput.value : '';
+
+    this.repGeneralDateFrom = fromVal;
+    this.repGeneralDateTo = toVal;
+    this.repGeneralPeriod = 'custom';
+
+    const pills = document.querySelectorAll('#rep-general-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    const customPill = document.getElementById('rep-general-pill-custom');
+    if (customPill) customPill.classList.add('active');
+
+    this.renderRepGeneral();
+  }
+
+  applyRepGeneralCustomRange() {
+    const fromInput = document.getElementById('rep-general-date-from');
+    const toInput = document.getElementById('rep-general-date-to');
+    const fromVal = fromInput ? fromInput.value : '';
+    const toVal = toInput ? toInput.value : '';
+
+    if (!fromVal && !toVal) {
+      this.showToast('Por favor selecciona una fecha Desde o Hasta', 'info');
+      return;
+    }
+    if (fromVal && toVal && fromVal > toVal) {
+      this.showToast('La fecha Desde no puede ser mayor que la fecha Hasta', 'warning');
+      return;
+    }
+
+    this.repGeneralDateFrom = fromVal;
+    this.repGeneralDateTo = toVal;
+    this.repGeneralPeriod = 'custom';
+
+    const pills = document.querySelectorAll('#rep-general-period-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    const customPill = document.getElementById('rep-general-pill-custom');
+    if (customPill) customPill.classList.add('active');
+
+    this.renderRepGeneral();
+    this.showToast(`Reporte General filtrado: ${fromVal || 'Inicio'} al ${toVal || 'Hoy'}`, 'success');
+  }
+
+  resetRepGeneralFilter() {
+    this.setRepGeneralPeriod('all');
+    this.showToast('Filtro de Reporte General restablecido a todo el histórico', 'info');
+  }
+
   getConsolidatedReporteGeneralData() {
     const now = new Date();
-    const transactions = this.data.recentTransactions || [];
+    const pad = n => String(n).padStart(2, '0');
+    const toIso = d => d ? (`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`) : '';
+
+    const period = this.repGeneralPeriod || 'all';
+    const startIso = this.repGeneralDateFrom || '';
+    const endIso = this.repGeneralDateTo || '';
+
+    // Determinar texto del período filtrado
+    let periodText = 'Histórico Completo';
+    if (period === 'today') {
+      periodText = `Hoy (${startIso || toIso(now)})`;
+    } else if (period === 'yesterday') {
+      periodText = `Ayer (${startIso})`;
+    } else if (period === 'this_week') {
+      periodText = `Esta Semana (${startIso} a ${endIso})`;
+    } else if (period === 'this_month') {
+      periodText = `Este Mes (${startIso} a ${endIso})`;
+    } else if (period === 'last_month') {
+      periodText = `Mes Pasado (${startIso} a ${endIso})`;
+    } else if (period === 'custom' || startIso || endIso) {
+      if (startIso && endIso && startIso === endIso) {
+        periodText = `Día Puntual: ${startIso}`;
+      } else if (startIso && endIso) {
+        periodText = `Rango: ${startIso} al ${endIso}`;
+      } else if (startIso) {
+        periodText = `Desde ${startIso}`;
+      } else if (endIso) {
+        periodText = `Hasta ${endIso}`;
+      }
+    }
+
+    // Función auxiliar para filtrar entidades por rango de fechas
+    const isDateInRange = (rawDate) => {
+      if (!startIso && !endIso) return true;
+      const d = this.parseDateSafe(rawDate);
+      if (!d) return false;
+      const itemIso = toIso(d);
+      if (startIso && itemIso < startIso) return false;
+      if (endIso && itemIso > endIso) return false;
+      return true;
+    };
+
+    const allTransactions = this.data.recentTransactions || [];
+    const transactions = allTransactions.filter(t => isDateInRange(t.date));
     const validSalesTx = transactions.filter(t => Number(t.total) > 0);
-    const expenses = this.data.expenses || [];
-    const purchases = this.data.purchases || [];
-    const abonosVentas = this.data.abonosVentas || [];
-    const abonosCompras = this.data.abonosCompras || [];
-    const cashShiftsHistory = this.data.cashShiftsHistory || [];
+
+    const allExpenses = this.data.expenses || [];
+    const expenses = allExpenses.filter(e => isDateInRange(e.date));
+
+    const allPurchases = this.data.purchases || [];
+    const purchases = allPurchases.filter(p => isDateInRange(p.date));
+
+    const allAbonosVentas = this.data.abonosVentas || [];
+    const abonosVentas = allAbonosVentas.filter(a => isDateInRange(a.date));
+
+    const allAbonosCompras = this.data.abonosCompras || [];
+    const abonosCompras = allAbonosCompras.filter(a => isDateInRange(a.date));
+
+    const allCashShifts = this.data.cashShiftsHistory || [];
+    const cashShiftsHistory = allCashShifts.filter(s => isDateInRange(s.date || s.closedAt || s.openedAt));
     const currentShift = this.data.cashShiftLog || {};
 
     // 1. Core Financial Metrics
     const totalSales = validSalesTx.length > 0 
       ? validSalesTx.reduce((acc, t) => acc + Number(t.total), 0)
-      : (Number(this.data.kpis?.salesToday) || 0);
+      : (period === 'all' ? (Number(this.data.kpis?.salesToday) || 0) : 0);
 
     // Costo de Ventas (COGS / Costo Real de Joyería y Oro Vendido)
     let calculatedCOGS = 0;
@@ -13237,6 +13409,10 @@ class NexusApp {
     const paymentMethodsSummary = Array.from(pmMap.values()).sort((a, b) => b.total - a.total);
 
     return {
+      period,
+      periodText,
+      startIso,
+      endIso,
       transactions,
       validSalesTx,
       expenses,
@@ -13272,6 +13448,7 @@ class NexusApp {
 
     const opData = this.getConsolidatedReporteGeneralData();
     const {
+      periodText,
       totalSales,
       totalCOGS,
       grossProfit,
@@ -13285,6 +13462,11 @@ class NexusApp {
       expenses,
       paymentMethodsSummary
     } = opData;
+
+    const badge = document.getElementById('rep-general-period-badge');
+    if (badge) {
+      badge.innerText = `📅 Período: ${periodText || 'Histórico Completo'}`;
+    }
 
     container.innerHTML = `
       <div class="kpi-card">
@@ -13447,7 +13629,8 @@ class NexusApp {
       expServicios,
       expTaller,
       expOtros,
-      paymentMethodsSummary
+      paymentMethodsSummary,
+      periodText
     } = data;
 
     if (validSalesTx.length === 0 && expenses.length === 0 && purchases.length === 0) {
@@ -13800,7 +13983,7 @@ class NexusApp {
     <Cell ss:MergeAcross="4" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Consolidado Integral de Operaciones, Ventas, Gastos y Tesorería</Data></Cell>
    </Row>
    <Row ss:Height="18">
-    <Cell ss:MergeAcross="4" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Período Operativo: Consolidado Global de Operación</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Período Operativo: ${escapeXml(periodText || 'Consolidado Global de Operación')}</Data></Cell>
    </Row>
    <Row ss:Height="10"></Row>
 
@@ -14140,13 +14323,14 @@ class NexusApp {
  </Worksheet>
 </Workbook>`;
 
-    this._downloadExcelWorkbook(xml, `Reporte_General_Operativo_CharlesJoyas_${dateStr}`);
-    this.showToast('Libro Operativo General descargado exitosamente (5 Hojas)', 'success');
+    const cleanPeriodName = (periodText || dateStr).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
+    this._downloadExcelWorkbook(xml, `Reporte_General_Operativo_CharlesJoyas_${cleanPeriodName}`);
+    this.showToast(`Libro Operativo General descargado exitosamente (${periodText || dateStr})`, 'success');
   }
 
   exportReportCSV() {
     const data = this.getConsolidatedReporteGeneralData();
-    const { validSalesTx } = data;
+    const { validSalesTx, periodText } = data;
 
     if (validSalesTx.length === 0) {
       this.showToast('No hay transacciones registradas para exportar', 'warning');
@@ -14220,11 +14404,12 @@ class NexusApp {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Reporte_General_Operativo_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
+    const cleanPeriodName = (periodText || new Date().toISOString().slice(0, 10)).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
+    link.setAttribute('download', `Reporte_General_Operativo_CharlesJoyas_${cleanPeriodName}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    this.showToast('Reporte General Operativo exportado en CSV', 'success');
+    this.showToast(`Reporte General Operativo exportado en CSV (${periodText || 'Filtrado'})`, 'success');
   }
 
   exportTopProductsCSV() {
