@@ -382,7 +382,7 @@
   "customerCredits": [],
   "supplierCredits": [
     {
-      "id": "CP-414",
+      "id": "CP-001",
       "supplier": "santiago rosita",
       "supplierId": "PRV-855",
       "totalOwed": 21328000,
@@ -393,7 +393,7 @@
       "status": "Pendiente"
     },
     {
-      "id": "CP-727",
+      "id": "CP-002",
       "supplier": "Calia joyería",
       "supplierId": "PRV-460",
       "totalOwed": 492000,
@@ -404,7 +404,7 @@
       "status": "Pagado Total"
     },
     {
-      "id": "CP-491",
+      "id": "CP-003",
       "supplier": "joyeria santa isabel",
       "supplierId": "PRV-501",
       "totalOwed": 750000,
@@ -415,7 +415,7 @@
       "status": "Pagado Total"
     },
     {
-      "id": "CP-773",
+      "id": "CP-004",
       "supplier": "carlos andres garzon",
       "supplierId": "PRV-907",
       "totalOwed": 95867000,
@@ -426,7 +426,7 @@
       "status": "Pendiente"
     },
     {
-      "id": "CP-402",
+      "id": "CP-005",
       "supplier": "ARISTIZABAL JOYERO",
       "supplierId": "PRV-753",
       "totalOwed": 104642700,
@@ -437,7 +437,7 @@
       "status": "Pendiente"
     },
     {
-      "id": "CP-866",
+      "id": "CP-006",
       "supplier": "DH HERNANDEZ JOYEROS",
       "supplierId": "PRV-974",
       "totalOwed": 11405230,
@@ -17033,7 +17033,7 @@
       "id": "AB-C528733",
       "date": "2026-09-19",
       "supplier": "carlos andres garzon",
-      "poId": "CP-773",
+      "poId": "CP-004",
       "amount": 1000000,
       "method": "Efectivo (Caja)",
       "cashier": "Carlos Garzon",
@@ -17043,7 +17043,7 @@
       "id": "AB-C012319",
       "date": "2026-09-18",
       "supplier": "carlos andres garzon",
-      "poId": "CP-773",
+      "poId": "CP-004",
       "amount": 50000,
       "method": "Efectivo (Caja)",
       "cashier": "Carlos Garzon",
@@ -17053,7 +17053,7 @@
       "id": "AB-C039527",
       "date": "2026-09-18",
       "supplier": "ARISTIZABAL JOYERO",
-      "poId": "CP-402",
+      "poId": "CP-005",
       "amount": 1500000,
       "method": "Efectivo (Caja)",
       "cashier": "Carlos Garzon",

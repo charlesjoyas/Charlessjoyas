@@ -586,6 +586,7 @@ class NexusApp {
 
     // Sincronización de costo promedio ponderado y gramaje por categoría
     this.syncAllCategoryGrams();
+    this.normalizeSupplierCreditCodes();
   }
 
   async loadPersistence() {
@@ -761,10 +762,67 @@ class NexusApp {
     }
   }
 
+  getNextSupplierCreditId() {
+    if (!this.data || !Array.isArray(this.data.supplierCredits) || this.data.supplierCredits.length === 0) {
+      return 'CP-001';
+    }
+    let max = 0;
+    this.data.supplierCredits.forEach(sc => {
+      if (!sc || !sc.id) return;
+      const m = String(sc.id).match(/^CP-(\d+)$/i) || String(sc.id).match(/(\d+)/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (!isNaN(n) && n < 10000 && n > max) max = n;
+      }
+    });
+    return `CP-${String(max + 1).padStart(3, '0')}`;
+  }
+
+  normalizeSupplierCreditCodes() {
+    if (!this.data || !Array.isArray(this.data.supplierCredits) || this.data.supplierCredits.length === 0) return;
+
+    // Check if any credit has an old non-sequential code or legacy ID
+    const seenIds = new Set();
+    let hasLegacyIds = false;
+    for (const sc of this.data.supplierCredits) {
+      if (!sc || !sc.id) { hasLegacyIds = true; break; }
+      if (String(sc.id).startsWith('OC-')) { hasLegacyIds = true; break; }
+      const m = String(sc.id).match(/^CP-(\d+)$/i);
+      if (!m) { hasLegacyIds = true; break; }
+      const num = parseInt(m[1], 10);
+      if (num > 50 || seenIds.has(sc.id)) { hasLegacyIds = true; break; }
+      seenIds.add(sc.id);
+    }
+
+    if (hasLegacyIds) {
+      if (!Array.isArray(this.data.abonosCompras)) this.data.abonosCompras = [];
+      const idMap = {};
+
+      this.data.supplierCredits.forEach((sc, idx) => {
+        const newId = `CP-${String(idx + 1).padStart(3, '0')}`;
+        if (sc.id !== newId) {
+          idMap[sc.id] = newId;
+          if (String(sc.id).startsWith('OC-') && !sc.poId) {
+            sc.poId = sc.id;
+          }
+          sc.id = newId;
+        }
+      });
+
+      this.data.abonosCompras.forEach(ab => {
+        if (ab.poId && idMap[ab.poId]) {
+          ab.poId = idMap[ab.poId];
+        }
+      });
+    }
+  }
+
   syncSupplierCreditsState() {
     if (!this.data) return;
     if (!Array.isArray(this.data.suppliers)) this.data.suppliers = [];
     if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
+
+    this.normalizeSupplierCreditCodes();
 
     // Sincronizar deudas del Directorio de Proveedores hacia cuentas por pagar (supplierCredits)
     this.data.suppliers.forEach(s => {
@@ -775,8 +833,9 @@ class NexusApp {
           sc.status !== 'Pagado Total' && (Number(sc.pendingAmount) || 0) > 0
         );
         if (!existing) {
-          this.data.supplierCredits.unshift({
-            id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+          const newCreditId = this.getNextSupplierCreditId();
+          this.data.supplierCredits.push({
+            id: newCreditId,
             supplier: s.name,
             supplierId: s.id,
             totalOwed: bal,
@@ -2257,8 +2316,9 @@ class NexusApp {
         this.data.suppliers.unshift(newSupp);
         if (pendingBalance > 0) {
           if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
-          this.data.supplierCredits.unshift({
-            id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+          const newCreditId = this.getNextSupplierCreditId();
+          this.data.supplierCredits.push({
+            id: newCreditId,
             supplier: newSupp.name,
             supplierId: newSupp.id,
             totalOwed: pendingBalance,
@@ -2346,8 +2406,9 @@ class NexusApp {
             existingCredit.pendingAmount = pendingBalance;
             if ((Number(existingCredit.totalOwed) || 0) < pendingBalance) existingCredit.totalOwed = pendingBalance;
           } else if (pendingBalance > 0) {
-            this.data.supplierCredits.unshift({
-              id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+            const newCreditId = this.getNextSupplierCreditId();
+            this.data.supplierCredits.push({
+              id: newCreditId,
               supplier: name,
               supplierId: supp.id,
               totalOwed: pendingBalance,
@@ -2971,8 +3032,10 @@ class NexusApp {
           // Si fue a crédito (Pendiente), registrar deuda en cuentas por pagar de supplierCredits
           if (!isPaid) {
             if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
-            this.data.supplierCredits.unshift({
-              id: newPO.id,
+            const newCreditId = this.getNextSupplierCreditId();
+            this.data.supplierCredits.push({
+              id: newCreditId,
+              poId: newPO.id,
               supplier: supp,
               totalOwed: totalCost,
               pendingAmount: totalCost,
@@ -5242,8 +5305,9 @@ class NexusApp {
       if (!cp) {
         const bal = supp ? Number(supp.creditBalance) || 0 : 0;
         if (bal > 0) {
+          const newCreditId = this.getNextSupplierCreditId();
           cp = {
-            id: `CP-${Math.floor(403 + Math.random() * 900)}`,
+            id: newCreditId,
             supplier: entityName,
             supplierId: supp ? supp.id : '',
             totalOwed: bal,
@@ -5254,7 +5318,7 @@ class NexusApp {
             status: "Pendiente"
           };
           if (!this.data.supplierCredits) this.data.supplierCredits = [];
-          this.data.supplierCredits.unshift(cp);
+          this.data.supplierCredits.push(cp);
         }
       }
       if (cp) {
@@ -5353,8 +5417,9 @@ class NexusApp {
           s.name?.toLowerCase().trim() === String(id).toLowerCase().trim()
         );
         if (suppObj && Number(suppObj.creditBalance) > 0) {
+          const newCreditId = this.getNextSupplierCreditId();
           cp = {
-            id: `CP-${Math.floor(400 + Math.random() * 599)}`,
+            id: newCreditId,
             supplier: suppObj.name,
             supplierId: suppObj.id,
             totalOwed: Number(suppObj.creditBalance),
@@ -5365,7 +5430,7 @@ class NexusApp {
             status: "Pendiente"
           };
           if (!this.data.supplierCredits) this.data.supplierCredits = [];
-          this.data.supplierCredits.unshift(cp);
+          this.data.supplierCredits.push(cp);
         }
       }
 
@@ -6405,13 +6470,20 @@ class NexusApp {
 
   renderFinCreditosProveedoresTable() {
     this.syncSupplierCreditsState();
+    this.normalizeSupplierCreditCodes();
     const tbody = document.getElementById('fin-cred-prv-tbody');
     if (!tbody) return;
     if (!this.data.supplierCredits || this.data.supplierCredits.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">📑</div><div style="font-weight:600;">No hay créditos de proveedores pendientes</div><div style="font-size:0.8rem; margin-top:0.25rem;">Las compras a crédito aparecerán aquí.</div></td></tr>`;
       return;
     }
-    tbody.innerHTML = this.data.supplierCredits.map(cp => `
+    const sortedCredits = [...this.data.supplierCredits].sort((a, b) => {
+      const numA = parseInt((String(a.id).match(/\d+/) || [0])[0], 10);
+      const numB = parseInt((String(b.id).match(/\d+/) || [0])[0], 10);
+      return numA - numB;
+    });
+
+    tbody.innerHTML = sortedCredits.map(cp => `
       <tr>
         <td><b>${cp.id}</b></td>
         <td>${cp.supplier}</td>
@@ -10551,7 +10623,13 @@ class NexusApp {
 
   exportCreditosProveedoresExcel() {
     this.syncSupplierCreditsState();
-    const credits = this.data.supplierCredits || [];
+    this.normalizeSupplierCreditCodes();
+    const rawCredits = this.data.supplierCredits || [];
+    const credits = [...rawCredits].sort((a, b) => {
+      const numA = parseInt((String(a.id).match(/\d+/) || [0])[0], 10);
+      const numB = parseInt((String(b.id).match(/\d+/) || [0])[0], 10);
+      return numA - numB;
+    });
     const suppliers = this.data.suppliers || [];
     const abonos = this.data.abonosCompras || [];
     const now = new Date();
