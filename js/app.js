@@ -12562,70 +12562,595 @@ class NexusApp {
   }
 
 
+  getConsolidatedReporteGeneralData() {
+    const now = new Date();
+    const transactions = this.data.recentTransactions || [];
+    const validSalesTx = transactions.filter(t => Number(t.total) > 0);
+    const expenses = this.data.expenses || [];
+    const purchases = this.data.purchases || [];
+    const abonosVentas = this.data.abonosVentas || [];
+    const abonosCompras = this.data.abonosCompras || [];
+    const cashShiftsHistory = this.data.cashShiftsHistory || [];
+    const currentShift = this.data.cashShiftLog || {};
+
+    // 1. Core Financial Metrics
+    const totalSales = validSalesTx.length > 0 
+      ? validSalesTx.reduce((acc, t) => acc + Number(t.total), 0)
+      : (Number(this.data.kpis?.salesToday) || 0);
+
+    const totalExp = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+    const netProfit = totalSales - totalExp;
+    const netMarginPct = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
+
+    const totalAbonosVentas = abonosVentas.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+    const totalPurchases = purchases.reduce((acc, p) => acc + (Number(p.total) || 0), 0);
+    const totalPagadoPurchases = purchases.reduce((acc, p) => acc + (Number(p.paidAmount) || 0), 0);
+    const totalPendingPurchases = purchases.reduce((acc, p) => acc + ((Number(p.total) || 0) - (Number(p.paidAmount) || 0)), 0);
+
+    // Flujo neto de fondos estimado
+    const netCashFlow = (totalSales + totalAbonosVentas) - (totalExp + totalPagadoPurchases);
+
+    // 2. Expense classification for P&L
+    let expNomina = 0;
+    let expArriendo = 0;
+    let expServicios = 0;
+    let expTaller = 0;
+    let expOtros = 0;
+
+    expenses.forEach(e => {
+      const amt = Number(e.amount) || 0;
+      const text = `${e.category || ''} ${e.description || ''}`.toLowerCase();
+      if (text.includes('nómina') || text.includes('nomina') || text.includes('salario') || text.includes('sueldo') || text.includes('empleado') || text.includes('personal')) {
+        expNomina += amt;
+      } else if (text.includes('arriendo') || text.includes('alquiler') || text.includes('arrendamiento') || text.includes('local')) {
+        expArriendo += amt;
+      } else if (text.includes('servicio') || text.includes('luz') || text.includes('agua') || text.includes('internet') || text.includes('telefono') || text.includes('telefonía')) {
+        expServicios += amt;
+      } else if (text.includes('taller') || text.includes('mantenimiento') || text.includes('herramienta') || text.includes('quimico') || text.includes('gas') || text.includes('soldadura')) {
+        expTaller += amt;
+      } else {
+        expOtros += amt;
+      }
+    });
+
+    // 3. Payment methods aggregation
+    const pmMap = new Map();
+    validSalesTx.forEach(t => {
+      const rawMethod = (t.paymentMethod || 'Efectivo').trim();
+      let normMethod = rawMethod;
+      const lower = rawMethod.toLowerCase();
+      if (lower.includes('efectivo')) normMethod = 'Efectivo (Caja Gaveta)';
+      else if (lower.includes('transferencia') || lower.includes('bancolombia') || lower.includes('nequi') || lower.includes('daviplata')) normMethod = 'Transferencia Bancaria (Bancos)';
+      else if (lower.includes('tarjeta') || lower.includes('debito') || lower.includes('credito') || lower.includes('datafono')) normMethod = 'Tarjetas Débito / Crédito (Datáfono)';
+      else if (lower.includes('separe') || lower.includes('plan separe')) normMethod = 'Plan Separe';
+      else if (lower.includes('credito cliente') || lower.includes('crédito')) normMethod = 'Crédito Directo (Cartera)';
+
+      const amt = Number(t.total) || 0;
+      if (!pmMap.has(normMethod)) {
+        pmMap.set(normMethod, { name: normMethod, count: 0, total: 0 });
+      }
+      const entry = pmMap.get(normMethod);
+      entry.count += 1;
+      entry.total += amt;
+    });
+
+    const paymentMethodsSummary = Array.from(pmMap.values()).sort((a, b) => b.total - a.total);
+
+    return {
+      transactions,
+      validSalesTx,
+      expenses,
+      purchases,
+      abonosVentas,
+      abonosCompras,
+      cashShiftsHistory,
+      currentShift,
+      totalSales,
+      totalExp,
+      netProfit,
+      netMarginPct,
+      totalAbonosVentas,
+      totalPurchases,
+      totalPagadoPurchases,
+      totalPendingPurchases,
+      netCashFlow,
+      expNomina,
+      expArriendo,
+      expServicios,
+      expTaller,
+      expOtros,
+      paymentMethodsSummary
+    };
+  }
+
   renderRepGeneral() {
     const container = document.getElementById('rep-general-kpi-grid');
     if (!container) return;
-    const validSalesTx = (this.data.recentTransactions || []).filter(t => Number(t.total) > 0);
-    const totalSales = validSalesTx.length > 0 
-      ? validSalesTx.reduce((acc, t) => acc + Number(t.total), 0)
-      : (this.data.kpis?.salesToday || 0);
-    const totalExp = (this.data.expenses || []).reduce((acc, e) => acc + Number(e.amount), 0);
-    const netProfit = totalSales - totalExp;
+
+    const opData = this.getConsolidatedReporteGeneralData();
+    const {
+      totalSales,
+      totalExp,
+      netProfit,
+      netMarginPct,
+      totalAbonosVentas,
+      totalPurchases,
+      validSalesTx,
+      expenses,
+      paymentMethodsSummary
+    } = opData;
 
     container.innerHTML = `
       <div class="kpi-card">
         <div class="kpi-title">Ingresos Brutos Acumulados</div>
         <div class="kpi-value">${this.formatCurrency(totalSales)}</div>
-        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Ventas registradas y facturación</div>
+        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${validSalesTx.length} ventas registradas y facturación</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-title">Gastos Operativos Totales</div>
         <div class="kpi-value" style="color:var(--rose-text);">${this.formatCurrency(totalExp)}</div>
-        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Alquiler, nómina y servicios</div>
+        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">${expenses.length} egresos (alquiler, nómina y taller)</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-title">Utilidad Neta Operativa</div>
         <div class="kpi-value" style="color:${netProfit >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(netProfit)}</div>
-        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Neto: ${totalSales > 0 ? ((netProfit / totalSales) * 100).toFixed(1) : 0}%</div>
+        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Margen Neto: ${netMarginPct.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Recaudos Cartera / Abonos</div>
+        <div class="kpi-value" style="color:var(--brand-primary);">${this.formatCurrency(totalAbonosVentas)}</div>
+        <div class="kpi-subtitle" style="color:var(--text-subtle); font-size:0.75rem; margin-top:4px;">Cobranzas y abonos ingresados</div>
       </div>
     `;
+
+    const extContainer = document.getElementById('rep-general-extended-content');
+    if (extContainer) {
+      const pmRows = paymentMethodsSummary.map(pm => {
+        const pct = totalSales > 0 ? ((pm.total / totalSales) * 100).toFixed(1) : '0.0';
+        return `
+          <tr>
+            <td style="font-weight:700;">${this.escapeHtml(pm.name)}</td>
+            <td style="text-align:center;"><span class="badge badge-inactive">${pm.count}</span></td>
+            <td style="text-align:right; font-weight:700; color:var(--text-main);">${this.formatCurrency(pm.total)}</td>
+            <td style="text-align:right;"><span style="font-weight:600; color:var(--brand-primary);">${pct}%</span></td>
+          </tr>
+        `;
+      }).join('');
+
+      extContainer.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap:1.25rem; margin-bottom:1.5rem;">
+          <!-- Card 1: Conciliación por Medio de Pago -->
+          <div class="card" style="padding:1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:0.5rem;">
+                <span>💳</span> Recaudo por Medios de Pago
+              </h3>
+              <span class="text-xs" style="color:var(--text-muted); font-weight:600;">Total Facturado</span>
+            </div>
+            <div class="table-container" style="max-height:260px; overflow-y:auto;">
+              <table class="table" style="width:100%; font-size:0.86rem;">
+                <thead>
+                  <tr>
+                    <th>Canal / Método</th>
+                    <th style="text-align:center;">Tickets</th>
+                    <th style="text-align:right;">Monto COP</th>
+                    <th style="text-align:right;">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${pmRows || '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-muted);">Sin registros de pago</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Card 2: P&L Operativo Resumido -->
+          <div class="card" style="padding:1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:0.5rem;">
+                <span>📈</span> Estado de Resultados Operativo (P&amp;L)
+              </h3>
+              <span class="badge ${netProfit >= 0 ? 'badge-active' : 'badge-danger'}">Margen: ${netMarginPct.toFixed(1)}%</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; font-size:0.9rem;">
+              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
+                <span style="color:var(--text-muted);">Ingresos por Ventas POS:</span>
+                <span style="font-weight:700; color:var(--emerald-text);">${this.formatCurrency(totalSales)}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
+                <span style="color:var(--text-muted);">(+) Recaudos de Cartera / Abonos:</span>
+                <span style="font-weight:700; color:var(--brand-primary);">${this.formatCurrency(totalAbonosVentas)}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
+                <span style="color:var(--text-muted);">(-) Compras de Joyería &amp; Insumos:</span>
+                <span style="font-weight:700; color:var(--text-main);">${this.formatCurrency(totalPurchases)}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding-bottom:0.4rem; border-bottom:1px solid var(--border-color);">
+                <span style="color:var(--text-muted);">(-) Gastos Operativos (OPEX):</span>
+                <span style="font-weight:700; color:var(--rose-text);">${this.formatCurrency(totalExp)}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; padding-top:0.4rem; font-size:1.05rem;">
+                <span style="font-weight:800; color:var(--text-main);">UTILIDAD NETA OPERATIVA:</span>
+                <span style="font-weight:900; color:${netProfit >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(netProfit)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner de Auditoría y Exportación -->
+        <div class="card" style="padding:1.25rem; background:linear-gradient(135deg, rgba(2,132,199,0.06), rgba(16,185,129,0.06)); border:1px solid rgba(2,132,199,0.2); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div style="display:flex; align-items:center; gap:1rem;">
+            <div style="width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, #059669, #047857); color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.5rem; flex-shrink:0;">
+              📊
+            </div>
+            <div>
+              <div style="font-weight:800; color:var(--text-main); font-size:1rem; margin-bottom:0.25rem;">
+                Libro Maestro de Auditoría Operativa en Excel (.xls)
+              </div>
+              <div style="font-size:0.82rem; color:var(--text-muted);">
+                Contiene 5 hojas de cálculo consolidadas: <b>1. Resumen P&amp;L</b>, <b>2. Detalle de Ventas</b>, <b>3. Gastos OPEX</b>, <b>4. Compras &amp; Proveedores</b> y <b>5. Arqueos de Caja</b>.
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary text-sm" onclick="app.exportReportGeneralExcel()" style="display:flex; align-items:center; gap:0.4rem; font-weight:700; background:#059669; color:#ffffff; border-color:#059669; padding:0.6rem 1.25rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Descargar Libro Operativo (.xls)</span>
+          </button>
+        </div>
+      `;
+    }
   }
 
   exportReportExcel() {
-    const txs = this.data.recentTransactions || [];
-    if (txs.length === 0) {
-      this.showToast('No hay transacciones registradas para exportar', 'warning');
+    this.exportReportGeneralExcel();
+  }
+
+  exportReportGeneralExcel() {
+    const data = this.getConsolidatedReporteGeneralData();
+    const {
+      validSalesTx,
+      expenses,
+      purchases,
+      cashShiftsHistory,
+      currentShift,
+      totalSales,
+      totalExp,
+      netProfit,
+      netMarginPct,
+      totalAbonosVentas,
+      totalPurchases,
+      netCashFlow,
+      expNomina,
+      expArriendo,
+      expServicios,
+      expTaller,
+      expOtros,
+      paymentMethodsSummary
+    } = data;
+
+    if (validSalesTx.length === 0 && expenses.length === 0 && purchases.length === 0) {
+      this.showToast('No hay transacciones ni operaciones registradas para exportar', 'warning');
       return;
     }
 
-    const escapeXml = (str) => {
-      if (str === null || str === undefined) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-    };
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const escapeXml = (str) => this.escapeXml(str);
 
-    const rowsXml = txs.map(t => {
-      const q = this.formatTransactionQty(t);
-      const dateTime = `${t.date ? t.date + ' ' : ''}${t.time || ''}`.trim();
-      const totalNum = Math.round(Math.abs(t.total || 0));
+    // ==========================================
+    // HOJA 1: RESUMEN EJECUTIVO & P&L ROWS
+    // ==========================================
+    const pnlRowsData = [
+      {
+        concepto: '(+) Ventas Mostrador y Facturación POS de Joyería',
+        puc: '4135',
+        naturaleza: 'Ingreso Operativo',
+        monto: totalSales,
+        base: totalSales > 0 ? 1 : 0,
+        badge: 'BadgeGreen'
+      },
+      {
+        concepto: '(+) Recaudos en Caja por Abonos de Cartera / Planes Separe',
+        puc: '1305',
+        naturaleza: 'Ingreso Tesorería',
+        monto: totalAbonosVentas,
+        base: totalSales > 0 ? (totalAbonosVentas / totalSales) : 0,
+        badge: 'BadgeGreen'
+      },
+      {
+        concepto: '(=) TOTAL INGRESOS OPERATIVOS BRUTOS Y RECAUDOS',
+        puc: '41',
+        naturaleza: 'Subtotal Ingresos',
+        monto: totalSales + totalAbonosVentas,
+        base: totalSales > 0 ? ((totalSales + totalAbonosVentas) / totalSales) : 0,
+        badge: 'BadgeGreen'
+      },
+      {
+        concepto: '(-) Costo de Mercancía: Compras de Joyería, Oro 18k e Insumos',
+        puc: '1435',
+        naturaleza: 'Costo Directo',
+        monto: totalPurchases,
+        base: totalSales > 0 ? (totalPurchases / totalSales) : 0,
+        badge: 'BadgeAmber'
+      },
+      {
+        concepto: '(=) MARGEN BRUTO OPERATIVO ESTIMADO',
+        puc: 'MARGEN',
+        naturaleza: 'Margen Bruto',
+        monto: (totalSales + totalAbonosVentas) - totalPurchases,
+        base: totalSales > 0 ? (((totalSales + totalAbonosVentas) - totalPurchases) / totalSales) : 0,
+        badge: 'BadgeGreen'
+      },
+      {
+        concepto: '(-) Gastos de Personal, Asesores de Mostrador y Nómina',
+        puc: '5105',
+        naturaleza: 'Gasto OPEX',
+        monto: expNomina,
+        base: totalSales > 0 ? (expNomina / totalSales) : 0,
+        badge: 'BadgeRose'
+      },
+      {
+        concepto: '(-) Arrendamiento de Locales Comerciales & Vitrinas',
+        puc: '5120',
+        naturaleza: 'Gasto OPEX',
+        monto: expArriendo,
+        base: totalSales > 0 ? (expArriendo / totalSales) : 0,
+        badge: 'BadgeRose'
+      },
+      {
+        concepto: '(-) Servicios Públicos, Comunicaciones, Alarma e Internet',
+        puc: '5135',
+        naturaleza: 'Gasto OPEX',
+        monto: expServicios,
+        base: totalSales > 0 ? (expServicios / totalSales) : 0,
+        badge: 'BadgeRose'
+      },
+      {
+        concepto: '(-) Mantenimiento de Taller, Herramientas, Gas y Soldadura',
+        puc: '5145',
+        naturaleza: 'Gasto OPEX',
+        monto: expTaller,
+        base: totalSales > 0 ? (expTaller / totalSales) : 0,
+        badge: 'BadgeRose'
+      },
+      {
+        concepto: '(-) Otros Gastos Generales, Cafetería, Aseo y Operación',
+        puc: '5195',
+        naturaleza: 'Gasto OPEX',
+        monto: expOtros,
+        base: totalSales > 0 ? (expOtros / totalSales) : 0,
+        badge: 'BadgeRose'
+      },
+      {
+        concepto: '(=) TOTAL GASTOS OPERATIVOS DEL PERÍODO (OPEX)',
+        puc: '51',
+        naturaleza: 'Total OPEX',
+        monto: totalExp,
+        base: totalSales > 0 ? (totalExp / totalSales) : 0,
+        badge: 'BadgeRose'
+      },
+      {
+        concepto: '(=) UTILIDAD NETA OPERATIVA CONSOLIDADA',
+        puc: '59',
+        naturaleza: 'Resultado Neto',
+        monto: netProfit,
+        base: totalSales > 0 ? (netProfit / totalSales) : 0,
+        badge: netProfit >= 0 ? 'BadgeGreen' : 'BadgeRose'
+      }
+    ];
 
-      return `
-    <Row ss:Height="22">
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.id)}</Data></Cell>
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(dateTime)}</Data></Cell>
-      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(t.cashier || 'Cajero')}</Data></Cell>
-      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(t.customer || 'Cliente Mostrador')}</Data></Cell>
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.type || 'Venta POS')}</Data></Cell>
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(q.main + ' (' + q.sub + ')')}</Data></Cell>
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.paymentMethod || 'Efectivo')}</Data></Cell>
-      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${totalNum}</Data></Cell>
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(t.status || 'Completado')}</Data></Cell>
+    let rowsPnl = '';
+    pnlRowsData.forEach(item => {
+      const isSubtotal = item.concepto.startsWith('(=)');
+      const labelStyle = isSubtotal ? 'CellLeftBold' : 'CellLeft';
+      const valStyle = isSubtotal 
+        ? (item.monto >= 0 ? 'CellCurrencyEmerald' : 'CellCurrencyRose') 
+        : 'CellCurrency';
+
+      rowsPnl += `
+    <Row ss:Height="${isSubtotal ? '23' : '20'}">
+      <Cell ss:StyleID="${labelStyle}"><Data ss:Type="String">${escapeXml(item.concepto)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(item.puc)}</Data></Cell>
+      <Cell ss:StyleID="${item.badge}"><Data ss:Type="String">${escapeXml(item.naturaleza)}</Data></Cell>
+      <Cell ss:StyleID="${valStyle}"><Data ss:Type="Number">${item.monto}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${item.base}</Data></Cell>
     </Row>`;
-    }).join('');
+    });
+
+    let rowsPaymentMethods = '';
+    paymentMethodsSummary.forEach(pm => {
+      const pct = totalSales > 0 ? (pm.total / totalSales) : 0;
+      let canalDestino = 'Caja Principal (Efectivo)';
+      if (pm.name.includes('Transferencia') || pm.name.includes('Bancos')) canalDestino = 'Bancos / Cuentas de Ahorro';
+      else if (pm.name.includes('Tarjeta')) canalDestino = 'Datafono / Entidad Financiera';
+      else if (pm.name.includes('Cartera') || pm.name.includes('Crédito')) canalDestino = 'Cartera por Cobrar (Clientes)';
+      else if (pm.name.includes('Separe')) canalDestino = 'Custodia Plan Separe';
+
+      rowsPaymentMethods += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(pm.name)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${pm.count}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${pm.total}</Data></Cell>
+      <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${pct}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(canalDestino)}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 2: DETALLE DE VENTAS ROWS
+    // ==========================================
+    let sumVentasQty = 0;
+    let sumVentasGrams = 0;
+    let sumVentasSubtotal = 0;
+    let sumVentasTotal = 0;
+    let rowsVentas = '';
+
+    validSalesTx.forEach((tx, idx) => {
+      const dateTime = `${tx.date ? tx.date + ' ' : ''}${tx.time || ''}`.trim();
+      const q = this.formatTransactionQty(tx);
+      const totalNum = Number(tx.total) || 0;
+      const subtotalNum = Number(tx.subtotal) || totalNum;
+
+      sumVentasSubtotal += subtotalNum;
+      sumVentasTotal += totalNum;
+
+      // Extract products detail, units count and grams
+      let itemsDesc = '';
+      let txQty = 0;
+      let txGrams = 0;
+
+      if (Array.isArray(tx.items) && tx.items.length > 0) {
+        itemsDesc = tx.items.map(it => {
+          const itQty = Number(it.qty || it.quantity) || 1;
+          const itName = it.name || it.product?.name || 'Joya';
+          const itUnit = it.unit || (it.measureType === 'Pesaje' ? 'g' : 'u.');
+          const itWeight = Number(it.pieceWeight || it.weight || 0);
+          
+          if (itUnit === 'g' || it.measureType === 'Pesaje') {
+            txGrams += (itQty * (itWeight > 0 ? itWeight : 1));
+            txQty += 1;
+          } else {
+            txQty += itQty;
+            if (itWeight > 0) txGrams += (itQty * itWeight);
+          }
+          return `${itName} (${itQty}${itUnit})`;
+        }).join('; ');
+      } else {
+        itemsDesc = tx.type || 'Venta de Mostrador';
+        txQty = 1;
+      }
+
+      sumVentasQty += txQty;
+      sumVentasGrams += txGrams;
+
+      rowsVentas += `
+    <Row ss:Height="22">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(tx.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.date || '')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.time || '')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(tx.cashier || 'Cajero')}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(tx.customer || 'Cliente Mostrador')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.type || 'Venta POS')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(itemsDesc)}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${txQty}</Data></Cell>
+      <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${txGrams.toFixed(2)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(tx.paymentMethod || 'Efectivo')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${subtotalNum}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${totalNum}</Data></Cell>
+      <Cell ss:StyleID="BadgeGreen"><Data ss:Type="String">${escapeXml(tx.status || 'Completado')}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 3: DETALLE DE GASTOS OPEX ROWS
+    // ==========================================
+    let sumGastosTotal = 0;
+    let rowsGastos = '';
+
+    expenses.forEach((e, idx) => {
+      const amt = Number(e.amount) || 0;
+      sumGastosTotal += amt;
+
+      rowsGastos += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(e.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(e.date || '')}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(e.category || 'Operativo')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(e.description || 'Gasto Operativo')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(e.paymentMethod || e.method || 'Efectivo')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${amt}</Data></Cell>
+      <Cell ss:StyleID="BadgeRose"><Data ss:Type="String">${escapeXml(e.status || 'Pagado')}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 4: DETALLE DE COMPRAS ROWS
+    // ==========================================
+    let sumComprasTotal = 0;
+    let sumComprasPagado = 0;
+    let sumComprasSaldo = 0;
+    let sumComprasGrams = 0;
+    let rowsCompras = '';
+
+    purchases.forEach((p, idx) => {
+      const totalNum = Number(p.total) || 0;
+      const pagadoNum = Number(p.paidAmount) || 0;
+      const saldoNum = Math.max(0, totalNum - pagadoNum);
+      const gramsNum = Number(p.totalGrams || p.productGrams || 0);
+
+      sumComprasTotal += totalNum;
+      sumComprasPagado += pagadoNum;
+      sumComprasSaldo += saldoNum;
+      sumComprasGrams += gramsNum;
+
+      rowsCompras += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(p.id)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.date || '')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.time || '')}</Data></Cell>
+      <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.supplier || 'Proveedor')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(p.categoryName || p.category || 'Joyería')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${Number(p.quantity || p.itemsCount || 1)}</Data></Cell>
+      <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${gramsNum.toFixed(2)}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${totalNum}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${pagadoNum}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${saldoNum}</Data></Cell>
+      <Cell ss:StyleID="${saldoNum > 0 ? 'BadgeAmber' : 'BadgeGreen'}"><Data ss:Type="String">${saldoNum > 0 ? 'Crédito CXP' : 'Contado'}</Data></Cell>
+    </Row>`;
+    });
+
+    // ==========================================
+    // HOJA 5: HISTORIAL DE ARQUEOS DE CAJA ROWS
+    // ==========================================
+    let rowsShifts = '';
+    const allShifts = [...cashShiftsHistory];
+    if (currentShift && currentShift.shiftId && !allShifts.some(s => s.shiftId === currentShift.shiftId || s.id === currentShift.shiftId)) {
+      allShifts.unshift({
+        id: currentShift.shiftId,
+        openedAt: currentShift.openedAt || 'Hoy',
+        closedAt: 'Turno en Curso',
+        cashier: this.currentUser?.name || this.data.store?.cashier || 'Cajero',
+        openingCash: currentShift.openingCash || 0,
+        cashSales: currentShift.cashSales || 0,
+        cashExpenses: currentShift.cashExpenses || 0,
+        expectedCash: currentShift.expectedCashInDrawer || 0,
+        actualCash: currentShift.actualCashInDrawer || currentShift.expectedCashInDrawer || 0,
+        discrepancy: currentShift.discrepancy || 0,
+        status: currentShift.status || 'Abierto'
+      });
+    }
+
+    allShifts.forEach((s, idx) => {
+      const disc = Number(s.discrepancy) || 0;
+      let discBadge = 'BadgeGreen';
+      let discLabel = 'Cuadrado ($0)';
+      if (disc > 0) {
+        discBadge = 'BadgeAmber';
+        discLabel = `Sobrante (+${this.formatCurrency(disc)})`;
+      } else if (disc < 0) {
+        discBadge = 'BadgeRose';
+        discLabel = `Faltante (${this.formatCurrency(disc)})`;
+      }
+
+      rowsShifts += `
+    <Row ss:Height="21">
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+      <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(s.id || s.shiftId || 'TURNO')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.openedAt || s.date || '')}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.closedAt || 'Cerrado')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(s.cashier || 'Cajero')}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Number(s.openingCash) || 0}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${Number(s.cashSales) || 0}</Data></Cell>
+      <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${Number(s.cashExpenses) || 0}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Number(s.expectedCash || s.expectedCashInDrawer) || 0}</Data></Cell>
+      <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Number(s.actualCash || s.actualCashInDrawer) || 0}</Data></Cell>
+      <Cell ss:StyleID="${discBadge}"><Data ss:Type="String">${escapeXml(discLabel)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.status || 'Cerrado')}</Data></Cell>
+    </Row>`;
+    });
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
@@ -12634,135 +13159,456 @@ class NexusApp {
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>Charles Joyas SAS</Author>
+  <Company>Inversiones Charles Joyas S.A.S</Company>
+  <Created>${now.toISOString()}</Created>
+ </DocumentProperties>
  <Styles>
-  <Style ss:ID="Default" ss:Name="Normal">
-   <Alignment ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
-  </Style>
-  <Style ss:ID="Header">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
-   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#334155"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="CellLeft">
-   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="CellCenter">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="CellCurrency">
-   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
-   <NumberFormat ss:Format="&quot;$&quot;\ #,##0"/>
-   <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-   </Borders>
-  </Style>
+  ${this._getExcelCommonStyles()}
  </Styles>
- <Worksheet ss:Name="Historial de Ventas">
+
+ <!-- ============================================================== -->
+ <!-- HOJA 1: RESUMEN EJECUTIVO & P&L OPERATIVO                     -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="1. Resumen Ejecutivo &amp; P&amp;L">
   <Table ss:DefaultRowHeight="20">
-   <Column ss:Width="85"/>
-   <Column ss:Width="140"/>
-   <Column ss:Width="135"/>
-   <Column ss:Width="140"/>
-   <Column ss:Width="110"/>
-   <Column ss:Width="130"/>
-   <Column ss:Width="110"/>
+   <Column ss:Width="290"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="160"/>
    <Column ss:Width="120"/>
-   <Column ss:Width="95"/>
-   <Row ss:Height="26">
-    <Cell ss:StyleID="Header"><Data ss:Type="String">N° Ticket/ID</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Fecha y Hora</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Atendido por</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Cliente</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Tipo</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Cantidad / Gramaje</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Método Pago</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Total COP</Data></Cell>
-    <Cell ss:StyleID="Header"><Data ss:Type="String">Estado</Data></Cell>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="4" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — REPORTE GENERAL OPERATIVO Y ESTADO DE RESULTADOS (P&amp;L)</Data></Cell>
    </Row>
-   ${rowsXml}
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="4" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Consolidado Integral de Operaciones, Ventas, Gastos y Tesorería</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="4" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')} | Período Operativo: Consolidado Global de Operación</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- KPI Cards Fila 1 -->
+   <Row ss:Height="18">
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">INGRESOS BRUTOS POR VENTAS</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">GASTOS OPERATIVOS (OPEX)</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">UTILIDAD NETA OPERATIVA</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">MARGEN NETO %</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${totalSales}</Data></Cell>
+    <Cell ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalExp}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="${netProfit >= 0 ? 'KpiValEmerald' : 'KpiValRose'}"><Data ss:Type="Number">${netProfit}</Data></Cell>
+    <Cell ss:StyleID="KpiValAmber"><Data ss:Type="String">${netMarginPct.toFixed(1)}%</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- KPI Cards Fila 2 -->
+   <Row ss:Height="18">
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">RECAUDOS DE CARTERA (ABONOS)</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">COMPRAS DE JOYERÍA / ORO</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">FLUJO NETO ESTIMADO DE FONDOS</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL TICKETS POS</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:StyleID="KpiVal"><Data ss:Type="Number">${totalAbonosVentas}</Data></Cell>
+    <Cell ss:StyleID="KpiValRose"><Data ss:Type="Number">${totalPurchases}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="${netCashFlow >= 0 ? 'KpiValEmerald' : 'KpiValRose'}"><Data ss:Type="Number">${netCashFlow}</Data></Cell>
+    <Cell ss:StyleID="KpiVal"><Data ss:Type="Number">${validSalesTx.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="14"></Row>
+
+   <!-- Sección 1: P&L Operativo -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="4" ss:StyleID="SectionHeader"><Data ss:Type="String">  1. ESTADO DE RESULTADOS OPERATIVO CONSOLIDADO (P&amp;L)</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CONCEPTO CONTABLE / LÍNEA OPERATIVA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CÓDIGO PUG</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NATURALEZA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VALOR CONSOLIDADO (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% S/ VENTAS</Data></Cell>
+   </Row>
+
+   ${rowsPnl}
+
+   <Row ss:Height="14"></Row>
+
+   <!-- Sección 2: Canales de Recaudo -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="4" ss:StyleID="SectionHeader"><Data ss:Type="String">  2. CONSOLIDACIÓN DE INGRESOS POR MEDIOS DE PAGO Y CANALES</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">MEDIO DE PAGO / CANAL</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">N° TRANSACCIONES</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">MONTO RECAUDADO (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">% PARTICIPACIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">DESTINO DE LOS FONDOS</Data></Cell>
+   </Row>
+
+   ${rowsPaymentMethods || `
+   <Row ss:Height="21">
+    <Cell ss:MergeAcross="4" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran transacciones de pago en el sistema.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO MEDIOS DE PAGO</Data></Cell>
+    <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${validSalesTx.length}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalSales}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">Conciliado 100%</Data></Cell>
+   </Row>
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-   <Selected/>
-   <ProtectObjects>False</ProtectObjects>
-   <ProtectScenarios>False</ProtectScenarios>
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>12</SplitHorizontal>
+   <TopRowBottomPane>12</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 2: DETALLE DE VENTAS & POS                               -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="2. Detalle de Ventas &amp; POS">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="280"/>
+   <Column ss:Width="75"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="125"/>
+   <Column ss:Width="135"/>
+   <Column ss:Width="100"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="13" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — LIBRO DETALLADO DE VENTAS Y FACTURACIÓN POS</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="13" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Auditoría Nominal de Tickets Emitidos, Clientes, Artículos, Gramajes y Medios de Pago</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="13" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Transacciones: ${validSalesTx.length} | Facturado: $ ${Number(totalSales).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="26">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID TICKET</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">HORA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CAJERO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CLIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TIPO OPERACIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DETALLE ARTÍCULOS / JOYAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PZAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GRAMOS (g)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MEDIO DE PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SUBTOTAL (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL FACTURADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsVentas || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="13" ss:StyleID="CellCenter"><Data ss:Type="String">No hay transacciones de ventas registradas.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="7" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES CONSOLIDADOS DE VENTAS</Data></Cell>
+    <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${sumVentasQty}</Data></Cell>
+    <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${sumVentasGrams.toFixed(2)}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">-</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumVentasSubtotal}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumVentasTotal}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${validSalesTx.length} tickets</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 3: GASTOS OPERATIVOS (OPEX)                              -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="3. Gastos Operativos (OPEX)">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="300"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="100"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="7" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — LIBRO DETALLADO DE GASTOS OPERATIVOS (OPEX)</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="7" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Auditoría Nominal de Egresos, Nómina, Arrendamiento, Servicios y Mantenimiento de Taller</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="7" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Total Egresos: ${expenses.length} | Gasto Acumulado: $ ${Number(totalExp).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">ID GASTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">FECHA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">DESCRIPCIÓN / CONCEPTO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">FORMA DE PAGO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">VALOR GASTO (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderAmber"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsGastos || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="7" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran gastos operativos en el sistema.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GASTOS OPERATIVOS (OPEX)</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumGastosTotal}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${expenses.length} egresos</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 4: COMPRAS & PROVEEDORES                                 -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="4. Compras &amp; Proveedores">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="70"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="75"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="135"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="110"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="11" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — AUDITORÍA DE COMPRAS DE MERCANCÍA Y PROVEEDORES</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Adquisición de Joyas, Oro 18k, Plata 925, Insumos de Taller y Cuentas por Pagar Generadas</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Total Compras: ${purchases.length} | Inversión Mercancía: $ ${Number(totalPurchases).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID COMPRA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">FECHA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">HORA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PROVEEDOR</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CATEGORÍA / METAL</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PZAS</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GRAMOS (g)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL COMPRA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VALOR PAGADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">MODALIDAD</Data></Cell>
+   </Row>
+
+   ${rowsCompras || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="11" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran compras de mercancía ni proveedores.</Data></Cell>
+   </Row>`}
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="6" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES CONSOLIDADOS DE COMPRAS</Data></Cell>
+    <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${sumComprasGrams.toFixed(2)}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumComprasTotal}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumComprasPagado}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${sumComprasSaldo}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${purchases.length} compras</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 5: ARQUEOS & CIERRE DE CAJA                              -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="5. Arqueos &amp; Cierre de Caja">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="40"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="100"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="11" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — CONTROL DE ARQUEOS Y CIERRES DE CAJA</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Auditoría Operativa de Gaveta, Turnos de Cajeros, Conciliación de Efectivo y Discrepancias</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="11" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(now.toLocaleString('es-CO'))} | Auditoría: ${escapeXml(this.currentUser?.name || 'Administración')}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID TURNO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">APERTURA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CIERRE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CAJERO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">BASE INICIAL</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">VENTAS EFECTIVO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">GASTOS EFECTIVO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESPERADO GAVETA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CONTEO FÍSICO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">DIFERENCIA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+
+   ${rowsShifts || `
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="11" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran arqueos o turnos en el historial.</Data></Cell>
+   </Row>`}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
   </WorksheetOptions>
  </Worksheet>
 </Workbook>`;
 
-    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0];
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Reporte_Ventas_Nexus_${dateStr}.xls`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    this.showToast('Reporte de Ventas exportado en Excel (.xls)', 'success');
+    this._downloadExcelWorkbook(xml, `Reporte_General_Operativo_CharlesJoyas_${dateStr}`);
+    this.showToast('Libro Operativo General descargado exitosamente (5 Hojas)', 'success');
   }
 
   exportReportCSV() {
-    const txs = this.data.recentTransactions || [];
-    if (txs.length === 0) {
+    const data = this.getConsolidatedReporteGeneralData();
+    const { validSalesTx } = data;
+
+    if (validSalesTx.length === 0) {
       this.showToast('No hay transacciones registradas para exportar', 'warning');
       return;
     }
-    const headers = ['N° Ticket/ID', 'Fecha/Hora', 'Atendido por (Cajero)', 'Cliente', 'Tipo', 'Cantidad / Gramaje', 'Método Pago', 'Total COP', 'Estado'];
-    const rows = txs.map(t => {
-      const q = this.formatTransactionQty(t);
-      return [
-        t.id,
-        `${t.date ? t.date + ' ' : ''}${t.time || ''}`.trim(),
-        t.cashier || 'Cajero',
-        t.customer || '',
-        t.type || 'Venta POS',
-        `${q.main} (${q.sub})`,
-        t.paymentMethod || 'Efectivo',
-        Math.round(Math.abs(t.total || 0)),
-        t.status || 'Completado'
-      ];
+
+    const headers = [
+      'Item',
+      'ID Ticket',
+      'Fecha',
+      'Hora',
+      'Cajero',
+      'Cliente',
+      'Tipo Operacion',
+      'Detalle Articulos / Joyas',
+      'Cantidad Pzas',
+      'Gramaje (g)',
+      'Medio de Pago',
+      'Subtotal COP',
+      'Total Facturado COP',
+      'Estado'
+    ];
+
+    const rows = [headers];
+
+    validSalesTx.forEach((tx, idx) => {
+      let itemsDesc = '';
+      let txQty = 0;
+      let txGrams = 0;
+
+      if (Array.isArray(tx.items) && tx.items.length > 0) {
+        itemsDesc = tx.items.map(it => {
+          const itQty = Number(it.qty || it.quantity) || 1;
+          const itName = it.name || it.product?.name || 'Joya';
+          const itUnit = it.unit || (it.measureType === 'Pesaje' ? 'g' : 'u.');
+          const itWeight = Number(it.pieceWeight || it.weight || 0);
+          
+          if (itUnit === 'g' || it.measureType === 'Pesaje') {
+            txGrams += (itQty * (itWeight > 0 ? itWeight : 1));
+            txQty += 1;
+          } else {
+            txQty += itQty;
+            if (itWeight > 0) txGrams += (itQty * itWeight);
+          }
+          return `${itName} (${itQty}${itUnit})`;
+        }).join('; ');
+      } else {
+        itemsDesc = tx.type || 'Venta POS';
+        txQty = 1;
+      }
+
+      rows.push([
+        idx + 1,
+        tx.id,
+        tx.date || '',
+        tx.time || '',
+        `"${(tx.cashier || 'Cajero').replace(/"/g, '""')}"`,
+        `"${(tx.customer || 'Cliente Mostrador').replace(/"/g, '""')}"`,
+        `"${(tx.type || 'Venta POS').replace(/"/g, '""')}"`,
+        `"${itemsDesc.replace(/"/g, '""')}"`,
+        txQty,
+        txGrams.toFixed(2),
+        `"${(tx.paymentMethod || 'Efectivo').replace(/"/g, '""')}"`,
+        Number(tx.subtotal) || Number(tx.total) || 0,
+        Number(tx.total) || 0,
+        tx.status || 'Completado'
+      ]);
     });
-    const csvContent = "\uFEFF" + [
-      headers.join(';'), 
-      ...rows.map(r => r.map(c => `"${String(c !== null && c !== undefined ? c : '').replace(/"/g, '""')}"`).join(';'))
-    ].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(';')).join('\n');
+    const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0];
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Reporte_Ventas_Nexus_${dateStr}.csv`);
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Reporte_General_Operativo_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    this.showToast('Reporte General exportado en CSV', 'success');
+    this.showToast('Reporte General Operativo exportado en CSV', 'success');
   }
 
   exportTopProductsCSV() {
