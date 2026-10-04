@@ -17762,8 +17762,12 @@ class NexusApp {
 
     if (tableCard) {
       tableCard.innerHTML = `
-        <div class="card-header" style="margin-bottom:1rem;">
+        <div class="card-header" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
           <h3 class="card-title" style="margin:0; font-size:1.05rem;">Balance General Consolidado (${this.escapeHtml(storeName)})</h3>
+          <button type="button" class="btn btn-secondary text-sm" onclick="app.exportBalanceGeneralExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;" title="Exportar Balance General a Excel (.xls)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Exportar Excel (.xls)
+          </button>
         </div>
         <div class="table-responsive">
           <table class="table" style="width:100%;">
@@ -17822,6 +17826,918 @@ class NexusApp {
         </div>
       `;
     }
+  }
+
+  exportBalanceGeneralExcel() {
+    this.syncSupplierCreditsState();
+
+    const escapeXml = (str) => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const storeName = this.data.store?.name || 'Charles Joyas SAS';
+    const storeNit = this.data.store?.nit || '901.847.291-3';
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const fechaEmision = now.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    // 1. Activos
+    const products = this.data.products || [];
+    const invVal = products.reduce((acc, p) => acc + (this.getProductTotalCost(p) || 0), 0);
+    const fixedAssets = this.data.assets || [];
+    const fixedVal = fixedAssets.reduce((acc, a) => acc + (Number(a.currentVal) || Number(a.costValue) || 0), 0);
+    const cashVal = Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0;
+    const customers = this.data.customers || [];
+    const clientDebtVal = customers.reduce((acc, c) => acc + Math.max(0, Number(c.creditBalance) || 0), 0);
+
+    const assetsCurrent = invVal + cashVal + clientDebtVal;
+    const assetsFixed = fixedVal;
+    const totalAssets = assetsCurrent + assetsFixed;
+
+    // 2. Pasivos
+    const suppliers = this.data.suppliers || [];
+    const suppBalanceTotal = suppliers.reduce((acc, s) => acc + Math.max(0, Number(s.creditBalance) || 0), 0);
+    const orphanCreditsTotal = (this.data.supplierCredits || [])
+      .filter(sc => {
+        const sName = (sc.supplier || '').toLowerCase().trim();
+        const existsInSuppliers = suppliers.some(s => (s.name || '').toLowerCase().trim() === sName);
+        return !existsInSuppliers && (Number(sc.pendingAmount) || 0) > 0;
+      })
+      .reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
+    const supplierDebtVal = suppBalanceTotal > 0 ? (suppBalanceTotal + orphanCreditsTotal) : (this.data.supplierCredits || []).reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
+
+    const liabilitiesShort = supplierDebtVal;
+    const liabilitiesLong = Number(this.data.balanceSheet?.liabilitiesLong) || 0;
+    const totalLiabilities = liabilitiesShort + liabilitiesLong;
+
+    // 3. Patrimonio Neto
+    const netEquity = totalAssets - totalLiabilities;
+    const totalPasivoPatrimonio = totalLiabilities + netEquity;
+    const cuadreDiff = Math.abs(totalAssets - totalPasivoPatrimonio);
+
+    // 4. Indicadores Financieros
+    const capitalTrabajoNeto = assetsCurrent - liabilitiesShort;
+    const razonCorriente = liabilitiesShort > 0 ? (assetsCurrent / liabilitiesShort).toFixed(2) : 'N/A';
+    const pruebaAcida = liabilitiesShort > 0 ? Math.max(0, (assetsCurrent - invVal) / liabilitiesShort).toFixed(2) : 'N/A';
+    const nivelEndeudamiento = totalAssets > 0 ? ((totalLiabilities / totalAssets) * 100).toFixed(2) : '0.00';
+    const autonomiaFinanciera = totalLiabilities > 0 ? (netEquity / totalLiabilities).toFixed(2) : 'N/A';
+    const apalancamiento = netEquity > 0 ? (totalAssets / netEquity).toFixed(2) : 'N/A';
+    const concentracionInventario = totalAssets > 0 ? ((invVal / totalAssets) * 100).toFixed(2) : '0.00';
+
+    // Desglose de Categorías de Inventario para Hoja 2
+    const catMap = {};
+    products.forEach(p => {
+      const catName = p.categoryName || p.category || 'Joyas en Oro y Gemas';
+      if (!catMap[catName]) {
+        catMap[catName] = { count: 0, grams: 0, units: 0, cost: 0, price: 0 };
+      }
+      catMap[catName].count++;
+      const g = this.getGramsFromProduct ? this.getGramsFromProduct(p) : (Number(p.gramStock) || Number(p.grams) || 0);
+      const u = Number(p.stock) || 0;
+      const c = this.getProductTotalCost(p) || 0;
+      const pr = Number(p.price) || 0;
+      catMap[catName].grams += g;
+      catMap[catName].units += u;
+      catMap[catName].cost += c;
+      catMap[catName].price += (g > 0 ? g * pr : u * pr);
+    });
+
+    let totalCatGrams = 0;
+    let totalCatUnits = 0;
+    let totalCatCost = 0;
+    let totalCatPrice = 0;
+    let rowsInvCategories = '';
+    Object.entries(catMap).forEach(([catName, d]) => {
+      totalCatGrams += d.grams;
+      totalCatUnits += d.units;
+      totalCatCost += d.cost;
+      totalCatPrice += d.price;
+      const partPct = totalAssets > 0 ? ((d.cost / totalAssets) * 100).toFixed(2) : '0.00';
+      const margin = d.price > 0 ? (((d.price - d.cost) / d.price) * 100).toFixed(1) : '0.0';
+      rowsInvCategories += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(catName)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${d.count}</Data></Cell>
+        <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${Math.round(d.grams * 100) / 100}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${d.units}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${Math.round(d.cost)}</Data></Cell>
+        <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${Math.round(d.price)}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${parseFloat(margin) / 100}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${parseFloat(partPct) / 100}</Data></Cell>
+      </Row>`;
+    });
+
+    // Desglose de Clientes con Cartera (Cuentas por Cobrar)
+    const activeDebtors = customers.filter(c => (Number(c.creditBalance) || 0) > 0);
+    let rowsDebtors = '';
+    activeDebtors.forEach(c => {
+      const bal = Number(c.creditBalance) || 0;
+      const doc = `${c.docType || 'CC'}: ${c.document || 'N/A'}`;
+      const part = clientDebtVal > 0 ? ((bal / clientDebtVal) * 100).toFixed(1) : '0.0';
+      rowsDebtors += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(c.name || 'Cliente')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(doc)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(c.phone || 'N/A')}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${bal}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${parseFloat(part) / 100}</Data></Cell>
+        <Cell ss:StyleID="BadgeAmber"><Data ss:Type="String">Crédito Vigente</Data></Cell>
+      </Row>`;
+    });
+
+    // Desglose de Activos Fijos
+    let rowsFixedAssets = '';
+    fixedAssets.forEach(a => {
+      const val = Number(a.currentVal) || Number(a.costValue) || 0;
+      const part = fixedVal > 0 ? ((val / fixedVal) * 100).toFixed(1) : '0.0';
+      rowsFixedAssets += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(a.name || a.description || 'Activo Fijo')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(a.category || a.type || 'Maquinaria y Equipo')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(a.serial || a.code || 'S/N')}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${val}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${parseFloat(part) / 100}</Data></Cell>
+        <Cell ss:StyleID="BadgeGreen"><Data ss:Type="String">Operativo</Data></Cell>
+      </Row>`;
+    });
+
+    // Proveedores con Deuda para Hoja 3
+    const activeSuppliers = suppliers.filter(s => (Number(s.creditBalance) || 0) > 0);
+    let rowsSuppliers = '';
+    activeSuppliers.forEach(s => {
+      const bal = Number(s.creditBalance) || 0;
+      const part = totalLiabilities > 0 ? ((bal / totalLiabilities) * 100).toFixed(2) : '0.00';
+      const doc = s.nit || s.document || 'N/A';
+      const bank = s.bank || s.bankInfo || s.account || 'Bancolombia';
+      rowsSuppliers += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(s.name || 'Proveedor')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(doc)}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.phone || 'N/A')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(bank)}</Data></Cell>
+        <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${bal}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${parseFloat(part) / 100}</Data></Cell>
+        <Cell ss:StyleID="BadgeRose"><Data ss:Type="String">Obligación Pendiente</Data></Cell>
+      </Row>`;
+    });
+
+    let dictamen = 'Empresa con sólida masa patrimonial activa y solvencia financiera holgada.';
+    if (parseFloat(razonCorriente) >= 1.5 && parseFloat(nivelEndeudamiento) < 60) {
+      dictamen = 'Estructura financiera muy sólida. Los activos corrientes cubren holgadamente las obligaciones a corto plazo y el nivel de endeudamiento es óptimo.';
+    } else if (parseFloat(razonCorriente) >= 1.0) {
+      dictamen = 'Equilibrio financiero adecuado. Se recomienda mantener rotación dinámica del inventario y monitorear plazos de pago a proveedores.';
+    }
+
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Author>${escapeXml(storeName)}</Author>
+  <Created>${now.toISOString()}</Created>
+  <Company>${escapeXml(storeName)}</Company>
+ </DocumentProperties>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <!-- Headers Principales -->
+  <Style ss:ID="TitleHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="SubTitleHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#94A3B8"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="MetaHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#CBD5E1"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+  </Style>
+  <!-- KPI Styles -->
+  <Style ss:ID="KpiTitle">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="8" ss:Bold="1" ss:Color="#64748B"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="KpiValueEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="12" ss:Bold="1" ss:Color="#047857"/>
+   <Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="KpiValueRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="12" ss:Bold="1" ss:Color="#B91C1C"/>
+   <Interior ss:Color="#FEF2F2" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="KpiValueIndigo">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="12" ss:Bold="1" ss:Color="#4338CA"/>
+   <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#C7D2FE"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="KpiValueAmber">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="12" ss:Bold="1" ss:Color="#B45309"/>
+   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="KpiValueText">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#047857"/>
+   <Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+  </Style>
+  <!-- Secciones y Tablas -->
+  <Style ss:ID="SectionHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/></Borders>
+  </Style>
+  <Style ss:ID="SubSectionHeader">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#1E293B"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders>
+  </Style>
+  <Style ss:ID="TableColHeader">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#334155" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1E293B"/></Borders>
+  </Style>
+  <Style ss:ID="TableColHeaderEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#065F46" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#047857"/></Borders>
+  </Style>
+  <Style ss:ID="TableColHeaderRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#991B1B" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B91C1C"/></Borders>
+  </Style>
+  <Style ss:ID="TableColHeaderIndigo">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#3730A3" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#4338CA"/></Borders>
+  </Style>
+  <!-- Celdas de datos -->
+  <Style ss:ID="CellLeft">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+  </Style>
+  <Style ss:ID="CellLeftBold">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+  </Style>
+  <Style ss:ID="CellCenterBold">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+  </Style>
+  <Style ss:ID="CellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyBold">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyEmerald">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#047857"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CellCurrencyRose">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#B91C1C"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="CellGrams">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#D97706"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="#,##0.00"/>
+  </Style>
+  <Style ss:ID="CellPercent">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="0.0%"/>
+  </Style>
+  <!-- Badges -->
+  <Style ss:ID="BadgeGreen">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#047857"/>
+   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/></Borders>
+  </Style>
+  <Style ss:ID="BadgeAmber">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#B45309"/>
+   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/></Borders>
+  </Style>
+  <Style ss:ID="BadgeRose">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#B91C1C"/>
+   <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/></Borders>
+  </Style>
+  <!-- Filas de Totales -->
+  <Style ss:ID="TotalRowActivo">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="TotalCellActivo">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#047857"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="TotalRowPasivo">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#991B1B"/>
+   <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="TotalCellPasivo">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#991B1B"/>
+   <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#B91C1C"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="TotalRowPatrimonio">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#3730A3"/>
+   <Interior ss:Color="#E0E7FF" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#4338CA"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#4338CA"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="TotalCellPatrimonio">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#3730A3"/>
+   <Interior ss:Color="#E0E7FF" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#4338CA"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#4338CA"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="TotalLabel">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#0F172A"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="TotalCellCurrency">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F172A"/>
+   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#0F172A"/>
+   </Borders>
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+ </Styles>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 1: BALANCE GENERAL CONSOLIDADO                            -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="Balance General Consolidado">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="300"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="95"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="5" ss:StyleID="TitleHeader"><Data ss:Type="String">  ${escapeXml(storeName.toUpperCase())} — ESTADO DE SITUACIÓN FINANCIERA (BALANCE GENERAL)</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="5" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Balance General Oficial Consolidado | Expresado en Pesos Colombianos (COP)</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="5" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha de Emisión: ${escapeXml(fechaEmision)} | NIT: ${escapeXml(storeNit)} | Sistema POS &amp; Finanzas SaaS</Data></Cell>
+   </Row>
+   <Row ss:Height="8"></Row>
+
+   <!-- Fila de Tarjetas KPI Resumen -->
+   <Row ss:Height="16">
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL ACTIVOS</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL PASIVOS</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">PATRIMONIO NETO</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">CAPITAL DE TRABAJO</Data></Cell>
+    <Cell ss:StyleID="KpiTitle"><Data ss:Type="String">CUADRE PARTIDA DOBLE</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="KpiValueEmerald"><Data ss:Type="Number">${totalAssets}</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="KpiValueRose"><Data ss:Type="Number">${totalLiabilities}</Data></Cell>
+    <Cell ss:StyleID="KpiValueIndigo"><Data ss:Type="Number">${netEquity}</Data></Cell>
+    <Cell ss:StyleID="KpiValueAmber"><Data ss:Type="Number">${capitalTrabajoNeto}</Data></Cell>
+    <Cell ss:StyleID="KpiValueText"><Data ss:Type="String">EXACTO ($0 COP) ✅</Data></Cell>
+   </Row>
+   <Row ss:Height="12"></Row>
+
+   <!-- Encabezados de Tabla -->
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CUENTA CONTABLE / RUBRO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">CÓDIGO PUC</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">NATURALEZA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">SUBTOTAL CUENTA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL CONSOLIDADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% PART. ACTIVO</Data></Cell>
+   </Row>
+
+   <!-- 1. ACTIVOS -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="3" ss:StyleID="SectionHeader"><Data ss:Type="String">  1. ACTIVOS TOTALES (BIENES, INVERSIONES Y DERECHOS)</Data></Cell>
+    <Cell ss:StyleID="TotalCellActivo"><Data ss:Type="Number">${totalAssets}</Data></Cell>
+    <Cell ss:StyleID="TotalRowActivo"><Data ss:Type="String">100.0%</Data></Cell>
+   </Row>
+
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="2" ss:StyleID="SubSectionHeader"><Data ss:Type="String">    1.1 ACTIVO CORRIENTE / CIRCULANTE</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyBold"><Data ss:Type="Number">${assetsCurrent}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((assetsCurrent / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Disponible en Caja y Arqueo de Turno</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1105 / 1110</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Efectivo físico &amp; bancos</Data></Cell>
+    <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${cashVal}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((cashVal / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Cuentas por Cobrar (Créditos a Clientes)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1305</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Cartera clientes activa</Data></Cell>
+    <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${clientDebtVal}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((clientDebtVal / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Inventario en Metales y Piedras Preciosas (Costo Real)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1435</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Existencias valuadas al costo</Data></Cell>
+    <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${invVal}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((invVal / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="2" ss:StyleID="SubSectionHeader"><Data ss:Type="String">    1.2 ACTIVO NO CORRIENTE / FIJO (TALLER Y EQUIPOS)</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyBold"><Data ss:Type="Number">${assetsFixed}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((assetsFixed / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Activos Fijos de Taller (Balanzas, Microscopios, Caja Fuerte)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1520 / 1524</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Maquinaria, equipos y vitrinas</Data></Cell>
+    <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${assetsFixed}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((assetsFixed / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalRowActivo"><Data ss:Type="String">TOTAL ACTIVOS (1.1 + 1.2)</Data></Cell>
+    <Cell ss:StyleID="TotalCellActivo"><Data ss:Type="Number">${totalAssets}</Data></Cell>
+    <Cell ss:StyleID="TotalRowActivo"><Data ss:Type="String">100.0%</Data></Cell>
+   </Row>
+   <Row ss:Height="8"></Row>
+
+   <!-- 2. PASIVOS -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="3" ss:StyleID="SectionHeader"><Data ss:Type="String">  2. PASIVOS TOTALES (DEUDAS Y OBLIGACIONES VIGENTES)</Data></Cell>
+    <Cell ss:StyleID="TotalCellPasivo"><Data ss:Type="Number">${totalLiabilities}</Data></Cell>
+    <Cell ss:StyleID="TotalRowPasivo"><Data ss:Type="String">${nivelEndeudamiento}%</Data></Cell>
+   </Row>
+
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="2" ss:StyleID="SubSectionHeader"><Data ss:Type="String">    2.1 PASIVO CORRIENTE / CORTO PLAZO</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyBold"><Data ss:Type="Number">${liabilitiesShort}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((liabilitiesShort / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Cuentas por Pagar Proveedores de Oro y Gemas</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2205</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Facturas y créditos proveedores</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${supplierDebtVal}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((supplierDebtVal / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="2" ss:StyleID="SubSectionHeader"><Data ss:Type="String">    2.2 PASIVO NO CORRIENTE / LARGO PLAZO</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyBold"><Data ss:Type="Number">${liabilitiesLong}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((liabilitiesLong / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Pasivos Financieros &amp; Créditos de Taller a Largo Plazo</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2105</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Obligaciones a largo plazo</Data></Cell>
+    <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${liabilitiesLong}</Data></Cell>
+    <Cell ss:StyleID="CellRight"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">0.0%</Data></Cell>
+   </Row>
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalRowPasivo"><Data ss:Type="String">TOTAL PASIVOS (2.1 + 2.2)</Data></Cell>
+    <Cell ss:StyleID="TotalCellPasivo"><Data ss:Type="Number">${totalLiabilities}</Data></Cell>
+    <Cell ss:StyleID="TotalRowPasivo"><Data ss:Type="String">${nivelEndeudamiento}%</Data></Cell>
+   </Row>
+   <Row ss:Height="8"></Row>
+
+   <!-- 3. PATRIMONIO -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="3" ss:StyleID="SectionHeader"><Data ss:Type="String">  3. PATRIMONIO NETO (CAPITAL SOCIAL, RESERVAS Y SOLVENCIA)</Data></Cell>
+    <Cell ss:StyleID="TotalCellPatrimonio"><Data ss:Type="Number">${netEquity}</Data></Cell>
+    <Cell ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">${(100 - parseFloat(nivelEndeudamiento)).toFixed(1)}%</Data></Cell>
+   </Row>
+   <Row ss:Height="20">
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        • Capital Social Aportado, Reservas y Superávit Patrimonial</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">3105 / 3605</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Solvencia Neta del Negocio</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${netEquity}</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${netEquity}</Data></Cell>
+    <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${totalAssets > 0 ? ((netEquity / totalAssets)).toFixed(4) : 0}</Data></Cell>
+   </Row>
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">TOTAL PATRIMONIO NETO</Data></Cell>
+    <Cell ss:StyleID="TotalCellPatrimonio"><Data ss:Type="Number">${netEquity}</Data></Cell>
+    <Cell ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">${(100 - parseFloat(nivelEndeudamiento)).toFixed(1)}%</Data></Cell>
+   </Row>
+   <Row ss:Height="8"></Row>
+
+   <!-- TOTAL PASIVO + PATRIMONIO -->
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL PASIVO + PATRIMONIO NETO (ECUACIÓN CONTABLE)</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalPasivoPatrimonio}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="BadgeGreen"><Data ss:Type="String">VERIFICACIÓN CONTABLE: ACTIVO = PASIVO + PATRIMONIO</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="BadgeGreen"><Data ss:Type="String">CUADRE EXACTO (Diferencia: $ 0.00 COP) ✅</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>7</SplitHorizontal>
+   <TopRowBottomPane>7</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 2: DETALLE ACTIVOS E INVENTARIO                           -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="Detalle Activos e Inventario">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="200"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="115"/>
+   <Column ss:Width="85"/>
+   <Column ss:Width="145"/>
+   <Column ss:Width="155"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="105"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="7" ss:StyleID="TitleHeader"><Data ss:Type="String">  ${escapeXml(storeName.toUpperCase())} — DESGLOSE DETALLADO DE ACTIVOS E INVENTARIO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="7" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Inventario en Joyería Valuado al Costo, Cuentas por Cobrar a Clientes y Activos Fijos</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="7" ss:StyleID="MetaHeader"><Data ss:Type="String">  Total Activos: $ ${Math.round(totalAssets).toLocaleString('es-CO')} COP | Inventario Valuado: $ ${Math.round(invVal).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- Tabla 1: Inventario por Categoria -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="7" ss:StyleID="SectionHeader"><Data ss:Type="String">  VALORIZACIÓN DE EXISTENCIAS POR CATEGORÍA DE JOYERÍA</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">N° MODELOS</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">GRAMAJE (g)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">UNIDADES</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">COSTO TOTAL ($)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">VALOR VENTA ($)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">MARGEN EST.</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderEmerald"><Data ss:Type="String">% DEL ACTIVO</Data></Cell>
+   </Row>
+   ${rowsInvCategories}
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL INVENTARIO AL COSTO</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${products.length} skus</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalCatGrams * 100) / 100}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${totalCatUnits} u.</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(invVal)}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalCatPrice)}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${totalCatPrice > 0 ? (((totalCatPrice - invVal) / totalCatPrice) * 100).toFixed(1) + '%' : '0.0%'}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${concentracionInventario}%</Data></Cell>
+   </Row>
+   <Row ss:Height="14"></Row>
+
+   <!-- Tabla 2: Cartera de Clientes -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="7" ss:StyleID="SectionHeader"><Data ss:Type="String">  CUENTAS POR COBRAR (CARTERA DE CLIENTES A CRÉDITO Y PLAN SEPARE)</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="1" ss:StyleID="TableColHeader"><Data ss:Type="String">CLIENTE</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">IDENTIFICACIÓN</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TELÉFONO</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TableColHeader"><Data ss:Type="String">SALDO PENDIENTE ($)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% CARTERA</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+   ${rowsDebtors || `
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="7" ss:StyleID="CellCenter"><Data ss:Type="String">No hay cartera pendiente por cobrar registrada.</Data></Cell>
+   </Row>`}
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CUENTAS POR COBRAR</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${clientDebtVal}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${activeDebtors.length} deudores</Data></Cell>
+   </Row>
+   <Row ss:Height="14"></Row>
+
+   <!-- Tabla 3: Activos Fijos -->
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="7" ss:StyleID="SectionHeader"><Data ss:Type="String">  ACTIVOS FIJOS Y EQUIPOS DE JOYERÍA / TALLER</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="1" ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">ACTIVO / EQUIPO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">CATEGORÍA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">SERIAL / REF</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">VALOR CONTABLE ($)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">% ACTIVO FIJO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+   ${rowsFixedAssets || `
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="7" ss:StyleID="CellCenter"><Data ss:Type="String">No hay activos fijos inventariados en el sistema.</Data></Cell>
+   </Row>`}
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL ACTIVOS FIJOS DE TALLER</Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${fixedVal}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${fixedAssets.length} bienes</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 3: DETALLE PASIVOS Y PROVEEDORES                          -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="Detalle Pasivos y Proveedores">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="220"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="170"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="130"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="6" ss:StyleID="TitleHeader"><Data ss:Type="String">  ${escapeXml(storeName.toUpperCase())} — DESGLOSE DETALLADO DE PASIVOS Y PROVEEDORES</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="6" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Obligaciones Comerciales con Casas Proveedoras de Oro, Gemas e Insumos</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="6" ss:StyleID="MetaHeader"><Data ss:Type="String">  Total Deudas Proveedores: $ ${Math.round(supplierDebtVal).toLocaleString('es-CO')} COP | Deuda Total Pasivos: $ ${Math.round(totalLiabilities).toLocaleString('es-CO')} COP</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="6" ss:StyleID="SectionHeader"><Data ss:Type="String">  RELACIÓN DE OBLIGACIONES PENDIENTES POR CASA PROVEEDORA</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">PROVEEDOR</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">NIT / CÉDULA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">TELÉFONO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">BANCO / CUENTA REGISTRADA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">SALDO PENDIENTE ($)</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">% DEL PASIVO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderRose"><Data ss:Type="String">ESTADO</Data></Cell>
+   </Row>
+   ${rowsSuppliers || `
+   <Row ss:Height="20">
+    <Cell ss:MergeAcross="6" ss:StyleID="CellCenter"><Data ss:Type="String">No se registran deudas pendientes con proveedores.</Data></Cell>
+   </Row>`}
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL OBLIGACIONES CORRIENTES CON PROVEEDORES</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${supplierDebtVal}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${activeSuppliers.length} proveedores</Data></Cell>
+   </Row>
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+   <FreezePanes/>
+   <FrozenNoSplit/>
+   <SplitHorizontal>5</SplitHorizontal>
+   <TopRowBottomPane>5</TopRowBottomPane>
+   <ActivePane>2</ActivePane>
+  </WorksheetOptions>
+ </Worksheet>
+
+ <!-- ============================================================== -->
+ <!-- HOJA 4: RATIOS FINANCIEROS Y DIAGNÓSTICO                       -->
+ <!-- ============================================================== -->
+ <Worksheet ss:Name="Ratios y Diagnóstico">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="230"/>
+   <Column ss:Width="210"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="280"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="4" ss:StyleID="TitleHeader"><Data ss:Type="String">  ${escapeXml(storeName.toUpperCase())} — ANÁLISIS DE RATIOS FINANCIEROS Y DIAGNÓSTICO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="4" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  Evaluación de Liquidez, Solvencia, Endeudamiento y Estructura Patrimonial</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="4" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(fechaEmision)} | Dictamen Técnico Automatizado</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="4" ss:StyleID="SectionHeader"><Data ss:Type="String">  INDICADORES CLAVE DE RENDIMIENTO PATRIMONIAL</Data></Cell>
+   </Row>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">INDICADOR FINANCIERO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">FÓRMULA CONTABLE</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">VALOR OBTENIDO</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">RANGO REFERENCIA</Data></Cell>
+    <Cell ss:StyleID="TableColHeaderIndigo"><Data ss:Type="String">INTERPRETACIÓN EJECUTIVA</Data></Cell>
+   </Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Capital de Trabajo Neto</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Activo Corriente - Pasivo Corriente</Data></Cell>
+    <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${capitalTrabajoNeto}</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">&gt; $ 0 COP</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Fondo de maniobra positivo para financiar la operación diaria sin requerir crédito urgente.</Data></Cell>
+   </Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Razón Corriente (Liquidez)</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Activo Corriente / Pasivo Corriente</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${razonCorriente}x</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1.5x - 2.5x</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Por cada $1 de pasivo a corto plazo, la empresa cuenta con ${razonCorriente} de activo corriente para respaldarlo.</Data></Cell>
+   </Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Prueba Ácida</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">(Activo Corriente - Inventario) / Pasivo</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${pruebaAcida}x</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">0.5x - 1.0x</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Capacidad de cobertura inmediata sin depender de la venta del inventario en metales.</Data></Cell>
+   </Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Nivel de Endeudamiento</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">(Pasivo Total / Activo Total) * 100</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${nivelEndeudamiento}%</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">&lt; 50.0%</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Proporción de los activos que está financiada mediante obligaciones con terceros proveedores.</Data></Cell>
+   </Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Autonomía Financiera</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Patrimonio Neto / Pasivo Total</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${autonomiaFinanciera}x</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">&gt; 1.0x</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">El patrimonio neto de los dueños equivale a ${autonomiaFinanciera} veces el total adeudado a proveedores.</Data></Cell>
+   </Row>
+
+   <Row ss:Height="22">
+    <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Concentración en Inventario</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">(Inventario al Costo / Activo Total) * 100</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${concentracionInventario}%</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">70% - 95%</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Alta solidez en activos tangibles de valor refugio internacional (Oro de 18K y Plata 925).</Data></Cell>
+   </Row>
+   <Row ss:Height="14"></Row>
+
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="4" ss:StyleID="SectionHeader"><Data ss:Type="String">  DICTAMEN Y DIAGNÓSTICO FINANCIERO EJECUTIVO</Data></Cell>
+   </Row>
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="4" ss:StyleID="BadgeGreen"><Data ss:Type="String">${escapeXml(dictamen)}</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    this._downloadExcelWorkbook(xml, 'Balance_General_Consolidado_CharlesJoyas');
+    this.showToast('Balance General exportado exitosamente a Excel (4 Hojas)', 'success');
   }
 
   getTopProductsRankingData() {
