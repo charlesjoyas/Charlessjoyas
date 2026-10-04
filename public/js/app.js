@@ -10155,62 +10155,94 @@ class NexusApp {
     const shiftTxs = this.getCashShiftTransactions();
     const abonos = this.getCashShiftCustomerPayments();
 
-    let totalEfectivo = 0;
-    let totalTransferencia = 0;
-    let totalTarjeta = 0;
-    let totalCredito = 0;
-    let totalOtros = 0;
-    let totalFacturado = 0;
+    let salesEfectivo = 0;
+    let salesTransferencia = 0;
+    let salesTarjeta = 0;
+    let salesCredito = 0;
+    let salesOtros = 0;
+    let totalSales = 0;
 
     shiftTxs.forEach(t => {
       const amt = Math.round(Math.abs(t.total || 0));
-      totalFacturado += amt;
+      totalSales += amt;
       const m = (t.paymentMethod || '').toLowerCase();
       if (m.includes('efectivo') || m.includes('cash')) {
-        totalEfectivo += amt;
+        salesEfectivo += amt;
       } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-        totalTarjeta += amt;
+        salesTarjeta += amt;
       } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransferencia += amt;
+        salesTransferencia += amt;
       } else if (m.includes('crédito') || m.includes('credito')) {
-        totalCredito += amt;
+        salesCredito += amt;
       } else {
-        totalOtros += amt;
+        salesOtros += amt;
       }
     });
 
-    let totalAbonosEfectivo = 0;
+    let abonosEfectivo = 0;
+    let abonosTransferencia = 0;
+    let abonosTarjeta = 0;
+    let abonosOtros = 0;
+    let totalAbonos = 0;
+
     abonos.forEach(a => {
       const amt = Math.round(Math.abs(a.amount || 0));
+      totalAbonos += amt;
       const m = (a.method || '').toLowerCase();
       if (m.includes('efectivo') || m.includes('cash')) {
-        totalAbonosEfectivo += amt;
+        abonosEfectivo += amt;
       } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-        totalTarjeta += amt;
+        abonosTarjeta += amt;
       } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        totalTransferencia += amt;
+        abonosTransferencia += amt;
       } else {
-        totalOtros += amt;
+        abonosOtros += amt;
       }
     });
 
-    if (totalFacturado === 0) {
-      totalFacturado = totalEfectivo + totalTransferencia + totalTarjeta + totalCredito + totalOtros;
-    }
+    // Total consolidado por cada canal de ingreso (Ventas POS + Abonos de Cartera)
+    const totalEfectivo = salesEfectivo + abonosEfectivo;
+    const totalTransferencia = salesTransferencia + abonosTransferencia;
+    const totalTarjeta = salesTarjeta + abonosTarjeta;
+    const totalCredito = salesCredito;
+    const totalOtros = salesOtros + abonosOtros;
+
+    // Facturado en ventas del turno
+    const totalFacturado = totalSales;
+
+    // Total recaudado real en dinero entrante (Efectivo físico + Banco + Datáfono)
+    const totalRecaudado = totalEfectivo + totalTransferencia + totalTarjeta + totalOtros;
 
     const openingCash = Math.round(Number(shift.openingCash) || 0);
     const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
+
+    // Saldo Teórico en gaveta física: Base de apertura + Todo el Efectivo recibido (ventas + abonos) - Salidas de efectivo
     const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
 
     return {
+      salesEfectivo,
+      salesTransferencia,
+      salesTarjeta,
+      salesCredito,
+      salesOtros,
+      totalSales,
+      salesCount: shiftTxs.length,
+
+      abonosEfectivo,
+      abonosTransferencia,
+      abonosTarjeta,
+      abonosOtros,
+      totalAbonos,
+      abonosCount: abonos.length,
+
       totalEfectivo,
-      totalAbonosEfectivo,
+      totalAbonosEfectivo: abonosEfectivo,
       totalTransferencia,
       totalTarjeta,
       totalCredito,
       totalOtros,
       totalFacturado,
-      totalRecaudado: totalEfectivo + totalTransferencia + totalTarjeta + totalOtros,
+      totalRecaudado,
       openingCash,
       cashExpenses,
       expectedCashInDrawer: calculatedExpected
@@ -10248,10 +10280,14 @@ class NexusApp {
     const methodMap = {};
     txs.forEach(t => {
       const key = getMethodKey(t.paymentMethod);
-      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0, accounts: {} };
+      if (!methodMap[key]) {
+        methodMap[key] = { total: 0, count: 0, salesTotal: 0, salesCount: 0, abonosTotal: 0, abonosCount: 0, accounts: {} };
+      }
       const amt = Math.round(Math.abs(t.total || 0));
       methodMap[key].total += amt;
       methodMap[key].count++;
+      methodMap[key].salesTotal += amt;
+      methodMap[key].salesCount++;
       if (key === 'Tarjeta' || key === 'Transferencia') {
         const acct = t.targetAccount || (t.paymentMethod && t.paymentMethod.includes('(') ? t.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'General');
         methodMap[key].accounts[acct] = (methodMap[key].accounts[acct] || 0) + amt;
@@ -10260,10 +10296,14 @@ class NexusApp {
 
     abonos.forEach(a => {
       const key = getMethodKey(a.method);
-      if (!methodMap[key]) methodMap[key] = { total: 0, count: 0, accounts: {} };
+      if (!methodMap[key]) {
+        methodMap[key] = { total: 0, count: 0, salesTotal: 0, salesCount: 0, abonosTotal: 0, abonosCount: 0, accounts: {} };
+      }
       const amt = Math.round(Math.abs(a.amount || 0));
       methodMap[key].total += amt;
       methodMap[key].count++;
+      methodMap[key].abonosTotal += amt;
+      methodMap[key].abonosCount++;
       if (key === 'Tarjeta' || key === 'Transferencia') {
         const acct = a.targetAccount || (a.method && a.method.includes('(') ? a.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'General');
         methodMap[key].accounts[acct] = (methodMap[key].accounts[acct] || 0) + amt;
@@ -10275,7 +10315,10 @@ class NexusApp {
       const isCredit = key === 'Crédito' || key === 'Crédito Cliente';
       const statusNote = isCredit
         ? `<div style="font-size:0.68rem; color:#D97706; font-weight:700; margin-top:3px;">🏷️ Por Cobrar (Cartera)</div>`
-        : `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:600; margin-top:3px;">✅ Recaudado</div>`;
+        : (key === 'Efectivo'
+          ? `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:700; margin-top:4px;">✅ Recaudado en gaveta física</div>`
+          : `<div style="font-size:0.68rem; color:#4338CA; font-weight:700; margin-top:4px;">✅ Recaudado en banco</div>`
+        );
 
       const accountsDetail = ((key === 'Tarjeta' || key === 'Transferencia') && data.accounts && Object.keys(data.accounts).length > 0)
         ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.7rem;">
@@ -10288,17 +10331,33 @@ class NexusApp {
           </div>`
         : '';
 
+      const breakdownDetail = (data.salesCount > 0 && data.abonosCount > 0)
+        ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.71rem; line-height:1.45;">
+            <div style="display:flex; justify-content:space-between; color:var(--text-muted); margin-bottom:2px;">
+              <span>🛒 Ventas mostrador (${data.salesCount}):</span>
+              <b style="color:var(--text-main);">${this.formatCurrency(data.salesTotal)}</b>
+            </div>
+            <div style="display:flex; justify-content:space-between; color:var(--text-muted);">
+              <span>💳 Abonos cartera (${data.abonosCount}):</span>
+              <b style="color:var(--text-main);">${this.formatCurrency(data.abonosTotal)}</b>
+            </div>
+          </div>`
+        : '';
+
       return `
-        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.65rem 0.95rem; min-width:160px; flex:1;">
-          <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem; margin-bottom:0.25rem;">
-            <span>${meta.icon}</span> <span style="font-weight:700; color:var(--text-main);">${this.escapeHtml(key)}</span>
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.85rem 1rem; min-width:180px; flex:1;">
+          <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between; margin-bottom:0.25rem;">
+            <div style="display:flex; align-items:center; gap:0.35rem;">
+              <span>${meta.icon}</span> <span style="font-weight:700; color:var(--text-main);">${this.escapeHtml(key === 'Efectivo' ? 'Efectivo en Caja' : key)}</span>
+            </div>
+            <span class="badge" style="background:${meta.badgeBg}; color:${meta.badgeText}; font-size:0.68rem; font-weight:700; padding:2px 6px; border-radius:10px;">
+              ${data.count} ${data.count === 1 ? 'operación' : 'operaciones'}
+            </span>
           </div>
-          <div style="font-family:var(--font-heading); font-size:1.25rem; font-weight:800; color:${meta.color};">
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:${meta.color}; margin-top:2px;">
             ${this.formatCurrency(data.total)}
           </div>
-          <div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">
-            ${data.count} ${data.count === 1 ? 'operación' : 'operaciones'}
-          </div>
+          ${breakdownDetail}
           ${accountsDetail}
           ${statusNote}
         </div>
@@ -10312,11 +10371,14 @@ class NexusApp {
       const q = this.formatTransactionQty(t);
 
       return `
-        <tr style="border-bottom:1px solid var(--border-color);">
+        <tr class="cash-income-row cash-income-venta" style="border-bottom:1px solid var(--border-color);">
           <td style="padding:7px 10px; font-size:0.82rem;"><b>${this.escapeHtml(t.id)}</b></td>
           <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(t.time || '')}</td>
           <td style="padding:7px 10px; font-size:0.82rem;">${this.escapeHtml(t.customer || 'Cliente Mostrador')}</td>
-          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">${q.main}</td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">
+            <span class="badge badge-active" style="font-size:0.7rem; font-weight:700; padding:2px 6px;">🛒 Venta POS</span>
+            <span style="margin-left:4px;">${q.main}</span>
+          </td>
           <td style="padding:7px 10px; font-size:0.82rem;">
             <span class="badge" style="background:${meta.badgeBg}; color:${meta.badgeText}; font-weight:700; font-size:0.74rem; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
               <span>${meta.icon}</span> ${this.escapeHtml(t.paymentMethod || 'Efectivo')}
@@ -10332,13 +10394,16 @@ class NexusApp {
       const key = getMethodKey(a.method);
       const meta = methodMeta[key] || methodMeta['Otros'];
       const amt = Math.round(Math.abs(a.amount || 0));
+      const aTime = a.date && a.date.includes(' ') ? a.date.split(' ')[1] : (a.time || a.date || '');
 
       return `
-        <tr style="border-bottom:1px solid var(--border-color);">
+        <tr class="cash-income-row cash-income-abono" style="border-bottom:1px solid var(--border-color); background:rgba(99, 102, 241, 0.02);">
           <td style="padding:7px 10px; font-size:0.82rem;"><b>${this.escapeHtml(a.id)}</b></td>
-          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(a.date || '')}</td>
-          <td style="padding:7px 10px; font-size:0.82rem;">${this.escapeHtml(a.customer || 'Cliente')}</td>
-          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">Abono Crédito</td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(aTime)}</td>
+          <td style="padding:7px 10px; font-size:0.82rem;"><b>${this.escapeHtml(a.customer || 'Cliente')}</b></td>
+          <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">
+            <span class="badge" style="background:#EEF2FF; color:#4F46E5; font-size:0.7rem; font-weight:700; padding:2px 6px;">💳 Abono Cartera</span>
+          </td>
           <td style="padding:7px 10px; font-size:0.82rem;">
             <span class="badge" style="background:${meta.badgeBg}; color:${meta.badgeText}; font-weight:700; font-size:0.74rem; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
               <span>${meta.icon}</span> ${this.escapeHtml(a.method || 'Efectivo')}
@@ -10356,15 +10421,27 @@ class NexusApp {
         ${summaryCards}
       </div>
 
+      <!-- BARRA DE FILTRO DE INGRESOS -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap; gap:0.5rem;">
+        <div class="finanzas-period-selector" id="cash-shift-incomes-filter" style="display:inline-flex; gap:3px;">
+          <button type="button" class="finanzas-period-pill active" onclick="app.filterCashShiftIncomesTable('all', this)">Todos los Ingresos (${txs.length + abonos.length})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftIncomesTable('ventas', this)">🛒 Ventas Mostrador (${txs.length})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftIncomesTable('abonos', this)">💳 Abonos Cartera (${abonos.length})</button>
+        </div>
+        <div style="font-size:0.76rem; color:var(--text-muted);">
+          Listando <b id="cash-incomes-visible-count">${txs.length + abonos.length}</b> operaciones registradas en este turno
+        </div>
+      </div>
+
       <!-- TABLA DE INGRESOS DETALLADOS -->
-      <div style="max-height:260px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
+      <div style="max-height:380px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
         <table style="width:100%; border-collapse:collapse;">
           <thead style="position:sticky; top:0; background:var(--canvas-bg); z-index:1;">
             <tr style="border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left;">
-              <th style="padding:6px 10px;">N° Ticket</th>
+              <th style="padding:6px 10px;">N° Ticket / Ref</th>
               <th style="padding:6px 10px;">Hora</th>
               <th style="padding:6px 10px;">Cliente</th>
-              <th style="padding:6px 10px;">Cant. / Gramaje</th>
+              <th style="padding:6px 10px;">Tipo / Concepto</th>
               <th style="padding:6px 10px;">Medio de Pago</th>
               <th style="padding:6px 10px;">Atendido por</th>
               <th style="padding:6px 10px; text-align:right;">Monto Ingresado</th>
@@ -10377,6 +10454,31 @@ class NexusApp {
         </table>
       </div>
     `;
+  }
+
+  filterCashShiftIncomesTable(type, btnEl) {
+    const pills = document.querySelectorAll('#cash-shift-incomes-filter .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    const rows = document.querySelectorAll('.cash-income-row');
+    let visible = 0;
+    rows.forEach(r => {
+      if (type === 'all') {
+        r.style.display = '';
+        visible++;
+      } else if (type === 'ventas') {
+        const isVenta = r.classList.contains('cash-income-venta');
+        r.style.display = isVenta ? '' : 'none';
+        if (isVenta) visible++;
+      } else if (type === 'abonos') {
+        const isAbono = r.classList.contains('cash-income-abono');
+        r.style.display = isAbono ? '' : 'none';
+        if (isAbono) visible++;
+      }
+    });
+    const countEl = document.getElementById('cash-incomes-visible-count');
+    if (countEl) countEl.innerText = visible;
   }
 
   renderCashShiftExpensesSummary() {
@@ -10491,9 +10593,9 @@ class NexusApp {
 
         <!-- 2. Ventas Efectivo -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
-          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ventas en Efectivo</div>
+          <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Total Efectivo Ingresado</div>
           <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:var(--emerald-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalEfectivo)}</div>
-          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💵 Entró a gaveta física</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${totals.abonosEfectivo > 0 ? `Ventas: ${this.formatCurrency(totals.salesEfectivo)} · Abonos: ${this.formatCurrency(totals.abonosEfectivo)}` : '💵 Entró a gaveta física'}</div>
         </div>
 
         <!-- 3. Ventas Transferencia -->
@@ -10528,14 +10630,14 @@ class NexusApp {
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Total Facturado Turno</div>
           <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalFacturado)}</div>
-          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📊 Todos los medios</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">📊 Ventas mostrador</div>
         </div>
 
         <!-- 8. Efectivo Esperado en Gaveta -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Efectivo Esperado (Gaveta)</div>
           <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:var(--primary-indigo); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(expectedCashInDrawer)}</div>
-          ${shift.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Cierre: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">💼 Saldo teórico en gaveta</div>'}
+          ${shift.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Cierre: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : `<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Base: ${this.formatCurrency(openingCash)} + Efec: ${this.formatCurrency(totalEfectivo)}${cashExpenses > 0 ? ` - Salidas: ${this.formatCurrency(cashExpenses)}` : ''}</div>`}
         </div>
       </div>
 
@@ -10543,14 +10645,17 @@ class NexusApp {
       <div style="margin-top:1.5rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1.25rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem; flex-wrap:wrap; gap:0.5rem;">
           <h4 style="font-size:0.95rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.45rem; color:var(--text-main);">
-            <span>📥</span> Desglose de Ventas por Medio de Pago en este Turno
+            <span>📥</span> Desglose de Ingresos (Ventas & Abonos) por Medio de Pago en este Turno
           </h4>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
-            <span style="font-size:0.84rem; font-weight:700; color:var(--emerald-text); background:rgba(16,185,129,0.1); padding:3px 10px; border-radius:20px;">
-              Recaudado (Efectivo/Banco): +${this.formatCurrency(totalRecaudado)}
+            <span style="font-size:0.82rem; font-weight:700; color:var(--text-main); background:var(--card-bg); border:1px solid var(--border-color); padding:3px 10px; border-radius:20px;">
+              🛒 Ventas Facturadas: ${this.formatCurrency(totalFacturado)} (${totals.salesCount})
+            </span>
+            <span style="font-size:0.82rem; font-weight:700; color:var(--emerald-text); background:rgba(16,185,129,0.1); padding:3px 10px; border-radius:20px;">
+              📥 Total Recaudado (Efectivo/Banco): +${this.formatCurrency(totalRecaudado)}
             </span>
             ${totalCredito > 0 ? `
-            <span style="font-size:0.84rem; font-weight:700; color:#D97706; background:rgba(245,158,11,0.1); padding:3px 10px; border-radius:20px;">
+            <span style="font-size:0.82rem; font-weight:700; color:#D97706; background:rgba(245,158,11,0.1); padding:3px 10px; border-radius:20px;">
               Ventas a Crédito (Por Cobrar): +${this.formatCurrency(totalCredito)}
             </span>` : ''}
           </div>
@@ -10666,6 +10771,8 @@ class NexusApp {
 
     const theoEl = document.getElementById('cash-theoretical-amount');
     const salesEl = document.getElementById('cash-shift-sales');
+    const abonosRowEl = document.getElementById('cash-shift-abonos-row');
+    const abonosEl = document.getElementById('cash-shift-abonos-cash');
     const transfersEl = document.getElementById('cash-shift-transfers');
     const cardsEl = document.getElementById('cash-shift-cards');
     const cardsRowEl = document.getElementById('cash-shift-cards-row');
@@ -10675,7 +10782,15 @@ class NexusApp {
     const countedEl = document.getElementById('cash-physical-counted');
 
     if (theoEl) theoEl.innerText = this.formatCurrency(calculatedExpected);
-    if (salesEl) salesEl.innerText = '+' + this.formatCurrency(totalCash);
+    if (salesEl) salesEl.innerText = '+' + this.formatCurrency(totals.salesEfectivo);
+    if (abonosRowEl && abonosEl) {
+      if (totals.abonosEfectivo > 0) {
+        abonosRowEl.style.display = 'flex';
+        abonosEl.innerText = '+' + this.formatCurrency(totals.abonosEfectivo);
+      } else {
+        abonosRowEl.style.display = 'none';
+      }
+    }
     if (transfersEl) transfersEl.innerText = '+' + this.formatCurrency(totalTransfer);
     if (cardsEl) cardsEl.innerText = '+' + this.formatCurrency(totalTarjeta);
     if (cardsRowEl) cardsRowEl.style.display = totalTarjeta > 0 ? 'flex' : 'none';
