@@ -341,6 +341,7 @@ class NexusApp {
         this.setupKeyboardShortcuts();
         this.setupRealtimeSync();
         this.attachGlobalNumberMasks();
+        this.initAiCopilot();
 
         if (typeof Chart !== 'undefined') {
           this.initCharts();
@@ -8922,7 +8923,8 @@ class NexusApp {
           <td><span class="badge ${badgeClass}" ${badgeStyle}>${statusLabel}</span></td>
           <td>
             <div class="action-btn-group">
-              ${cc.currentBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.payCustomerCredit('${cc.id}')">💳 Registrar Abono</button>` : `<span class="text-xs" style="color:var(--emerald-text);">Saldado</span>`}
+              ${cc.currentBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.payCustomerCredit('${cc.id}')">💳 Registrar Abono</button>
+                <button type="button" class="btn text-xs" style="padding:3px 8px; background:linear-gradient(135deg, #10B981, #059669); color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" onclick="app.generateAiCollectionMessage('${cc.id}')" title="Generar Mensaje WhatsApp Persuasivo con Nexus AI">✨ Cobro IA</button>` : `<span class="text-xs" style="color:var(--emerald-text);">Saldado</span>`}
             </div>
           </td>
         </tr>
@@ -17764,10 +17766,15 @@ class NexusApp {
       tableCard.innerHTML = `
         <div class="card-header" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
           <h3 class="card-title" style="margin:0; font-size:1.05rem;">Balance General Consolidado (${this.escapeHtml(storeName)})</h3>
-          <button type="button" class="btn btn-secondary text-sm" onclick="app.exportBalanceGeneralExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;" title="Exportar Balance General a Excel (.xls)">
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button type="button" class="btn text-sm" onclick="app.askAiBalanceAnalysis()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: linear-gradient(135deg, #7C3AED, #4F46E5); color: #ffffff; border:none; box-shadow:0 2px 8px rgba(124,58,237,0.3); padding:0.4rem 0.8rem; border-radius:6px; cursor:pointer;" title="Interpretar Balance Financiero con Inteligencia Artificial (DeepSeek)">
+              ✨ Interpretar con IA
+            </button>
+            <button type="button" class="btn btn-secondary text-sm" onclick="app.exportBalanceGeneralExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; background: #059669; color: #ffffff; border-color: #059669;" title="Exportar Balance General a Excel (.xls)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Exportar Excel (.xls)
           </button>
+          </div>
         </div>
         <div class="table-responsive">
           <table class="table" style="width:100%;">
@@ -24419,6 +24426,404 @@ class NexusApp {
       toast.style.transition = 'all 0.3s ease';
       setTimeout(() => toast.remove(), 300);
     }, 3500);
+  }
+
+  // ============================================================================
+  // NEXUS AI COPILOT (DEEPSEEK-V3 / LOCAL FALLBACK ENGINE)
+  // ============================================================================
+
+  initAiCopilot() {
+    try {
+      const inputEl = document.getElementById('nexus-ai-input');
+      if (inputEl) {
+        inputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            this.submitAiInput();
+          }
+        });
+      }
+
+      // Check status with server
+      this.checkAiStatus();
+    } catch (err) {
+      console.warn('[Nexus AI] Init warning:', err);
+    }
+  }
+
+  async checkAiStatus() {
+    try {
+      const res = await fetch('/api/ai/status');
+      if (res.ok) {
+        const data = await res.json();
+        const hasSavedLocal = !!localStorage.getItem('nexus_deepseek_key');
+        const statusDot = document.getElementById('nexus-ai-status-dot');
+        const statusText = document.getElementById('nexus-ai-status-text');
+        if (data.hasApiKey || hasSavedLocal) {
+          if (statusDot) statusDot.style.background = '#10B981';
+          if (statusText) statusText.innerHTML = 'DeepSeek-V3 Activo ⚡';
+        } else {
+          if (statusDot) statusDot.style.background = '#F59E0B';
+          if (statusText) statusText.innerHTML = 'Motor Analítico Local (Sin API Key)';
+        }
+      }
+    } catch (_) {}
+  }
+
+  toggleAiCopilotDrawer() {
+    const drawer = document.getElementById('nexus-ai-drawer');
+    const backdrop = document.getElementById('nexus-ai-backdrop');
+    if (!drawer) return;
+    const isOpen = drawer.classList.contains('open') || drawer.classList.contains('active');
+    if (isOpen) {
+      this.closeAiCopilotDrawer();
+    } else {
+      this.openAiCopilotDrawer();
+    }
+  }
+
+  openAiCopilotDrawer() {
+    const drawer = document.getElementById('nexus-ai-drawer');
+    const backdrop = document.getElementById('nexus-ai-backdrop');
+    if (drawer) {
+      drawer.classList.add('open');
+      drawer.classList.add('active');
+    }
+    if (backdrop) {
+      backdrop.classList.add('open');
+      backdrop.classList.add('active');
+    }
+    setTimeout(() => {
+      document.getElementById('nexus-ai-input')?.focus();
+    }, 250);
+  }
+
+  closeAiCopilotDrawer() {
+    const drawer = document.getElementById('nexus-ai-drawer');
+    const backdrop = document.getElementById('nexus-ai-backdrop');
+    if (drawer) {
+      drawer.classList.remove('open');
+      drawer.classList.remove('active');
+    }
+    if (backdrop) {
+      backdrop.classList.remove('open');
+      backdrop.classList.remove('active');
+    }
+  }
+
+  openAiKeyModal() {
+    const modal = document.getElementById('nexus-ai-key-modal');
+    if (!modal) return;
+    const currentKey = localStorage.getItem('nexus_deepseek_key') || this.data.store?.deepseekApiKey || '';
+    const input = document.getElementById('nexus-ai-api-key-input');
+    if (input) input.value = currentKey;
+    modal.classList.add('open');
+  }
+
+  closeAiKeyModal() {
+    const modal = document.getElementById('nexus-ai-key-modal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  async saveAiKey() {
+    const input = document.getElementById('nexus-ai-api-key-input');
+    const key = (input?.value || '').trim();
+    if (!key) {
+      localStorage.removeItem('nexus_deepseek_key');
+      if (this.data.store) delete this.data.store.deepseekApiKey;
+      this.showToast('API Key de DeepSeek removida', 'warning');
+    } else {
+      localStorage.setItem('nexus_deepseek_key', key);
+      if (this.data.store) this.data.store.deepseekApiKey = key;
+      this.showToast('✨ API Key de DeepSeek guardada exitosamente');
+    }
+
+    if (typeof this.savePersistence === 'function') {
+      try { await this.savePersistence(); } catch (_) {}
+    }
+
+    this.closeAiKeyModal();
+    this.checkAiStatus();
+  }
+
+  clearAiChat() {
+    const messages = document.getElementById('nexus-ai-messages');
+    if (!messages) return;
+    messages.innerHTML = `
+      <div class="nexus-ai-msg assistant" id="nexus-ai-welcome-msg">
+        <div class="nexus-ai-bubble">
+          <h3>✨ ¡Hola! Soy tu Copiloto Ejecutivo Nexus AI</h3>
+          <p>Estoy conectado a los datos en tiempo real de tu negocio para ayudarte a tomar decisiones financieras de alto impacto sin alterar tus fórmulas contables oficiales.</p>
+          <h4>¿En qué puedo ayudarte hoy?</h4>
+          <ul>
+            <li><b>Diagnóstico del Día:</b> Resumen ejecutivo de ventas, márgenes y tickets.</li>
+            <li><b>Cartera & Cobranza:</b> Redacción de mensajes persuasivos de WhatsApp para deudores en 1 clic.</li>
+            <li><b>Auditoría de Caja:</b> Detección de descuadres o fugas en turnos.</li>
+            <li><b>Stock Lento:</b> Estrategias para liquidar productos sin rotación y liberar liquidez.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+
+  getAiBusinessContext() {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const orders = this.data.orders || [];
+      const ordersToday = orders.filter(o => (o.date || '').startsWith(today));
+      const salesToday = ordersToday.reduce((acc, o) => acc + (Number(o.total) || 0), 0);
+
+      const customerCredits = this.data.customerCredits || [];
+      const totalReceivables = customerCredits.reduce((acc, c) => acc + (Number(c.currentBalance) || 0), 0);
+      const topDebtors = customerCredits
+        .filter(c => Number(c.currentBalance) > 0)
+        .slice(0, 5)
+        .map(c => ({ cliente: c.customer, saldo: c.currentBalance, vence: c.dueDate }));
+
+      const supplierCredits = this.data.supplierCredits || [];
+      const totalPayables = supplierCredits.reduce((acc, sc) => acc + (Number(sc.pendingAmount) || 0), 0);
+
+      const products = this.data.products || [];
+      const inventoryVal = products.reduce((acc, p) => acc + (this.getProductTotalCost ? this.getProductTotalCost(p) : 0), 0);
+      const outOfStock = products.filter(p => (Number(p.stock) || 0) <= 0).length;
+
+      const cashInBox = Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0;
+      const shiftStatus = this.data.cashShiftLog?.isOpen ? 'Abierto' : 'Cerrado/Inactivo';
+
+      return {
+        empresa: this.data.store?.name || 'Charles Joyas SAS',
+        fechaHoy: today,
+        kpis: {
+          ventasHoy: salesToday,
+          transaccionesHoy: ordersToday.length,
+          efectivoEnCaja: cashInBox,
+          totalCarteraClientes: totalReceivables,
+          totalDeudaProveedores: totalPayables,
+          valorInventarioCosto: inventoryVal,
+          skusTotal: products.length,
+          agotadosCount: outOfStock
+        },
+        turno: {
+          estado: shiftStatus,
+          operador: this.currentUser?.name || 'Cajero'
+        },
+        deudoresPrincipales: topDebtors
+      };
+    } catch (err) {
+      console.warn('[Nexus AI] Error building context:', err);
+      return {};
+    }
+  }
+
+  submitAiInput() {
+    const input = document.getElementById('nexus-ai-input');
+    if (!input) return;
+    const prompt = (input.value || '').trim();
+    if (!prompt) return;
+
+    input.value = '';
+    this.appendUserMessage(prompt);
+    this.sendAiMessage(prompt, 'chat');
+  }
+
+  appendUserMessage(text) {
+    const container = document.getElementById('nexus-ai-messages');
+    if (!container) return;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'nexus-ai-msg user';
+    msgDiv.innerHTML = `<div class="nexus-ai-bubble">${this.escapeHtml(text)}</div>`;
+    container.appendChild(msgDiv);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  appendAssistantMessage(htmlContent) {
+    const container = document.getElementById('nexus-ai-messages');
+    if (!container) return;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'nexus-ai-msg assistant';
+    msgDiv.innerHTML = `<div class="nexus-ai-bubble">${htmlContent}</div>`;
+    container.appendChild(msgDiv);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  showAiTyping(show) {
+    const typing = document.getElementById('nexus-ai-typing');
+    const container = document.getElementById('nexus-ai-messages');
+    if (typing) {
+      typing.style.display = show ? 'flex' : 'none';
+      if (show && container) container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  async sendAiMessage(prompt, action = 'chat', customContext = null) {
+    this.showAiTyping(true);
+    const apiKey = localStorage.getItem('nexus_deepseek_key') || this.data.store?.deepseekApiKey || '';
+    const context = customContext || this.getAiBusinessContext();
+
+    try {
+      const res = await fetch('/api/ai/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, action, context, apiKey })
+      });
+
+      const data = await res.json();
+      this.showAiTyping(false);
+
+      if (!res.ok) {
+        if (data.needsApiKey) {
+          this.appendAssistantMessage(`
+            <div style="color:#FCA5A5; font-weight:700; margin-bottom:6px;">⚠️ Clave de DeepSeek requerida o inválida</div>
+            <p style="font-size:0.85rem; color:#E2E8F0;">${this.escapeHtml(data.error || 'Por favor ingresa tu API Key para continuar.')}</p>
+            <button type="button" class="btn btn-primary text-xs" onclick="app.openAiKeyModal()" style="margin-top:8px; background:linear-gradient(135deg, #7C3AED, #4F46E5); border:none; padding:6px 12px; border-radius:6px; font-weight:700;">⚙️ Configurar API Key</button>
+          `);
+        } else {
+          this.appendAssistantMessage(`
+            <div style="color:#FCA5A5; font-weight:700;">Error del Asistente</div>
+            <p style="font-size:0.85rem; color:#E2E8F0;">${this.escapeHtml(data.error || 'Ocurrió un error inesperado al procesar la solicitud.')}</p>
+          `);
+        }
+        return;
+      }
+
+      const formattedHtml = this.renderAiMarkdown(data.reply || '');
+      this.appendAssistantMessage(formattedHtml);
+
+    } catch (err) {
+      this.showAiTyping(false);
+      console.error('[Nexus AI Client Error]:', err);
+      this.appendAssistantMessage(`
+        <div style="color:#FCA5A5; font-weight:700;">No se pudo conectar con el servidor</div>
+        <p style="font-size:0.85rem; color:#E2E8F0;">Verifica que el servidor de Nexus esté corriendo.</p>
+      `);
+    }
+  }
+
+  renderAiMarkdown(text) {
+    if (!text) return '';
+    let html = this.escapeHtml(text);
+
+    // Headers
+    html = html.replace(/^### (.*$)/gim, '<h4 style="margin:10px 0 6px 0; color:#A78BFA; font-weight:700; font-size:0.96rem;">$1</h4>');
+    html = html.replace(/^#### (.*$)/gim, '<h5 style="margin:8px 0 4px 0; color:#38BDF8; font-weight:700; font-size:0.88rem;">$1</h5>');
+
+    // Bold & Italic
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Blockquote
+    html = html.replace(/^> (.*$)/gim, '<div style="background:rgba(124,58,237,0.12); border-left:3px solid #7C3AED; padding:6px 10px; margin:8px 0; border-radius:4px; font-size:0.82rem; color:#CBD5E1;">$1</div>');
+
+    // Lists
+    html = html.replace(/^[\*\-] (.*$)/gim, '<li style="margin-bottom:4px; margin-left:14px; list-style-type:disc;">$1</li>');
+    html = html.replace(/^(\d+)\. (.*$)/gim, '<li style="margin-bottom:4px; margin-left:14px; list-style-type:decimal;">$2</li>');
+
+    // Paragraph breaks
+    html = html.replace(/\n\n/g, '<div style="height:8px;"></div>');
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
+  }
+
+  // --- Quick AI Actions ---
+
+  askAiDailyDiagnosis() {
+    this.openAiCopilotDrawer();
+    this.appendUserMessage('📊 Diagnóstico Ejecutivo del Negocio Hoy');
+    this.sendAiMessage('Genera un diagnóstico ejecutivo integral de las operaciones del día, ventas, márgenes e indicadores clave.', 'diagnostico');
+  }
+
+  askAiCashAudit() {
+    this.openAiCopilotDrawer();
+    this.appendUserMessage('🚨 Auditoría de Turno de Caja y Detección de Fugas');
+    this.sendAiMessage('Audita el turno de caja actual, revisa el saldo esperado y genera recomendaciones de control para evitar descuadres.', 'caja');
+  }
+
+  askAiCustomerCredits() {
+    this.openAiCopilotDrawer();
+    this.appendUserMessage('💰 Estado de Cartera y Plan de Cobranza');
+    this.sendAiMessage('Analiza la cartera de clientes deudores, identifica los saldos más críticos y recomienda una estrategia de cobro oportuno.', 'cartera');
+  }
+
+  askAiSlowStock() {
+    this.openAiCopilotDrawer();
+    this.appendUserMessage('📦 Análisis de Inventario y Stock Lento (Hueso)');
+    this.sendAiMessage('Analiza el inventario actual y presenta una estrategia de liquidación o combos para liberar capital atrapado en referencias lentas.', 'hueso');
+  }
+
+  askAiBalanceAnalysis() {
+    this.openAiCopilotDrawer();
+    this.appendUserMessage('⚖️ Interpretación Estratégica del Balance General Consolidado');
+
+    const invVal = (this.data.products || []).reduce((acc, p) => acc + (this.getProductTotalCost ? this.getProductTotalCost(p) : 0), 0);
+    const fixedVal = (this.data.assets || []).reduce((acc, a) => acc + (Number(a.currentVal) || Number(a.costValue) || 0), 0);
+    const cashVal = Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0;
+    const clientDebtVal = (this.data.customers || []).reduce((acc, c) => acc + (Number(c.creditBalance) || 0), 0);
+    const assetsCurrent = invVal + cashVal + clientDebtVal;
+    const totalAssets = assetsCurrent + fixedVal;
+
+    const suppBalanceTotal = (this.data.suppliers || []).reduce((acc, s) => acc + Math.max(0, Number(s.creditBalance) || 0), 0);
+    const liabilitiesShort = suppBalanceTotal;
+    const liabilitiesLong = Number(this.data.balanceSheet?.liabilitiesLong) || 0;
+    const totalLiabilities = liabilitiesShort + liabilitiesLong;
+    const netEquity = totalAssets - totalLiabilities;
+
+    const balanceContext = {
+      empresa: this.data.store?.name || 'Charles Joyas SAS',
+      activos: {
+        corrientes: assetsCurrent,
+        inventario: invVal,
+        cajaDisponible: cashVal,
+        carteraClientes: clientDebtVal,
+        activosFijos: fixedVal,
+        totalActivos: totalAssets
+      },
+      pasivos: {
+        proveedoresCortoPlazo: liabilitiesShort,
+        obligacionesLargoPlazo: liabilitiesLong,
+        totalPasivos: totalLiabilities
+      },
+      patrimonioNeto: netEquity
+    };
+
+    this.sendAiMessage('Interpreta el Balance General oficial adjunto. Explica solvencia, liquidez inmediata, razón de endeudamiento y 3 recomendaciones financieras estratégicas.', 'balance', balanceContext);
+  }
+
+  generateAiCollectionMessage(creditId) {
+    const cc = (this.data.customerCredits || []).find(c => String(c.id) === String(creditId));
+    if (!cc) {
+      this.showToast('Crédito no encontrado', 'danger');
+      return;
+    }
+
+    const customer = (this.data.customers || []).find(c => (c.name || '').toLowerCase() === (cc.customer || '').toLowerCase());
+    const phone = customer?.phone || '';
+    const storeName = this.data.store?.name || 'Charles Joyas SAS';
+
+    this.openAiCopilotDrawer();
+    this.appendUserMessage(`✨ Redactar recordatorio de cobro por WhatsApp para ${cc.customer} (Saldo: ${this.formatCurrency(cc.currentBalance)})`);
+
+    const collectionContext = {
+      empresa: storeName,
+      cliente: cc.customer,
+      telefono: phone,
+      creditoId: cc.id,
+      saldoPendiente: cc.currentBalance,
+      fechaVencimiento: cc.dueDate,
+      diasMora: cc.dueDate ? Math.max(0, Math.floor((new Date() - new Date(cc.dueDate)) / (1000 * 60 * 60 * 24))) : 0
+    };
+
+    const prompt = `Redacta un mensaje de WhatsApp persuasivo, cordial y profesional para recordar el pago pendiente de ${cc.customer}. Incluye saludo cordial, el valor pendiente de ${this.formatCurrency(cc.currentBalance)}, opciones de pago y un llamado a la acción amable.`;
+
+    this.sendAiMessage(prompt, 'whatsapp_cobro', collectionContext);
+  }
+
+  copyToClipboard(text) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        this.showToast('📋 Copiado al portapapeles');
+      });
+    }
   }
 }
 

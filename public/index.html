@@ -22,10 +22,11 @@
   <link rel="dns-prefetch" href="https://fonts.googleapis.com">
 
   <!-- Preload critical stylesheet for faster first paint -->
-  <link rel="preload" href="css/styles.css?v=59" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="css/styles.css?v=59"></noscript>
+  <link rel="preload" href="css/styles.css?v=61" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="css/styles.css?v=61"></noscript>
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=59">
+  <link rel="stylesheet" href="css/styles.css?v=61">
+  <link rel="stylesheet" href="css/nexus_ai.css?v=61">
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
@@ -266,7 +267,11 @@
             <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span>
             <span class="nav-text">Dashboard</span>
           </a>
-          <a class="nav-item" onclick="app.switchView('pos')">
+                    <a class="nav-item" onclick="app.openAiCopilotDrawer()" style="background:linear-gradient(90deg, rgba(124,58,237,0.12) 0%, rgba(79,70,229,0.06) 100%); border-left:3px solid #7c3aed; margin-bottom:4px;">
+            <span class="nav-icon" style="color:#a855f7;">✨</span>
+            <span class="nav-text" style="font-weight:700; color:#c084fc;">Nexus AI Copilot</span>
+          </a>
+<a class="nav-item" onclick="app.switchView('pos')">
             <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg></span>
             <span class="nav-text">Punto de Venta (POS)</span>
           </a>
@@ -4657,7 +4662,121 @@
   </div>
 
   <!-- TOAST CONTAINER -->
-  <div id="toast-container"></div>
+    <!-- ======================================================================
+       NEXUS AI COPILOT (POWERED BY DEEPSEEK-V3)
+       ====================================================================== -->
+  <!-- Floating Action Button (FAB) -->
+  <button type="button" class="nexus-ai-fab" id="nexus-ai-fab" onclick="app.toggleAiCopilotDrawer()" title="Abrir Asistente Ejecutivo Nexus AI (DeepSeek)">
+    <span class="nexus-ai-fab-icon">✨</span>
+    <span>Copilot IA</span>
+  </button>
+
+  <!-- Backdrop -->
+  <div class="nexus-ai-backdrop" id="nexus-ai-backdrop" onclick="app.closeAiCopilotDrawer()"></div>
+
+  <!-- Slide-Over Drawer -->
+  <aside class="nexus-ai-drawer" id="nexus-ai-drawer" aria-label="Nexus AI Copilot">
+    <!-- Header -->
+    <div class="nexus-ai-header">
+      <div class="nexus-ai-title-wrap">
+        <div class="nexus-ai-avatar">🧠</div>
+        <div>
+          <h3 class="nexus-ai-title">Nexus AI <span style="font-size:0.75rem; background:rgba(124,58,237,0.3); border:1px solid rgba(168,85,247,0.4); padding:1px 6px; border-radius:4px; color:#c084fc;">DeepSeek-V3</span></h3>
+          <div class="nexus-ai-subtitle">
+            <span class="nexus-ai-status-dot" id="nexus-ai-status-dot"></span>
+            <span id="nexus-ai-status-text">Asesor Financiero y Ejecutivo</span>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-ai-actions">
+        <button type="button" class="nexus-ai-btn-icon" onclick="app.openAiKeyModal()" title="Configuración de API Key DeepSeek">⚙️</button>
+        <button type="button" class="nexus-ai-btn-icon" onclick="app.clearAiChat()" title="Limpiar conversación">🗑️</button>
+        <button type="button" class="nexus-ai-btn-icon" onclick="app.closeAiCopilotDrawer()" title="Cerrar Copilot">&times;</button>
+      </div>
+    </div>
+
+    <!-- Quick Action Chips Bar -->
+    <div class="nexus-ai-chips-bar">
+      <button type="button" class="nexus-ai-chip" onclick="app.askAiDailyDiagnosis()">📊 Diagnóstico Hoy</button>
+      <button type="button" class="nexus-ai-chip" onclick="app.askAiCashAudit()">🚨 Auditoría Caja</button>
+      <button type="button" class="nexus-ai-chip" onclick="app.askAiCustomerCredits()">💰 Cartera & Cobranza</button>
+      <button type="button" class="nexus-ai-chip" onclick="app.askAiSlowStock()">📦 Stock Hueso</button>
+      <button type="button" class="nexus-ai-chip" onclick="app.askAiBalanceAnalysis()">⚖️ Interpretar Balance</button>
+    </div>
+
+    <!-- Chat Messages Scroll Container -->
+    <div class="nexus-ai-messages" id="nexus-ai-messages">
+      <!-- Welcome Card -->
+      <div class="nexus-ai-msg assistant" id="nexus-ai-welcome-msg">
+        <div class="nexus-ai-bubble">
+          <h3>✨ ¡Hola! Soy tu Copiloto Ejecutivo Nexus AI</h3>
+          <p>Estoy conectado a los datos en tiempo real de tu negocio para ayudarte a tomar decisiones financieras de alto impacto sin alterar tus fórmulas contables oficiales.</p>
+          <h4>¿En qué puedo ayudarte hoy?</h4>
+          <ul>
+            <li><b>Diagnóstico del Día:</b> Resumen ejecutivo de ventas, márgenes y tickets.</li>
+            <li><b>Cartera & Cobranza:</b> Redacción de mensajes persuasivos de WhatsApp para deudores en 1 clic.</li>
+            <li><b>Auditoría de Caja:</b> Detección de descuadres o fugas en turnos.</li>
+            <li><b>Stock Lento:</b> Estrategias para liquidar productos sin rotación y liberar liquidez.</li>
+          </ul>
+          <p style="font-size:0.78rem; color:#94a3b8; margin-top:8px;">💡 <i>Elige una de las acciones rápidas arriba o escribe tu propia pregunta abajo.</i></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Typing Indicator (Hidden by default) -->
+    <div class="nexus-ai-typing" id="nexus-ai-typing" style="display:none; margin: 0 18px 12px 18px;">
+      <span style="font-size:1.1rem;">🧠</span>
+      <span>Analizando datos con DeepSeek...</span>
+      <div class="nexus-ai-dots">
+        <div class="nexus-ai-dot"></div>
+        <div class="nexus-ai-dot"></div>
+        <div class="nexus-ai-dot"></div>
+      </div>
+    </div>
+
+    <!-- Footer Input Bar -->
+    <div class="nexus-ai-footer">
+      <form class="nexus-ai-input-form" id="nexus-ai-form" onsubmit="event.preventDefault(); app.submitAiInput();">
+        <input type="text" class="nexus-ai-input" id="nexus-ai-input" placeholder="Pregunta a Nexus AI (ej: ¿Cómo mejorar el margen hoy?)..." autocomplete="off" />
+        <button type="submit" class="nexus-ai-send-btn" id="nexus-ai-send-btn" title="Enviar consulta">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </form>
+    </div>
+  </aside>
+
+  <!-- MODAL CONFIGURACIÓN API KEY DEEPSEEK -->
+  <div class="modal-backdrop" id="nexus-ai-key-modal" style="z-index:1090;">
+    <div class="modal-card" style="max-width:480px; background:#0F172A; color:#F8FAFC; border:1px solid rgba(255,255,255,0.15); box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.1); padding:1rem 1.25rem;">
+        <h3 class="modal-title" style="color:#FFFFFF; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.2rem;">⚙️</span> Configuración DeepSeek AI
+        </h3>
+        <button class="modal-close-btn" onclick="app.closeAiKeyModal()" style="color:#94A3B8;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:1.25rem;">
+        <div style="background:rgba(30,41,59,0.7); border:1px solid rgba(124,58,237,0.3); padding:12px; border-radius:10px; margin-bottom:1rem; font-size:0.83rem; line-height:1.5; color:#CBD5E1;">
+          <div style="font-weight:700; color:#A78BFA; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+            💎 Modelo DeepSeek-V3 de Alta Velocidad
+          </div>
+          DeepSeek es la API de Inteligencia Artificial más económica del mundo (~$0.14 USD por millón de tokens). Con menos de $1 USD (~$4,200 COP) tienes para miles de consultas ejecutivas.
+        </div>
+        <div class="form-group" style="margin-bottom:1rem;">
+          <label style="display:block; font-size:0.82rem; font-weight:700; color:#E2E8F0; margin-bottom:6px;">API Key de DeepSeek (sk-...):</label>
+          <input type="password" id="nexus-ai-api-key-input" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx" style="width:100%; padding:10px 12px; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:#FFFFFF; font-family:monospace; font-size:0.85rem;" />
+          <div style="font-size:0.75rem; color:#94A3B8; margin-top:6px;">
+            Obtén tu clave en <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" style="color:#38BDF8; font-weight:600; text-decoration:underline;">platform.deepseek.com/api_keys</a>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,0.1); padding:0.9rem 1.25rem; display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn btn-secondary" onclick="app.closeAiKeyModal()" style="background:rgba(255,255,255,0.1); color:#CBD5E1; border:none;">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="app.saveAiKey()" style="background:linear-gradient(135deg, #7C3AED, #4F46E5); border:none; font-weight:700;">Guardar & Conectar</button>
+      </div>
+    </div>
+  </div>
+
+<div id="toast-container"></div>
 
   <!-- App Scripts (Local, 100% Offline Compatible) -->
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
