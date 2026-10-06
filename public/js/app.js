@@ -2921,19 +2921,24 @@ class NexusApp {
             { id: 'oro18k', name: 'Oro 18K Italiano & Ley' };
           const isExtras = catObj.type === 'extras' || catObj.isExtra;
 
+          // Prioridad 1: Coincidencia por Código (SKU) exacto (identificador único del inventario)
           let targetProd = null;
-          if (prodId) {
-            targetProd = (this.data.products || []).find(p => p.id === prodId);
-          }
-          if (!targetProd && prodSku) {
+          if (prodSku) {
             targetProd = (this.data.products || []).find(p => p.sku && p.sku.toLowerCase().trim() === prodSku.toLowerCase().trim());
           }
-          if (!targetProd && prodName) {
-            targetProd = (this.data.products || []).find(p => p.name && p.name.toLowerCase().trim() === prodName.toLowerCase().trim());
+
+          // Prioridad 2: Si no hubo coincidencia por SKU, verificar prodId únicamente si el producto seleccionado coincide con el SKU
+          if (!targetProd && prodId) {
+            const candidate = (this.data.products || []).find(p => p.id === prodId);
+            if (candidate && (!prodSku || (candidate.sku && candidate.sku.toLowerCase().trim() === prodSku.toLowerCase().trim()))) {
+              targetProd = candidate;
+            }
           }
 
+          // Si el SKU no existe en catálogo, ES UN NUEVO PRODUCTO
+          // (No se reutiliza otro producto existente aunque comparta el mismo nombre de modelo)
           if (!targetProd) {
-            const newProdId = `PRD-${Date.now().toString().slice(-4)}`;
+            const newProdId = `PRD-CJ-${Date.now().toString().slice(-4)}`;
             const newSku = prodSku || `SKU-${Date.now().toString().slice(-4)}`;
             targetProd = {
               id: newProdId,
@@ -2948,14 +2953,17 @@ class NexusApp {
               supplier: supp,
               cost: unitCost,
               price: 0,
-              stock: 0,
-              pieceWeight: productGrams || 0,
-              weight: productGrams || 0,
-              minStock: isUnidades ? 2 : 0.5,
-              status: 'active'
+              stock: quantity, // Stock inicial igual a la cantidad comprada
+              pieceWeight: isUnidades ? (productGrams || 0) : 0,
+              weight: isUnidades ? (productGrams || 0) : 0,
+              minStock: isUnidades ? 1 : 0.5,
+              status: quantity > 0 ? 'active' : 'out_of_stock',
+              sold30d: 0,
+              createdAt: new Date().toISOString()
             };
-            this.data.products.push(targetProd);
+            this.data.products.unshift(targetProd);
           } else {
+            // Reabastecimiento de producto existente
             targetProd.measureType = measureType;
             targetProd.category = catObj.id;
             targetProd.categoryName = catObj.name;
@@ -2965,6 +2973,17 @@ class NexusApp {
             } else if (!targetProd.supplier) {
               targetProd.supplier = 'Proveedor General';
             }
+            const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
+            targetProd.stock = Math.round((currentStock + quantity) * 100) / 100;
+            if (unitCost > 0) {
+              targetProd.cost = unitCost;
+            }
+            if (isUnidades && productGrams > 0) {
+              targetProd.pieceWeight = productGrams;
+              targetProd.weight = productGrams;
+            }
+            const minStock = targetProd.minStock !== undefined ? targetProd.minStock : (isUnidades ? 1 : 0.5);
+            targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
           }
 
           // Si la categoría es de extras/manillas, no suma gramos de metal a la categoría ni a inventario
@@ -2973,23 +2992,6 @@ class NexusApp {
             : (isPesaje ? quantity : (productGrams > 0 ? Math.round(quantity * productGrams * 100) / 100 : 0));
           // En joyería fina, si el lote tiene gramaje, el costo unitario ingresado corresponde al gramo ($/g)
           const totalCost = totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost);
-
-          // 1. Actualizar producto en inventario numéricamente seguro
-          const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-          targetProd.stock = Math.round((currentStock + quantity) * 100) / 100;
-          if (unitCost > 0) {
-            targetProd.cost = unitCost;
-          }
-          if (prodSku) {
-            targetProd.sku = prodSku;
-          }
-          if (isUnidades && productGrams > 0) {
-            targetProd.pieceWeight = productGrams;
-            targetProd.weight = productGrams;
-          }
-
-          const minStock = targetProd.minStock !== undefined ? targetProd.minStock : (isUnidades ? 2 : 0.5);
-          targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
 
           // 2. Sincronizar disponibilidad de gramos y valuación de categorías & KPIs
           if (!this.data.kpis) this.data.kpis = {};
@@ -3429,38 +3431,83 @@ class NexusApp {
     this.updatePurchaseCalculations();
   }
 
+  onPurchaseProductSkuInput() {
+    const skuInput = document.getElementById('po-product-sku');
+    const hiddenId = document.getElementById('po-product-id');
+    const catInfo = document.getElementById('po-preview-cat-info');
+    if (!skuInput) return;
+    const skuVal = skuInput.value.trim().toLowerCase();
+    if (!skuVal) {
+      if (hiddenId) hiddenId.value = '';
+      if (catInfo) catInfo.textContent = 'Nuevo Producto para Inventario';
+      return;
+    }
+
+    const existing = (this.data.products || []).find(p => p.sku && p.sku.toLowerCase().trim() === skuVal);
+    if (existing) {
+      if (hiddenId) hiddenId.value = existing.id;
+      const nameInput = document.getElementById('po-product-name');
+      if (nameInput && (!nameInput.value.trim() || nameInput.value.trim().toLowerCase() !== existing.name.toLowerCase().trim())) {
+        nameInput.value = existing.name;
+      }
+      const catSelect = document.getElementById('po-category-select');
+      if (catSelect && existing.category) catSelect.value = existing.category;
+      const measureSelect = document.getElementById('po-measure-type');
+      if (measureSelect) measureSelect.value = (existing.measureType || 'Pesaje');
+      const unitCostInput = document.getElementById('po-unit-cost');
+      if (unitCostInput && (!unitCostInput.value || unitCostInput.value === '0')) {
+        unitCostInput.value = this.formatNumberWithCommas(existing.cost || 0);
+      }
+      const gramsInput = document.getElementById('po-product-grams');
+      if (gramsInput && (existing.measureType === 'Unidades')) {
+        const val = existing.pieceWeight !== undefined && existing.pieceWeight !== null ? existing.pieceWeight : (existing.weight || 0);
+        if (val > 0) gramsInput.value = this.formatNumberWithCommas(val, true);
+      }
+      if (catInfo) catInfo.textContent = `Reabastecer: ${existing.name} (${existing.categoryName || existing.category})`;
+      this.onPurchaseMeasureTypeChange();
+    } else {
+      if (hiddenId) hiddenId.value = '';
+      if (catInfo) catInfo.textContent = 'Nuevo Producto para Inventario (Código Único)';
+    }
+  }
+
   onPurchaseProductNameInput() {
     const nameInput = document.getElementById('po-product-name');
     if (!nameInput) return;
     const rawVal = nameInput.value.trim();
+    const hiddenId = document.getElementById('po-product-id');
+    const skuInput = document.getElementById('po-product-sku');
+    const catInfo = document.getElementById('po-preview-cat-info');
+    const catSelect = document.getElementById('po-category-select');
+
     if (!rawVal) {
-      const hiddenId = document.getElementById('po-product-id');
       if (hiddenId) hiddenId.value = '';
       this.updatePurchaseCalculations();
       return;
     }
 
     const valLower = rawVal.toLowerCase();
+    const currentSku = (skuInput?.value || '').trim().toLowerCase();
 
-    // Coincidencia exacta por nombre, SKU o ID
-    let targetProd = (this.data.products || []).find(p => 
-      p.name.toLowerCase().trim() === valLower ||
-      (p.sku && p.sku.toLowerCase().trim() === valLower) ||
-      p.id.toLowerCase().trim() === valLower
-    );
+    // Si ya hay un SKU escrito, solo buscar producto con ese SKU específico
+    let targetProd = null;
+    if (currentSku) {
+      targetProd = (this.data.products || []).find(p => p.sku && p.sku.toLowerCase().trim() === currentSku);
+    } else {
+      // Coincidencia exacta por nombre
+      targetProd = (this.data.products || []).find(p => p.name && p.name.toLowerCase().trim() === valLower);
+    }
 
-    const hiddenId = document.getElementById('po-product-id');
-    const skuInput = document.getElementById('po-product-sku');
     const unitCostInput = document.getElementById('po-unit-cost');
     const gramsInput = document.getElementById('po-product-grams');
     const measureSelect = document.getElementById('po-measure-type');
-    const catSelect = document.getElementById('po-category-select');
-    const catInfo = document.getElementById('po-preview-cat-info');
 
     if (targetProd) {
       if (hiddenId) hiddenId.value = targetProd.id;
-      if (skuInput) skuInput.value = targetProd.sku || targetProd.id;
-      if (unitCostInput) unitCostInput.value = this.formatNumberWithCommas(targetProd.cost || 0);
+      if (skuInput && !skuInput.value.trim()) skuInput.value = targetProd.sku || targetProd.id;
+      if (unitCostInput && (!unitCostInput.value || unitCostInput.value === '0')) {
+        unitCostInput.value = this.formatNumberWithCommas(targetProd.cost || 0);
+      }
 
       if (catSelect && targetProd.category) {
         catSelect.value = targetProd.category;
