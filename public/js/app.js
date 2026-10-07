@@ -10466,41 +10466,73 @@ class NexusApp {
       `;
     }).join('');
 
+    const expensesList = this.getCashShiftExpenses();
+    const expenseIncomeRows = expensesList.map(e => `
+      <tr class="cash-income-row cash-income-egreso" style="border-bottom:1px solid var(--border-color); background:rgba(244, 63, 94, 0.03); display:none;">
+        <td style="padding:7px 10px; font-size:0.82rem; font-family:monospace; font-weight:700; color:var(--text-main);">
+          ${this.escapeHtml(e.id)}
+        </td>
+        <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted); font-family:monospace;">
+          ${this.escapeHtml(e.time || (e.date && e.date.includes(' ') ? e.date.split(' ')[1] : ''))}
+        </td>
+        <td style="padding:7px 10px; font-size:0.82rem; font-weight:600;">
+          ${this.escapeHtml(e.concept)}
+        </td>
+        <td style="padding:7px 10px; font-size:0.8rem;">
+          <span class="badge" style="background:${e.badgeBg}; color:${e.badgeColor}; font-size:0.72rem; font-weight:700; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
+            <span>${e.icon}</span> ${this.escapeHtml(e.type)}
+          </span>
+        </td>
+        <td style="padding:7px 10px; font-size:0.82rem;">
+          <span class="badge" style="background:#FFE4E6; color:#E11D48; font-weight:700; font-size:0.74rem; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
+            <span>💵</span> Efectivo (Caja)
+          </span>
+        </td>
+        <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted);">${this.escapeHtml(e.cashier || 'Cajero')}</td>
+        <td style="padding:7px 10px; font-size:0.88rem; font-weight:800; color:var(--rose-text); text-align:right;">-${this.formatCurrency(e.amount)}</td>
+      </tr>
+    `).join('');
+
+    const totalOps = txs.length + abonos.length;
+
     return `
       <!-- RESUMEN EN TARJETAS POR MEDIO DE PAGO -->
       <div style="display:flex; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
         ${summaryCards}
       </div>
 
-      <!-- BARRA DE FILTRO DE INGRESOS -->
+      <!-- BARRA DE FILTRO DE INGRESOS & EGRESOS -->
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap; gap:0.5rem;">
         <div class="finanzas-period-selector" id="cash-shift-incomes-filter" style="display:inline-flex; gap:3px;">
-          <button type="button" class="finanzas-period-pill active" onclick="app.filterCashShiftIncomesTable('all', this)">Todos los Ingresos (${txs.length + abonos.length})</button>
+          <button type="button" class="finanzas-period-pill active" onclick="app.filterCashShiftIncomesTable('all', this)">Todos los Ingresos (${totalOps})</button>
           <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftIncomesTable('ventas', this)">🛒 Ventas Mostrador (${txs.length})</button>
           <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftIncomesTable('abonos', this)">💳 Abonos Cartera (${abonos.length})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftIncomesTable('egresos', this)" style="border-left:2px solid var(--rose-text); color:var(--rose-text); font-weight:700;">📤 Salidas de Caja (${expensesList.length})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftIncomesTable('movimientos', this)">🔄 Flujo Completo (${totalOps + expensesList.length})</button>
         </div>
         <div style="font-size:0.76rem; color:var(--text-muted);">
-          Listando <b id="cash-incomes-visible-count">${txs.length + abonos.length}</b> operaciones registradas en este turno
+          Listando <b id="cash-incomes-visible-count">${totalOps}</b> operaciones registradas en este turno
         </div>
       </div>
 
-      <!-- TABLA DE INGRESOS DETALLADOS -->
+      <!-- TABLA DE INGRESOS Y EGRESOS DETALLADOS -->
       <div style="max-height:380px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
         <table style="width:100%; border-collapse:collapse;">
           <thead style="position:sticky; top:0; background:var(--canvas-bg); z-index:1;">
             <tr style="border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left;">
               <th style="padding:6px 10px;">N° Ticket / Ref</th>
               <th style="padding:6px 10px;">Hora</th>
-              <th style="padding:6px 10px;">Cliente</th>
+              <th style="padding:6px 10px;">Cliente / Beneficiario</th>
               <th style="padding:6px 10px;">Tipo / Concepto</th>
               <th style="padding:6px 10px;">Medio de Pago</th>
               <th style="padding:6px 10px;">Atendido por</th>
-              <th style="padding:6px 10px; text-align:right;">Monto Ingresado</th>
+              <th style="padding:6px 10px; text-align:right;">Monto Operación</th>
             </tr>
           </thead>
           <tbody>
             ${txRows}
             ${abonoRows}
+            ${expenseIncomeRows}
           </tbody>
         </table>
       </div>
@@ -10516,8 +10548,9 @@ class NexusApp {
     let visible = 0;
     rows.forEach(r => {
       if (type === 'all') {
-        r.style.display = '';
-        visible++;
+        const isIncome = r.classList.contains('cash-income-venta') || r.classList.contains('cash-income-abono');
+        r.style.display = isIncome ? '' : 'none';
+        if (isIncome) visible++;
       } else if (type === 'ventas') {
         const isVenta = r.classList.contains('cash-income-venta');
         r.style.display = isVenta ? '' : 'none';
@@ -10526,6 +10559,13 @@ class NexusApp {
         const isAbono = r.classList.contains('cash-income-abono');
         r.style.display = isAbono ? '' : 'none';
         if (isAbono) visible++;
+      } else if (type === 'egresos') {
+        const isEgreso = r.classList.contains('cash-income-egreso');
+        r.style.display = isEgreso ? '' : 'none';
+        if (isEgreso) visible++;
+      } else if (type === 'movimientos') {
+        r.style.display = '';
+        visible++;
       }
     });
     const countEl = document.getElementById('cash-incomes-visible-count');
@@ -10544,15 +10584,39 @@ class NexusApp {
 
     const items = [];
 
+    // Helper: normalizar fecha a formato estándar YYYY-MM-DD
+    const normalizeDateStr = (str) => {
+      if (!str) return '';
+      const s = String(str).trim();
+      if (s.includes('T')) return s.split('T')[0];
+      if (s.includes(' ')) return s.split(' ')[0];
+      if (s.includes('/')) {
+        const p = s.split('/');
+        if (p.length === 3) {
+          const day = p[0].padStart(2, '0');
+          const mon = p[1].padStart(2, '0');
+          const yr = p[2].length === 2 ? '20' + p[2] : p[2];
+          return `${yr}-${mon}-${day}`;
+        }
+      }
+      return s;
+    };
+
+    const normShiftDate = normalizeDateStr(shiftDate);
+    const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
+
     // Helper: coincidencia con el turno activo
     const matchesShift = (dateStr, timeStr, itemShiftId) => {
-      if (itemShiftId && shiftId && itemShiftId === shiftId) return true;
+      if (itemShiftId) {
+        if (shiftId && itemShiftId === shiftId) return true;
+        if (closedShiftIds.has(itemShiftId)) return false;
+      }
       if (!dateStr) return false;
-      const d = dateStr.includes(' ') ? dateStr.split(' ')[0] : dateStr;
-      if (d === shiftDate || dateStr.includes(shiftDate)) {
+      const normItemDate = normalizeDateStr(dateStr);
+      if (normItemDate === normShiftDate) {
         if (timeStr && openTimestamp > 0) {
-          const t = this.parseDateAndTimeToTimestamp(d, timeStr);
-          if (t > 0 && t < (openTimestamp - 120000)) return false;
+          const t = this.parseDateAndTimeToTimestamp(normItemDate, timeStr);
+          if (t > 0 && t < (openTimestamp - 300000)) return false;
         }
         return true;
       }
@@ -10561,7 +10625,7 @@ class NexusApp {
 
     // 1. Gastos Operativos en Efectivo
     (this.data.expenses || []).forEach(e => {
-      const isCash = (e.method || 'efectivo').toLowerCase().includes('efectivo');
+      const isCash = !e.method || e.method.toLowerCase().includes('efectivo') || e.method.toLowerCase().includes('caja');
       if (isCash && matchesShift(e.date, e.time, e.shiftId)) {
         items.push({
           id: e.id,
@@ -10582,7 +10646,7 @@ class NexusApp {
 
     // 2. Abonos / Pagos a Proveedores en Efectivo
     (this.data.abonosCompras || []).forEach(a => {
-      const isCash = (a.method || '').toLowerCase().includes('efectivo');
+      const isCash = (a.method || '').toLowerCase().includes('efectivo') || (a.method || '').toLowerCase().includes('caja');
       if (isCash && matchesShift(a.date, a.time, a.shiftId)) {
         items.push({
           id: a.id,
@@ -10603,7 +10667,7 @@ class NexusApp {
 
     // 3. Compras de Mercancía en Efectivo
     (this.data.purchases || []).forEach(po => {
-      const isCash = (po.paymentMethod || '').toLowerCase().includes('efectivo');
+      const isCash = (po.paymentMethod || '').toLowerCase().includes('efectivo') || (po.paymentMethod || '').toLowerCase().includes('caja');
       if (isCash && matchesShift(po.date, po.time, po.shiftId)) {
         items.push({
           id: po.id,
@@ -10663,6 +10727,23 @@ class NexusApp {
       }
     }
 
+    if (items.length === 0 && recordedExpenses > 0) {
+      items.push({
+        id: `EG-${shift.shiftId || 'TURNO'}`,
+        date: shiftDate,
+        time: shift.openedAt || '',
+        concept: 'Egresos y Salidas Registradas en Turno',
+        category: 'Salida de Efectivo',
+        type: 'Salida de Caja',
+        typeKey: 'gastos',
+        badgeBg: '#FFE4E6',
+        badgeColor: '#E11D48',
+        icon: '📤',
+        cashier: shift.openedBy || 'Cajero',
+        amount: recordedExpenses
+      });
+    }
+
     return items;
   }
 
@@ -10674,10 +10755,13 @@ class NexusApp {
     const recordedExpenses = Math.round(Number(shift.cashExpenses) || 0);
 
     if (expensesList.length === 0 && recordedExpenses === 0) {
-      return `<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding:1.25rem 0.5rem;">
-        <div style="font-size:1.5rem; margin-bottom:0.35rem;">✓</div>
-        <div style="font-weight:600;">No se han registrado retiros ni egresos en efectivo en este turno.</div>
-      </div>`;
+      return `
+        <div style="font-size:0.85rem; color:var(--text-muted); text-align:center; padding:1.25rem 0.5rem;">
+          <div style="font-size:1.6rem; margin-bottom:0.35rem; color:var(--emerald-text);">✓</div>
+          <div style="font-weight:700; color:var(--text-main);">Sin salidas registradas en este turno</div>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:3px;">No se han efectuado retiros ni egresos en efectivo.</div>
+        </div>
+      `;
     }
 
     const totalGastosOperativos = expensesList.filter(e => e.typeKey === 'gastos').reduce((sum, e) => sum + e.amount, 0);
