@@ -9,10 +9,10 @@
     "email": "contacto@nexuspos.io",
     "address": "Carrera 53 # 47 - 21, Local 109",
     "addressExtra": "C.C Luz del Dia",
-    "cashier": "Santiago Muñoz",
+    "cashier": "Carlos Garzon",
     "shiftStatus": "Cerrado",
     "shiftStartTime": "08:00 AM",
-    "cashInBox": 873000,
+    "cashInBox": 359550,
     "taxRate": 0,
     "branding": {
       "appName": "CHARLES JOYAS",
@@ -30,18 +30,19 @@
       "oro18kNacional": 430000,
       "balineria": 410000,
       "plata925": 410000
-    }
+    },
+    "deepseekApiKey": ""
   },
   "kpis": {
-    "salesToday": 123000,
+    "salesToday": 1110000,
     "salesTrend": "0%",
-    "transactionsToday": 1,
+    "transactionsToday": 4,
     "txTrend": "0%",
-    "inventoryValue": 407219036.22,
-    "avgCostPerGram": 408140,
-    "avgCostGrams": 997.94,
-    "skusCount": 826,
-    "totalGrams": 996.99,
+    "inventoryValue": 408431680.16999996,
+    "avgCostPerGram": 408261,
+    "avgCostGrams": 999.92,
+    "skusCount": 830,
+    "totalGrams": 999.92,
     "netMargin": "0%",
     "marginTrend": "0%",
     "totalCustomers": 0,
@@ -141,6 +142,17 @@
       "status": "Active",
       "lastLogin": "Ahora mismo",
       "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "USR-005",
+      "name": "Jojan Torres",
+      "email": "jojan@nexuspos.io",
+      "password": "admin123",
+      "role": "Super Admin",
+      "status": "Active",
+      "lastLogin": "Nunca",
+      "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80",
+      "customPermissions": null
     }
   ],
   "customers": [
@@ -262,6 +274,20 @@
     {
       "id": "PRV-956",
       "docType": "NIT",
+      "nit": "1000000",
+      "name": "PIETRA MAYORISTA",
+      "phone": "1111",
+      "email": "PIESTRA@GMAIL.COM",
+      "address": "centro",
+      "accountType": "Ahorros",
+      "accountNumber": "111111",
+      "bank": "XXX",
+      "creditBalance": 2290750,
+      "status": "Active"
+    },
+    {
+      "id": "PRV-956",
+      "docType": "NIT",
       "nit": "12233",
       "name": "yepez",
       "phone": "122344",
@@ -284,7 +310,7 @@
       "accountType": "Ahorros",
       "accountNumber": "12345",
       "bank": "BANCOLMBIA",
-      "creditBalance": 299200,
+      "creditBalance": 0,
       "status": "Active"
     },
     {
@@ -367,7 +393,7 @@
       "accountType": "Ahorros",
       "accountNumber": "6780077026",
       "bank": "bancolombia",
-      "creditBalance": 92764800,
+      "creditBalance": 91000000,
       "status": "Active",
       "docType": "NIT"
     }
@@ -377,7 +403,7 @@
       "id": "PRF-01",
       "name": "Super Admin",
       "permissions": "Acceso total sin restricciones: Gestión Global, Usuarios, Ajustes, Inventario, Finanzas y POS",
-      "usersCount": 1,
+      "usersCount": 2,
       "badgeColor": "#F59E0B",
       "allowedModules": [
         "*"
@@ -427,6 +453,15 @@
     }
   ],
   "expenses": [
+    {
+      "id": "EXP-1543",
+      "date": "2026-10-07",
+      "description": "pago internet ",
+      "category": "Servicios Básicos",
+      "amount": 96000,
+      "status": "Pagado",
+      "method": "Efectivo"
+    },
     {
       "id": "EXP-1132",
       "date": "2026-10-06",
@@ -569,6 +604,94 @@
   ],
   "purchases": [
     {
+      "id": "OC-955827",
+      "supplier": "PIETRA MAYORISTA",
+      "productId": "PRD-CJ-5826",
+      "productName": "PULSO BB CADENA",
+      "productSku": "828",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "measureType": "Unidades",
+      "quantity": 1,
+      "itemsCount": 1,
+      "unitCost": 385000,
+      "productGrams": 1.17,
+      "totalGrams": 1.17,
+      "total": 450450,
+      "date": "2026-10-07",
+      "time": "12:59",
+      "status": "Recibido",
+      "paymentStatus": "Pendiente",
+      "paymentMethod": "Crédito Proveedor",
+      "paidAmount": 0
+    },
+    {
+      "id": "OC-910870",
+      "supplier": "PIETRA MAYORISTA",
+      "productId": "PRD-CJ-7831",
+      "productName": "PULSO BB CADENA",
+      "productSku": "827",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "measureType": "Unidades",
+      "quantity": 1,
+      "itemsCount": 1,
+      "unitCost": 385000,
+      "productGrams": 1.25,
+      "totalGrams": 1.25,
+      "total": 481250,
+      "date": "2026-10-07",
+      "time": "12:58",
+      "status": "Recibido",
+      "paymentStatus": "Pendiente",
+      "paymentMethod": "Crédito Proveedor",
+      "paidAmount": 0
+    },
+    {
+      "id": "OC-790773",
+      "supplier": "PIETRA MAYORISTA",
+      "productId": "PRD-CJ-0771",
+      "productName": "PULSO GUCCI  BB",
+      "productSku": "826",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "measureType": "Unidades",
+      "quantity": 1,
+      "itemsCount": 1,
+      "unitCost": 385000,
+      "productGrams": 1.79,
+      "totalGrams": 1.79,
+      "total": 689150,
+      "date": "2026-10-07",
+      "time": "12:56",
+      "status": "Recibido",
+      "paymentStatus": "Pendiente",
+      "paymentMethod": "Crédito Proveedor",
+      "paidAmount": 0
+    },
+    {
+      "id": "OC-642181",
+      "supplier": "PIETRA MAYORISTA",
+      "productId": "PRD-CJ-2179",
+      "productName": "PULSO GUCC DE BB",
+      "productSku": "825",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "measureType": "Pesaje",
+      "quantity": 1.72,
+      "itemsCount": 1,
+      "unitCost": 385000,
+      "productGrams": 0,
+      "totalGrams": 1.72,
+      "total": 662200,
+      "date": "2026-10-07",
+      "time": "12:54",
+      "status": "Recibido",
+      "paymentStatus": "Pendiente",
+      "paymentMethod": "Crédito Proveedor",
+      "paidAmount": 0
+    },
+    {
       "id": "OC-956580",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-0824",
@@ -586,9 +709,9 @@
       "date": "2026-10-06",
       "time": "12:10",
       "status": "Recibido",
-      "paymentStatus": "Pendiente",
+      "paymentStatus": "Pagado Total",
       "paymentMethod": "Crédito Proveedor",
-      "paidAmount": 0
+      "paidAmount": 512000
     },
     {
       "id": "OC-302327",
@@ -674,9 +797,9 @@
       "date": "2026-09-30",
       "time": "16:35",
       "status": "Recibido",
-      "paymentStatus": "Pendiente",
+      "paymentStatus": "Pagado Total",
       "paymentMethod": "Crédito Proveedor",
-      "paidAmount": 0
+      "paidAmount": 299200
     },
     {
       "id": "OC-236068",
@@ -737,27 +860,6 @@
   ],
   "supplierCredits": [
     {
-      "id": "CP-001",
-      "supplier": "carlos andres garzon",
-      "supplierId": "PRV-907",
-      "totalOwed": 93000000,
-      "paidAmount": 1000000,
-      "pendingAmount": 92764800,
-      "date": "2026-10-02",
-      "dueDate": "2026-11-01",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-002",
-      "supplier": "JUAN DAVID",
-      "totalOwed": 299200,
-      "pendingAmount": 299200,
-      "date": "2026-09-30",
-      "dueDate": "2026-10-30",
-      "status": "Pendiente",
-      "poId": "OC-154989"
-    },
-    {
       "id": "CP-003",
       "supplier": "santiago rosita",
       "supplierId": "PRV-855",
@@ -767,28 +869,6 @@
       "date": "2026-09-19",
       "dueDate": "2026-10-19",
       "status": "Pendiente"
-    },
-    {
-      "id": "CP-004",
-      "supplier": "Calia joyería",
-      "supplierId": "PRV-460",
-      "totalOwed": 492000,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-09-18",
-      "dueDate": "2026-10-18",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-005",
-      "supplier": "joyeria santa isabel",
-      "supplierId": "PRV-501",
-      "totalOwed": 750000,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-09-18",
-      "dueDate": "2026-10-18",
-      "status": "Pagado Total"
     },
     {
       "id": "CP-006",
@@ -824,32 +904,68 @@
     },
     {
       "id": "CP-009",
-      "poId": "OC-914114",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 252800,
-      "pendingAmount": 252800,
-      "date": "2026-10-06",
-      "dueDate": "2026-11-05",
-      "status": "Pendiente"
+      "supplier": "PIETRA MAYORISTA",
+      "supplierId": "PRV-956",
+      "totalOwed": 2290750,
+      "paidAmount": 0,
+      "pendingAmount": 0,
+      "date": "2026-10-07",
+      "dueDate": "2026-11-06",
+      "status": "Pagado Total"
     },
     {
       "id": "CP-010",
-      "poId": "OC-956580",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 259200,
-      "pendingAmount": 259200,
-      "date": "2026-10-06",
-      "dueDate": "2026-11-05",
-      "status": "Pendiente"
+      "supplier": "PIETRA MAYORISTA",
+      "supplierId": "PRV-956",
+      "totalOwed": 2290750,
+      "paidAmount": 0,
+      "pendingAmount": 0,
+      "date": "2026-10-07",
+      "dueDate": "2026-11-06",
+      "status": "Pagado Total"
     },
     {
       "id": "CP-011",
-      "poId": "OC-302327",
+      "supplier": "PIETRA MAYORISTA",
+      "supplierId": "PRV-956",
+      "totalOwed": 2290750,
+      "paidAmount": 0,
+      "pendingAmount": 0,
+      "date": "2026-10-07",
+      "dueDate": "2026-11-06",
+      "status": "Pagado Total"
+    },
+    {
+      "id": "CP-012",
+      "supplier": "PIETRA MAYORISTA",
+      "supplierId": "PRV-956",
+      "totalOwed": 2290750,
+      "paidAmount": 0,
+      "pendingAmount": 0,
+      "date": "2026-10-07",
+      "dueDate": "2026-11-06",
+      "status": "Pagado Total"
+    },
+    {
+      "id": "CP-013",
+      "supplier": "PIETRA MAYORISTA",
+      "supplierId": "PRV-956",
+      "totalOwed": 2290750,
+      "paidAmount": 0,
+      "pendingAmount": 0,
+      "date": "2026-10-07",
+      "dueDate": "2026-11-06",
+      "status": "Pagado Total"
+    },
+    {
+      "id": "CP-014",
       "supplier": "carlos andres garzon",
-      "totalOwed": 252800,
-      "pendingAmount": 252800,
-      "date": "2026-10-06",
-      "dueDate": "2026-11-05",
+      "supplierId": "PRV-907",
+      "totalOwed": 91000000,
+      "paidAmount": 0,
+      "pendingAmount": 91000000,
+      "date": "2026-10-07",
+      "dueDate": "2026-11-06",
       "status": "Pendiente"
     }
   ],
@@ -866,7 +982,7 @@
       "availableUnits": 50,
       "availableGrams": 0,
       "cost": 6000,
-      "totalValuation": 0
+      "totalValuation": 300000
     },
     {
       "id": "oro18k",
@@ -883,10 +999,10 @@
       "name": "NACIONAL",
       "icon": "💎",
       "color": "#6366f1",
-      "cost": 402241.52,
-      "availableGrams": 676.7,
-      "itemsCount": 667,
-      "totalValuation": 272196836.1
+      "cost": 402284.01,
+      "availableGrams": 679.74,
+      "itemsCount": 671,
+      "totalValuation": 273448530.05
     },
     {
       "id": "broches",
@@ -924,12 +1040,94 @@
       "icon": "🟡",
       "color": "#F97316",
       "cost": 355000,
-      "availableGrams": 46.45,
+      "availableGrams": 46.34,
       "itemsCount": 1,
-      "totalValuation": 16489750
+      "totalValuation": 16450700
     }
   ],
   "products": [
+    {
+      "id": "PRD-CJ-5826",
+      "sku": "828",
+      "name": "PULSO BB CADENA",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "supplier": "PIETRA MAYORISTA",
+      "cost": 385000,
+      "price": 0,
+      "stock": 1,
+      "pieceWeight": 1.17,
+      "weight": 1.17,
+      "minStock": 1,
+      "status": "active",
+      "sold30d": 0,
+      "createdAt": "2026-10-07T17:59:15.826Z"
+    },
+    {
+      "id": "PRD-CJ-7831",
+      "sku": "827",
+      "name": "PULSO BB CADENA",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "supplier": "PIETRA MAYORISTA",
+      "cost": 385000,
+      "price": 0,
+      "stock": 1,
+      "pieceWeight": 1.25,
+      "weight": 1.25,
+      "minStock": 1,
+      "status": "low_stock",
+      "sold30d": 0,
+      "createdAt": "2026-10-07T17:57:27.831Z",
+      "isExtra": false
+    },
+    {
+      "id": "PRD-CJ-0771",
+      "sku": "826",
+      "name": "PULSO GUCCI  BB",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "supplier": "PIETRA MAYORISTA",
+      "cost": 385000,
+      "price": 0,
+      "stock": 1,
+      "pieceWeight": 1.79,
+      "weight": 1.79,
+      "minStock": 1,
+      "status": "active",
+      "sold30d": 0,
+      "createdAt": "2026-10-07T17:56:30.771Z"
+    },
+    {
+      "id": "PRD-CJ-2179",
+      "sku": "825",
+      "name": "PULSO GUCC DE BB",
+      "measureType": "Unidades",
+      "weightUnit": "u.",
+      "unit": "u.",
+      "category": "nacional",
+      "categoryName": "NACIONAL",
+      "supplier": "PIETRA MAYORISTA",
+      "cost": 385000,
+      "price": 0,
+      "stock": 1,
+      "pieceWeight": 1.72,
+      "weight": 1.72,
+      "minStock": 0.5,
+      "status": "low_stock",
+      "sold30d": 0,
+      "createdAt": "2026-10-07T17:54:02.179Z",
+      "isExtra": false
+    },
     {
       "id": "PRD-CJ-0824",
       "sku": "824",
@@ -944,11 +1142,16 @@
       "supplier": "carlos andres garzon",
       "cost": 320000,
       "price": 0,
-      "stock": 1,
+      "stock": 0,
       "minStock": 1,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-10-06T12:10:00.000Z"
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "createdAt": "2026-10-06T12:10:00.000Z",
+      "monthlySales": {
+        "2026-10": {
+          "7": 1
+        }
+      }
     },
     {
       "id": "PRD-CJ-0823",
@@ -964,11 +1167,16 @@
       "supplier": "carlos andres garzon",
       "cost": 320000,
       "price": 0,
-      "stock": 1,
+      "stock": 0,
       "minStock": 1,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-10-06T12:05:00.000Z"
+      "status": "out_of_stock",
+      "sold30d": 1,
+      "createdAt": "2026-10-06T12:05:00.000Z",
+      "monthlySales": {
+        "2026-10": {
+          "7": 1
+        }
+      }
     },
     {
       "id": "PRD-168",
@@ -9056,11 +9264,16 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 0.65,
+      "stock": 0,
       "minStock": 0.5,
-      "status": "active",
-      "sold30d": 0,
-      "createdAt": "2026-09-16T19:12:12.925Z"
+      "status": "out_of_stock",
+      "sold30d": 0.65,
+      "createdAt": "2026-09-16T19:12:12.925Z",
+      "monthlySales": {
+        "2026-10": {
+          "7": 0.65
+        }
+      }
     },
     {
       "id": "PRD-CJ-0356",
@@ -17626,10 +17839,10 @@
       "supplier": "DH HERNANDEZ JOYEROS",
       "cost": 355000,
       "price": 0,
-      "stock": 46.45,
+      "stock": 46.34,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 7.85,
+      "sold30d": 7.96,
       "createdAt": "2026-09-16T19:12:12.929Z",
       "monthlySales": {
         "2026-09": {
@@ -17642,7 +17855,8 @@
           "30": 1.19
         },
         "2026-10": {
-          "3": 0.4
+          "3": 0.4,
+          "6": 0.11
         }
       }
     },
@@ -17660,10 +17874,10 @@
       "supplier": "Charles Joyas",
       "cost": 402601.59,
       "price": 0,
-      "stock": 61.15,
+      "stock": 60.51,
       "minStock": 0.5,
       "status": "active",
-      "sold30d": 5.85,
+      "sold30d": 6.489999999999999,
       "createdAt": "2026-09-16T19:12:12.929Z",
       "monthlySales": {
         "2026-09": {
@@ -17674,7 +17888,8 @@
           "30": 0.71
         },
         "2026-10": {
-          "6": 0.3
+          "6": 0.3,
+          "7": 0.64
         }
       }
     },
@@ -17718,23 +17933,45 @@
     }
   ],
   "cashShiftLog": {
-    "shiftId": "TURNO-322",
-    "openedAt": "10:23 a.m.",
-    "openingCash": 815000,
-    "cashSales": 123000,
-    "cardSales": 0,
+    "shiftId": "TURNO-751",
+    "openedAt": "10:27 a.m.",
+    "openingCash": 918000,
+    "cashSales": 830000,
+    "cardSales": 280000,
     "qrSales": 0,
-    "cashExpenses": 65000,
-    "expectedCashInDrawer": 873000,
+    "cashExpenses": 1388450,
+    "expectedCashInDrawer": 359550,
     "actualCashInDrawer": 0,
     "discrepancy": 0,
     "status": "Abierto",
     "openedBy": "ZHARICK CAROLINA",
-    "openedDate": "2026-10-06",
-    "openedTimestamp": 1791300187080,
-    "openedIso": "2026-10-06T15:23:07.080Z"
+    "openedDate": "2026-10-07",
+    "openedTimestamp": 1791386860019,
+    "openedIso": "2026-10-07T15:27:40.019Z"
   },
   "cashShiftsHistory": [
+    {
+      "id": "TRN-747775",
+      "shiftId": "TURNO-322",
+      "status": "Cerrado",
+      "openingCash": 815000,
+      "cashSales": 168100,
+      "cardSales": 0,
+      "transferSales": 0,
+      "tarjetaSales": 0,
+      "creditSales": 0,
+      "cashExpenses": 65000,
+      "expectedCashInDrawer": 918100,
+      "closingCash": 918100,
+      "difference": 0,
+      "openedBy": "ZHARICK CAROLINA",
+      "openedAt": "10:23 a.m.",
+      "openedDate": "2026-10-06",
+      "closedBy": "ZHARICK CAROLINA",
+      "closedAt": "06:02 p.m.",
+      "date": "2026-10-06",
+      "closedTimestamp": 1791327747775
+    },
     {
       "id": "TRN-740707",
       "shiftId": "TURNO-444",
@@ -18125,6 +18362,26 @@
   ],
   "abonosCompras": [
     {
+      "id": "AB-C232225",
+      "date": "2026-10-07",
+      "supplier": "carlos andres garzon",
+      "poId": "CP-001",
+      "amount": 512000,
+      "method": "Efectivo (Caja)",
+      "cashier": "Carlos Garzon",
+      "status": "Confirmado"
+    },
+    {
+      "id": "AB-C210848",
+      "date": "2026-10-07",
+      "supplier": "JUAN DAVID",
+      "poId": "CP-002",
+      "amount": 299200,
+      "method": "Efectivo (Caja)",
+      "cashier": "Carlos Garzon",
+      "status": "Confirmado"
+    },
+    {
       "id": "AB-C114748",
       "date": "2026-10-05",
       "supplier": "ARISTIZABAL JOYERO",
@@ -18393,6 +18650,167 @@
     ]
   },
   "recentTransactions": [
+    {
+      "id": "TX-96880",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "02:56:02 p.m.",
+      "date": "07/10/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.65,
+      "items": [
+        {
+          "id": "PRD-CJ-0355",
+          "sku": "355",
+          "name": "DIJE BAN CLIF",
+          "qty": 0.65,
+          "quantity": 0.65,
+          "unit": "g",
+          "measureType": "Pesaje",
+          "pieceWeight": 0.65,
+          "price": 430769,
+          "total": 280000
+        }
+      ],
+      "subtotal": 280000,
+      "tax": 0,
+      "total": 280000,
+      "paymentMethod": "Transferencia (Cuenta Carlos)",
+      "targetAccount": "Cuenta Carlos",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-94532",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "11:44:08 a.m.",
+      "date": "07/10/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.81,
+      "items": [
+        {
+          "id": "PRD-CJ-0824",
+          "sku": "824",
+          "name": "ANILLO INFINITO",
+          "qty": 0.81,
+          "quantity": 0.81,
+          "unit": "u.",
+          "measureType": "Unidades",
+          "pieceWeight": 0.81,
+          "price": 333333,
+          "total": 270000
+        }
+      ],
+      "subtotal": 270000,
+      "tax": 0,
+      "total": 270000,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-97948",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "11:43:22 a.m.",
+      "date": "07/10/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.79,
+      "items": [
+        {
+          "id": "PRD-CJ-0823",
+          "sku": "823",
+          "name": "ANILLO INFINITO",
+          "qty": 0.79,
+          "quantity": 0.79,
+          "unit": "u.",
+          "measureType": "Unidades",
+          "pieceWeight": 0.79,
+          "price": 341772,
+          "total": 270000
+        }
+      ],
+      "subtotal": 270000,
+      "tax": 0,
+      "total": 270000,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-96804",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "11:39:10 a.m.",
+      "date": "07/10/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.64,
+      "items": [
+        {
+          "id": "PRD-CJ-0783",
+          "sku": "02027",
+          "name": "HERRAJES",
+          "qty": 0.64,
+          "quantity": 0.64,
+          "unit": "g",
+          "measureType": "Pesaje",
+          "pieceWeight": 67,
+          "price": 453125,
+          "total": 290000
+        }
+      ],
+      "subtotal": 290000,
+      "tax": 0,
+      "total": 290000,
+      "paymentMethod": "Efectivo",
+      "cashier": "ZHARICK CAROLINA",
+      "status": "completed"
+    },
+    {
+      "id": "TX-98583",
+      "customer": "Cliente Mostrador",
+      "customerDoc": "",
+      "customerDocType": "CC",
+      "customerAddress": "",
+      "customerPhone": "",
+      "time": "04:32:58 p.m.",
+      "date": "06/10/2026",
+      "type": "Venta POS Joyería",
+      "itemsCount": 0.11,
+      "items": [
+        {
+          "id": "PRD-CJ-0782",
+          "sku": "02026",
+          "name": "BOLAS",
+          "qty": 0.11,
+          "quantity": 0.11,
+          "unit": "g",
+          "measureType": "Pesaje",
+          "pieceWeight": 37.12,
+          "price": 410000,
+          "total": 45100
+        }
+      ],
+      "subtotal": 45100,
+      "tax": 0,
+      "total": 45100,
+      "paymentMethod": "Efectivo",
+      "cashier": "Santiago Muñoz",
+      "status": "completed"
+    },
     {
       "id": "TX-89055",
       "customer": "Joyería santa isabel",
@@ -20240,6 +20658,6 @@
       0
     ]
   },
-  "updatedAt": "2026-10-06T19:37:42.781Z",
+  "updatedAt": "2026-10-07T22:59:22.703Z",
   "sales": []
 }
