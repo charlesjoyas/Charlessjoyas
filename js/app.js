@@ -10263,7 +10263,9 @@ class NexusApp {
     const totalRecaudado = totalEfectivo + totalTransferencia + totalTarjeta + totalOtros;
 
     const openingCash = Math.round(Number(shift.openingCash) || 0);
-    const cashExpenses = Math.round(Number(shift.cashExpenses) || 0);
+    const shiftExpensesList = this.getCashShiftExpenses ? this.getCashShiftExpenses() : [];
+    const calculatedExpensesSum = shiftExpensesList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const cashExpenses = calculatedExpensesSum > 0 ? calculatedExpensesSum : (Math.round(Number(shift.cashExpenses)) || 0);
 
     // Saldo Teórico en gaveta física: Base de apertura + Todo el Efectivo recibido (ventas + abonos) - Salidas de efectivo
     const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
@@ -10530,86 +10532,268 @@ class NexusApp {
     if (countEl) countEl.innerText = visible;
   }
 
-  renderCashShiftExpensesSummary() {
+  getCashShiftExpenses() {
     const shift = this.data.cashShiftLog;
-    if (!shift) return '';
+    if (!shift) return [];
+    const shiftDate = shift.openedDate || new Date().toISOString().slice(0, 10);
+    const shiftId = shift.shiftId;
     let openTimestamp = shift.openedTimestamp || 0;
     if (!openTimestamp && shift.openedDate) {
       openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
     }
 
-    const expensesToday = (this.data.expenses || []).filter(e => {
-      if (!e.date) return false;
-      const isCash = (e.method || '').toLowerCase().includes('efectivo');
-      if (!isCash) return false;
-      if (e.shiftId) return e.shiftId === shift.shiftId;
-      if (openTimestamp > 0) {
-        const pDate = e.date.includes(' ') ? e.date.split(' ')[0] : e.date;
-        const pTime = e.date.includes(' ') ? e.date.split(' ')[1] : '';
-        const eTimestamp = this.parseDateAndTimeToTimestamp(pDate, pTime);
-        if (eTimestamp > 0) return eTimestamp >= (openTimestamp - 60000);
+    const items = [];
+
+    // Helper: coincidencia con el turno activo
+    const matchesShift = (dateStr, timeStr, itemShiftId) => {
+      if (itemShiftId && shiftId && itemShiftId === shiftId) return true;
+      if (!dateStr) return false;
+      const d = dateStr.includes(' ') ? dateStr.split(' ')[0] : dateStr;
+      if (d === shiftDate || dateStr.includes(shiftDate)) {
+        if (timeStr && openTimestamp > 0) {
+          const t = this.parseDateAndTimeToTimestamp(d, timeStr);
+          if (t > 0 && t < (openTimestamp - 120000)) return false;
+        }
+        return true;
       }
-      return e.date.includes(shift.openedDate);
+      return false;
+    };
+
+    // 1. Gastos Operativos en Efectivo
+    (this.data.expenses || []).forEach(e => {
+      const isCash = (e.method || 'efectivo').toLowerCase().includes('efectivo');
+      if (isCash && matchesShift(e.date, e.time, e.shiftId)) {
+        items.push({
+          id: e.id,
+          date: e.date,
+          time: e.time || shift.openedAt || '',
+          concept: e.description || e.category || 'Gasto Operativo',
+          category: e.category || 'Gasto Operativo',
+          type: 'Gasto Operativo',
+          typeKey: 'gastos',
+          badgeBg: '#FEF3C7',
+          badgeColor: '#D97706',
+          icon: '🧾',
+          cashier: e.cashier || e.user || 'Administración',
+          amount: Math.round(Number(e.amount) || 0)
+        });
+      }
     });
 
-    const abonosToday = (this.data.abonosCompras || []).filter(a => {
-      if (!a.date) return false;
+    // 2. Abonos / Pagos a Proveedores en Efectivo
+    (this.data.abonosCompras || []).forEach(a => {
       const isCash = (a.method || '').toLowerCase().includes('efectivo');
-      if (!isCash) return false;
-      if (a.shiftId) return a.shiftId === shift.shiftId;
-      if (openTimestamp > 0) {
-        const pDate = a.date.includes(' ') ? a.date.split(' ')[0] : a.date;
-        const pTime = a.date.includes(' ') ? a.date.split(' ')[1] : '';
-        const aTimestamp = this.parseDateAndTimeToTimestamp(pDate, pTime);
-        if (aTimestamp > 0) return aTimestamp >= (openTimestamp - 60000);
+      if (isCash && matchesShift(a.date, a.time, a.shiftId)) {
+        items.push({
+          id: a.id,
+          date: a.date,
+          time: a.time || shift.openedAt || '',
+          concept: `Pago a Proveedor: ${a.supplier}${a.poId ? ` (${a.poId})` : ''}`,
+          category: 'Abono Proveedor',
+          type: 'Abono Proveedor',
+          typeKey: 'abonos',
+          badgeBg: '#EEF2FF',
+          badgeColor: '#4F46E5',
+          icon: '💳',
+          cashier: a.cashier || 'Cajero',
+          amount: Math.round(Number(a.amount) || 0)
+        });
       }
-      return a.date.includes(shift.openedDate);
     });
 
-    if (expensesToday.length === 0 && abonosToday.length === 0) {
-      return `<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding:0.75rem 0.5rem;">No se han registrado retiros ni egresos en efectivo en este turno.</div>`;
+    // 3. Compras de Mercancía en Efectivo
+    (this.data.purchases || []).forEach(po => {
+      const isCash = (po.paymentMethod || '').toLowerCase().includes('efectivo');
+      if (isCash && matchesShift(po.date, po.time, po.shiftId)) {
+        items.push({
+          id: po.id,
+          date: po.date,
+          time: po.time || '',
+          concept: `Compra Mercancía: ${po.supplier} (${po.productName || po.productSku || 'Joyería'})`,
+          category: 'Compra Mercancía',
+          type: 'Compra Contado',
+          typeKey: 'compras',
+          badgeBg: '#F3E8FF',
+          badgeColor: '#7E22CE',
+          icon: '💎',
+          cashier: po.cashier || 'Cajero',
+          amount: Math.round(Number(po.total) || 0)
+        });
+      }
+    });
+
+    // 4. Salidas y retiros directos registrados en el turno
+    const currentSum = items.reduce((acc, it) => acc + it.amount, 0);
+    const recordedExpenses = Math.round(Number(shift.cashExpenses) || 0);
+    const diff = recordedExpenses - currentSum;
+    if (diff > 0) {
+      const matchingPO = (this.data.purchases || []).find(p => 
+        matchesShift(p.date, p.time, p.shiftId) && Math.abs((Number(p.total) || 0) - diff) < 1 && !items.some(it => it.id === p.id)
+      );
+      if (matchingPO) {
+        items.push({
+          id: matchingPO.id,
+          date: matchingPO.date,
+          time: matchingPO.time || '',
+          concept: `Salida / Compra Mercancía: ${matchingPO.supplier} (${matchingPO.productName || matchingPO.productSku || 'Joyería'})`,
+          category: 'Compra Mercancía',
+          type: 'Salida de Caja',
+          typeKey: 'compras',
+          badgeBg: '#F3E8FF',
+          badgeColor: '#7E22CE',
+          icon: '💎',
+          cashier: 'Cajero',
+          amount: diff
+        });
+      } else {
+        items.push({
+          id: `RET-${shift.shiftId || 'CAJA'}`,
+          date: shiftDate,
+          time: shift.openedAt || '',
+          concept: 'Retiro / Egreso de Efectivo de Caja',
+          category: 'Salida de Efectivo',
+          type: 'Retiro de Efectivo',
+          typeKey: 'gastos',
+          badgeBg: '#FFE4E6',
+          badgeColor: '#E11D48',
+          icon: '📤',
+          cashier: shift.openedBy || 'Cajero',
+          amount: diff
+        });
+      }
     }
 
-    let rows = '';
-    expensesToday.forEach(e => {
-      rows += `
-        <tr style="border-bottom:1px solid var(--border-color);">
-          <td style="padding:6px 8px; font-size:0.8rem;"><b>${this.escapeHtml(e.id)}</b></td>
-          <td style="padding:6px 8px; font-size:0.8rem;">Gasto: ${this.escapeHtml(e.description || e.category || 'Gasto Operativo')}</td>
-          <td style="padding:6px 8px; font-size:0.8rem;"><span class="badge" style="background:#FEF3C7; color:#D97706; font-size:0.7rem; font-weight:700;">Gasto Operativo</span></td>
-          <td style="padding:6px 8px; font-size:0.8rem; font-weight:700; color:var(--rose-text); text-align:right;">-${this.formatCurrency(e.amount)}</td>
-        </tr>
-      `;
-    });
+    return items;
+  }
 
-    abonosToday.forEach(a => {
-      rows += `
-        <tr style="border-bottom:1px solid var(--border-color);">
-          <td style="padding:6px 8px; font-size:0.8rem;"><b>${this.escapeHtml(a.id)}</b></td>
-          <td style="padding:6px 8px; font-size:0.8rem;">Pago a Proveedor: <b>${this.escapeHtml(a.supplier)}</b> (${this.escapeHtml(a.poId || '')})</td>
-          <td style="padding:6px 8px; font-size:0.8rem;"><span class="badge" style="background:#EEF2FF; color:#4F46E5; font-size:0.7rem; font-weight:700;">Abono Proveedor</span></td>
-          <td style="padding:6px 8px; font-size:0.8rem; font-weight:700; color:var(--rose-text); text-align:right;">-${this.formatCurrency(a.amount)}</td>
-        </tr>
-      `;
-    });
+  renderCashShiftExpensesSummary() {
+    const shift = this.data.cashShiftLog;
+    if (!shift) return '';
+
+    const expensesList = this.getCashShiftExpenses();
+    const recordedExpenses = Math.round(Number(shift.cashExpenses) || 0);
+
+    if (expensesList.length === 0 && recordedExpenses === 0) {
+      return `<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding:1.25rem 0.5rem;">
+        <div style="font-size:1.5rem; margin-bottom:0.35rem;">✓</div>
+        <div style="font-weight:600;">No se han registrado retiros ni egresos en efectivo en este turno.</div>
+      </div>`;
+    }
+
+    const totalGastosOperativos = expensesList.filter(e => e.typeKey === 'gastos').reduce((sum, e) => sum + e.amount, 0);
+    const totalAbonosProveedores = expensesList.filter(e => e.typeKey === 'abonos').reduce((sum, e) => sum + e.amount, 0);
+    const totalComprasMercancia = expensesList.filter(e => e.typeKey === 'compras').reduce((sum, e) => sum + e.amount, 0);
+    const totalTotal = expensesList.reduce((sum, e) => sum + e.amount, 0);
+
+    const countGastos = expensesList.filter(e => e.typeKey === 'gastos').length;
+    const countAbonos = expensesList.filter(e => e.typeKey === 'abonos').length;
+    const countCompras = expensesList.filter(e => e.typeKey === 'compras').length;
+
+    let rowsHtml = expensesList.map(e => `
+      <tr class="cash-expense-row cash-expense-${e.typeKey}" style="border-bottom:1px solid var(--border-color); transition:background 0.15s ease;">
+        <td style="padding:8px 10px; font-size:0.82rem; font-family:monospace; font-weight:700; color:var(--text-main);">
+          ${this.escapeHtml(e.id)}
+        </td>
+        <td style="padding:8px 10px; font-size:0.8rem; color:var(--text-muted); white-space:nowrap;">
+          ${this.escapeHtml(e.date)}${e.time ? ` · ${this.escapeHtml(e.time)}` : ''}
+        </td>
+        <td style="padding:8px 10px; font-size:0.84rem; color:var(--text-main); font-weight:600;">
+          ${this.escapeHtml(e.concept)}
+        </td>
+        <td style="padding:8px 10px; font-size:0.8rem;">
+          <span class="badge" style="background:${e.badgeBg}; color:${e.badgeColor}; font-size:0.72rem; font-weight:700; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
+            <span>${e.icon}</span> ${this.escapeHtml(e.type)}
+          </span>
+        </td>
+        <td style="padding:8px 10px; font-size:0.8rem; color:var(--text-muted);">
+          ${this.escapeHtml(e.cashier)}
+        </td>
+        <td style="padding:8px 10px; font-size:0.9rem; font-weight:800; color:var(--rose-text); text-align:right; white-space:nowrap;">
+          -${this.formatCurrency(e.amount)}
+        </td>
+      </tr>
+    `).join('');
 
     return `
-      <div style="max-height:220px; overflow-y:auto;">
+      <!-- MINI-TARJETAS DE RESUMEN POR CATEGORÍA DE SALIDA -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.6rem; margin-bottom:1rem;">
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:0.6rem 0.85rem;">
+          <div style="font-size:0.72rem; font-weight:600; color:var(--text-muted);">🧾 Gastos Operativos (${countGastos})</div>
+          <div style="font-size:1.05rem; font-weight:800; color:#D97706; margin-top:2px;">-${this.formatCurrency(totalGastosOperativos)}</div>
+        </div>
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:0.6rem 0.85rem;">
+          <div style="font-size:0.72rem; font-weight:600; color:var(--text-muted);">💳 Pagos a Proveedores (${countAbonos})</div>
+          <div style="font-size:1.05rem; font-weight:800; color:#4F46E5; margin-top:2px;">-${this.formatCurrency(totalAbonosProveedores)}</div>
+        </div>
+        ${totalComprasMercancia > 0 ? `
+        <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:0.6rem 0.85rem;">
+          <div style="font-size:0.72rem; font-weight:600; color:var(--text-muted);">💎 Compras / Mercancía (${countCompras})</div>
+          <div style="font-size:1.05rem; font-weight:800; color:#7E22CE; margin-top:2px;">-${this.formatCurrency(totalComprasMercancia)}</div>
+        </div>` : ''}
+        <div style="background:rgba(244,63,94,0.06); border:1px solid rgba(244,63,94,0.25); border-radius:var(--radius-sm); padding:0.6rem 0.85rem;">
+          <div style="font-size:0.72rem; font-weight:700; color:var(--rose-text);">📤 Total Egresos Turno</div>
+          <div style="font-size:1.15rem; font-weight:900; color:var(--rose-text); margin-top:2px;">-${this.formatCurrency(totalTotal)}</div>
+        </div>
+      </div>
+
+      <!-- BARRA DE FILTRO Y CONTADOR -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap; gap:0.5rem;">
+        <div class="finanzas-period-selector" id="cash-shift-expenses-filter" style="display:inline-flex; gap:3px;">
+          <button type="button" class="finanzas-period-pill active" onclick="app.filterCashShiftExpensesTable('all', this)">Todas las Salidas (${expensesList.length})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('gastos', this)">🧾 Gastos (${countGastos})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('abonos', this)">💳 Proveedores (${countAbonos})</button>
+          ${countCompras > 0 ? `<button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('compras', this)">💎 Compras (${countCompras})</button>` : ''}
+        </div>
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <span style="font-size:0.76rem; color:var(--text-muted);">
+            Listando <b id="cash-expenses-visible-count">${expensesList.length}</b> salidas registradas
+          </span>
+          <button type="button" class="btn btn-secondary text-xs" onclick="app.openModal('expense-modal')" style="padding:2px 8px; font-weight:700; display:inline-flex; align-items:center; gap:3px;">
+            + Nuevo Gasto
+          </button>
+        </div>
+      </div>
+
+      <!-- TABLA DETALLADA DE SALIDAS -->
+      <div style="max-height:360px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
         <table style="width:100%; border-collapse:collapse;">
-          <thead>
+          <thead style="position:sticky; top:0; background:var(--canvas-bg); z-index:1;">
             <tr style="border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left;">
-              <th style="padding:4px 8px;">Código</th>
-              <th style="padding:4px 8px;">Concepto / Beneficiario</th>
-              <th style="padding:4px 8px;">Tipo</th>
-              <th style="padding:4px 8px; text-align:right;">Monto Descontado</th>
+              <th style="padding:7px 10px;">Código</th>
+              <th style="padding:7px 10px;">Fecha / Hora</th>
+              <th style="padding:7px 10px;">Concepto / Beneficiario</th>
+              <th style="padding:7px 10px;">Tipo de Salida</th>
+              <th style="padding:7px 10px;">Registrado por</th>
+              <th style="padding:7px 10px; text-align:right;">Monto Descontado</th>
             </tr>
           </thead>
           <tbody>
-            ${rows}
+            ${rowsHtml}
           </tbody>
         </table>
       </div>
     `;
+  }
+
+  filterCashShiftExpensesTable(type, btnEl) {
+    const pills = document.querySelectorAll('#cash-shift-expenses-filter .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    const rows = document.querySelectorAll('.cash-expense-row');
+    let visible = 0;
+    rows.forEach(r => {
+      if (type === 'all') {
+        r.style.display = '';
+        visible++;
+      } else {
+        const matches = r.classList.contains(`cash-expense-${type}`);
+        r.style.display = matches ? '' : 'none';
+        if (matches) visible++;
+      }
+    });
+    const countEl = document.getElementById('cash-expenses-visible-count');
+    if (countEl) countEl.innerText = visible;
   }
 
   renderCuadreCajaCard() {
@@ -10838,6 +11022,16 @@ class NexusApp {
         abonosEl.innerText = '+' + this.formatCurrency(totals.abonosEfectivo);
       } else {
         abonosRowEl.style.display = 'none';
+      }
+    }
+    const expensesRowEl = document.getElementById('cash-shift-expenses-row');
+    const expensesEl = document.getElementById('cash-shift-expenses-cash');
+    if (expensesRowEl && expensesEl) {
+      if (totals.cashExpenses > 0) {
+        expensesRowEl.style.display = 'flex';
+        expensesEl.innerText = '-' + this.formatCurrency(totals.cashExpenses);
+      } else {
+        expensesRowEl.style.display = 'none';
       }
     }
     if (transfersEl) transfersEl.innerText = '+' + this.formatCurrency(totalTransfer);
