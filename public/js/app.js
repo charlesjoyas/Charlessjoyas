@@ -1329,10 +1329,19 @@ class NexusApp {
       return;
     }
 
-    const user = (this.data.users || []).find(u => 
-      u.email?.toLowerCase() === email.toLowerCase() && 
-      (u.password === password || (!u.password && password === '123456'))
-    );
+    const cleanInput = (email || '').trim().toLowerCase();
+    const cleanPass = String(password || '').trim();
+
+    const user = (this.data.users || []).find(u => {
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uName = (u.name || '').trim().toLowerCase();
+      const matchesIdent = uEmail === cleanInput || 
+                           uName === cleanInput || 
+                           (cleanInput.includes('jojan') && (uName.includes('jojan') || uEmail.includes('jojan'))) ||
+                           (cleanInput.includes('carlos') && (uName.includes('carlos') || uEmail.includes('carlos')));
+      const matchesPass = String(u.password || '').trim() === cleanPass || (!u.password && cleanPass === '123456');
+      return matchesIdent && matchesPass;
+    });
 
     if (user) {
       if (user.status !== 'Active') {
@@ -5120,19 +5129,31 @@ class NexusApp {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para eliminar registros de gastos.', 'danger');
       return;
     }
-    if (!confirm('¿Estás seguro de eliminar este registro de gasto operativo?')) return;
+    if (!confirm('¿Estás seguro de eliminar este registro de gasto operativo? Si se pagó en efectivo, el monto retornará a la caja.')) return;
     const exp = (this.data.expenses || []).find(e => e.id === id);
-    if (exp && exp.method && exp.method.toLowerCase().includes('efectivo') && this.data.cashShiftLog) {
+    if (exp && exp.method && (exp.method.toLowerCase().includes('efectivo') || exp.method.toLowerCase().includes('caja')) && this.data.cashShiftLog) {
       const expAmt = Number(exp.amount) || 0;
       this.data.cashShiftLog.cashExpenses = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashExpenses) || 0) - expAmt) * 100) / 100;
       this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
       if (this.data.store) {
         this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
+      if (Array.isArray(this.data.cashShiftsHistory)) {
+        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === this.data.cashShiftLog.shiftId || s.id === this.data.cashShiftLog.id);
+        if (histShift) {
+          histShift.cashExpenses = this.data.cashShiftLog.cashExpenses;
+          histShift.expectedCashInDrawer = this.data.cashShiftLog.expectedCashInDrawer;
+          if (histShift.closingCash !== undefined) {
+            histShift.difference = Math.round((Number(histShift.closingCash) - Number(histShift.expectedCashInDrawer)) * 100) / 100;
+          }
+        }
+      }
     }
     this.data.expenses = this.data.expenses.filter(e => e.id !== id);
     await this.savePersistence();
     this.syncAllModules();
+    this.renderCuadreCajaCard();
+    this.renderCashStatusIndicator();
     this.showToast(`Gasto ${id} eliminado y reintegrado a caja`, 'warning');
   }
 
@@ -5203,11 +5224,171 @@ class NexusApp {
       this.showToast('Acceso Denegado: No tienes permisos para eliminar órdenes de compra.', 'danger');
       return;
     }
-    if (!confirm(`¿Estás seguro de eliminar la orden de compra #${id}?`)) return;
-    this.data.purchases = this.data.purchases.filter(p => p.id !== id);
+    const po = (this.data.purchases || []).find(p => p.id === id);
+    if (!po) {
+      this.showToast(`Orden de compra #${id} no encontrada.`, 'warning');
+      return;
+    }
+
+    if (!confirm(`¿Estás seguro de eliminar la orden de compra #${id}? Si se pagó en efectivo o tuvo abonos en efectivo, el dinero se reintegrará automáticamente a la caja, se revertirá el stock y se cancelarán deudas vinculadas.`)) return;
+
+    // 1. REVERSIÓN AUTOMÁTICA DE EFECTIVO A LA CAJA
+    let cashToRefund = 0;
+    const relatedAbonos = (this.data.abonosCompras || []).filter(ab => ab.poId === po.id);
+    let cashFromAbonos = 0;
+    relatedAbonos.forEach(ab => {
+      const meth = (ab.method || '').toLowerCase();
+      if (meth.includes('efectivo') || meth.includes('caja')) {
+        cashFromAbonos += Number(ab.amount) || 0;
+      }
+    });
+
+    if (relatedAbonos.length > 0) {
+      cashToRefund = cashFromAbonos;
+      // Eliminar abonos vinculados a esta orden de compra
+      this.data.abonosCompras = (this.data.abonosCompras || []).filter(ab => ab.poId !== po.id);
+    } else {
+      const poMethod = (po.paymentMethod || '').toLowerCase();
+      const isCash = poMethod.includes('efectivo') || poMethod.includes('caja');
+      const wasPaid = po.paymentStatus === 'Pagado Total' || (Number(po.paidAmount) > 0);
+      if (isCash && wasPaid) {
+        cashToRefund = Number(po.paidAmount || po.total) || 0;
+      }
+    }
+
+    if (cashToRefund > 0) {
+      if (!this.data.cashShiftLog) {
+        this.data.cashShiftLog = { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Abierto' };
+      }
+      this.data.cashShiftLog.cashExpenses = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashExpenses) || 0) - cashToRefund) * 100) / 100;
+      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+      if (this.data.store) {
+        this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+      }
+
+      if (Array.isArray(this.data.cashShiftsHistory)) {
+        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === this.data.cashShiftLog.shiftId || s.id === this.data.cashShiftLog.id);
+        if (histShift) {
+          histShift.cashExpenses = this.data.cashShiftLog.cashExpenses;
+          histShift.expectedCashInDrawer = this.data.cashShiftLog.expectedCashInDrawer;
+          if (histShift.closingCash !== undefined) {
+            histShift.difference = Math.round((Number(histShift.closingCash) - Number(histShift.expectedCashInDrawer)) * 100) / 100;
+          }
+        }
+      }
+    }
+
+    // 2. REVERTIR STOCK DEL PRODUCTO
+    const targetProd = (this.data.products || []).find(p => p.id === po.productId || (po.productSku && p.sku === po.productSku));
+    const qtyToRevert = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
+    if (targetProd && qtyToRevert > 0) {
+      const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
+      targetProd.stock = Math.round(Math.max(0, currentStock - qtyToRevert) * 100) / 100;
+      const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
+      targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
+    }
+    this.syncAllCategoryGrams();
+
+    // 3. REVERTIR CRÉDITOS Y DEUDAS DE PROVEEDORES
+    if (Array.isArray(this.data.supplierCredits)) {
+      const relatedCredits = this.data.supplierCredits.filter(c => c.poId === po.id || c.id === po.id);
+      relatedCredits.forEach(cred => {
+        const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === cred.supplier?.toLowerCase().trim());
+        if (suppObj) {
+          const pendingToDeduct = Number(cred.pendingAmount) || 0;
+          suppObj.creditBalance = Math.round(Math.max(0, (Number(suppObj.creditBalance) || 0) - pendingToDeduct) * 100) / 100;
+        }
+      });
+      this.data.supplierCredits = this.data.supplierCredits.filter(c => c.poId !== po.id && c.id !== po.id);
+    }
+
+    // 4. ELIMINAR LA ORDEN DE COMPRA
+    this.data.purchases = (this.data.purchases || []).filter(p => p.id !== id);
+
     await this.savePersistence();
     this.syncAllModules();
-    this.showToast(`Orden de compra ${id} eliminada`, 'warning');
+    this.renderFinComprasTable();
+    this.renderRepCompras();
+    this.renderAbonosComprasTable();
+    this.renderInventoryTable();
+    this.renderInvCategoriasTable();
+    this.renderCategoryPills();
+    this.renderCuadreCajaCard();
+    this.renderCashStatusIndicator();
+
+    const refundMsg = cashToRefund > 0 ? ` y ${this.formatCurrency(cashToRefund)} reintegrados automáticamente a caja` : '';
+    this.showToast(`Orden #${id} eliminada, stock revertido${refundMsg}`, 'success');
+  }
+
+  async deleteAbonoCompra(id) {
+    if (!this.canPerformAction('delete', 'purchase') && !this.canPerformAction('delete', 'expense')) {
+      this.showToast('Acceso Denegado: No tienes permisos para anular abonos.', 'danger');
+      return;
+    }
+    const ab = (this.data.abonosCompras || []).find(a => a.id === id);
+    if (!ab) {
+      this.showToast(`Abono #${id} no encontrado.`, 'warning');
+      return;
+    }
+    if (!confirm(`¿Estás seguro de anular el abono #${id} de ${this.formatCurrency(ab.amount)} a ${ab.supplier}? Si fue en efectivo, el dinero se reintegrará automáticamente a la caja.`)) return;
+
+    const amt = Number(ab.amount) || 0;
+    const isCash = (ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja');
+
+    if (isCash && amt > 0 && this.data.cashShiftLog) {
+      this.data.cashShiftLog.cashExpenses = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashExpenses) || 0) - amt) * 100) / 100;
+      this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+      if (this.data.store) {
+        this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+      }
+      if (Array.isArray(this.data.cashShiftsHistory)) {
+        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === this.data.cashShiftLog.shiftId || s.id === this.data.cashShiftLog.id);
+        if (histShift) {
+          histShift.cashExpenses = this.data.cashShiftLog.cashExpenses;
+          histShift.expectedCashInDrawer = this.data.cashShiftLog.expectedCashInDrawer;
+          if (histShift.closingCash !== undefined) {
+            histShift.difference = Math.round((Number(histShift.closingCash) - Number(histShift.expectedCashInDrawer)) * 100) / 100;
+          }
+        }
+      }
+    }
+
+    // Revertir deuda en supplierCredits si existe el crédito
+    if (ab.poId && Array.isArray(this.data.supplierCredits)) {
+      const cred = this.data.supplierCredits.find(c => c.id === ab.poId || c.poId === ab.poId);
+      if (cred) {
+        cred.pendingAmount = Math.round(((Number(cred.pendingAmount) || 0) + amt) * 100) / 100;
+        cred.paidAmount = Math.round(Math.max(0, (Number(cred.paidAmount) || 0) - amt) * 100) / 100;
+        if (cred.pendingAmount > 0) {
+          cred.status = 'Pendiente';
+        }
+      }
+    }
+
+    // Revertir saldo del proveedor
+    const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === ab.supplier?.toLowerCase().trim());
+    if (suppObj) {
+      suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + amt) * 100) / 100;
+    }
+
+    // Revertir pago en la orden de compra si existe
+    if (ab.poId && Array.isArray(this.data.purchases)) {
+      const po = this.data.purchases.find(p => p.id === ab.poId);
+      if (po) {
+        po.paidAmount = Math.round(Math.max(0, (Number(po.paidAmount) || 0) - amt) * 100) / 100;
+        if (po.paidAmount < Number(po.total) - 0.01) {
+          po.paymentStatus = 'Pendiente';
+        }
+      }
+    }
+
+    this.data.abonosCompras = (this.data.abonosCompras || []).filter(a => a.id !== id);
+    await this.savePersistence();
+    this.syncAllModules();
+    this.renderAbonosComprasTable();
+    this.renderCuadreCajaCard();
+    this.renderCashStatusIndicator();
+    this.showToast(`Abono #${id} anulado y dinero reintegrado a caja`, 'warning');
   }
 
   openAbonoModal(type, id) {
@@ -12244,9 +12425,10 @@ class NexusApp {
     if (!tbody) return;
     const list = this.data.abonosCompras || [];
     if (list.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.6rem; margin-bottom:0.5rem;">🧾</div><div style="font-weight:700; color:var(--text-main);">No hay abonos a compras registrados</div><div style="font-size:0.85rem; margin-top:0.25rem;">Los pagos realizados a proveedores desde Órdenes de Compra o Créditos aparecerán aquí.</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.6rem; margin-bottom:0.5rem;">🧾</div><div style="font-weight:700; color:var(--text-main);">No hay abonos a compras registrados</div><div style="font-size:0.85rem; margin-top:0.25rem;">Los pagos realizados a proveedores desde Órdenes de Compra o Créditos aparecerán aquí.</div></td></tr>`;
       return;
     }
+    const canDelete = this.canPerformAction('delete', 'purchase') || this.canPerformAction('delete', 'expense');
     tbody.innerHTML = list.map(ab => `
       <tr>
         <td><b>${this.escapeHtml(ab.id)}</b></td>
@@ -12256,6 +12438,9 @@ class NexusApp {
         <td><span class="font-bold" style="color:var(--rose-text);">${this.formatCurrency(ab.amount)}</span></td>
         <td>${this.escapeHtml(ab.method)}</td>
         <td><span class="badge badge-active">${this.escapeHtml(ab.status || 'Confirmado')}</span></td>
+        <td style="text-align:center;">
+          ${canDelete ? `<button class="btn-action-delete" onclick="app.deleteAbonoCompra('${ab.id}')" title="Anular abono y devolver a caja" style="padding:2px 8px; font-size:0.75rem;">Anular</button>` : '<span style="color:var(--text-muted); font-size:0.75rem;">—</span>'}
+        </td>
       </tr>
     `).join('');
   }
