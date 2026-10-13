@@ -2608,9 +2608,14 @@ class NexusApp {
         const amount = this.parseCleanNumber(document.getElementById('exp-amount-input')?.value);
         const method = document.getElementById('exp-method-select').value;
 
+        const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
+        const now = new Date();
         const newExp = {
           id: `EXP-${Math.floor(805 + Math.random() * 900)}`,
-          date: new Date().toISOString().slice(0, 10),
+          date: now.toISOString().slice(0, 10),
+          time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: now.getTime(),
+          shiftId: activeShift ? activeShift.shiftId : null,
           description: desc,
           category: cat,
           amount,
@@ -3040,6 +3045,8 @@ class NexusApp {
             total: totalCost,
             date: now.toISOString().slice(0, 10),
             time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: now.getTime(),
+            shiftId: this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null,
             status: "Recibido",
             paymentStatus: paymentStatus,
             paymentMethod: paymentMethod,
@@ -5729,11 +5736,16 @@ class NexusApp {
       }
 
       const activeCashier = this.data.store?.cashier || (this.currentUser ? this.currentUser.name : "Cajero");
+      const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
+      const now = new Date();
 
       if (!this.data.abonosCompras) this.data.abonosCompras = [];
       this.data.abonosCompras.unshift({
         id: `AB-C${Date.now().toString().slice(-6)}`,
-        date: new Date().toISOString().slice(0, 10),
+        date: now.toISOString().slice(0, 10),
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: now.getTime(),
+        shiftId: activeShift ? activeShift.shiftId : null,
         supplier: cp.supplier,
         poId: cp.id || `OC-${Date.now().toString().slice(-5)}`,
         amount: actualPay,
@@ -9088,10 +9100,15 @@ class NexusApp {
       // Los pagos a proveedores no son gastos operativos: son egresos de caja y van en abonosCompras
     }
 
+    const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
+    const now = new Date();
     if (!this.data.abonosCompras) this.data.abonosCompras = [];
     this.data.abonosCompras.unshift({
       id: `AB-C${Date.now().toString().slice(-6)}`,
-      date: new Date().toISOString().slice(0, 10),
+      date: now.toISOString().slice(0, 10),
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: now.getTime(),
+      shiftId: activeShift ? activeShift.shiftId : null,
       supplier: po.supplier,
       poId: po.id,
       amount: po.total,
@@ -10786,28 +10803,41 @@ class NexusApp {
     const normShiftDate = normalizeDateStr(shiftDate);
     const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
 
-    // Helper: coincidencia con el turno activo
-    const matchesShift = (dateStr, timeStr, itemShiftId) => {
+    // Helper: coincidencia estricta y segura con el turno activo
+    const matchesShift = (dateStr, timeStr, itemShiftId, itemTimestamp = 0, closedShiftId = null) => {
+      // 1. Si el egreso tiene un shiftId explícito asignado:
       if (itemShiftId) {
-        if (shiftId && itemShiftId === shiftId) return true;
-        if (closedShiftIds.has(itemShiftId)) return false;
+        return !!(shiftId && itemShiftId === shiftId);
       }
+      // 2. Si ya pertenece a un turno cerrado o está marcado como cerrado en otro turno:
+      if (closedShiftId || (itemShiftId && closedShiftIds.has(itemShiftId))) {
+        return false;
+      }
+      // 3. Validación de fecha
       if (!dateStr) return false;
       const normItemDate = normalizeDateStr(dateStr);
-      if (normItemDate === normShiftDate) {
-        if (timeStr && openTimestamp > 0) {
-          const t = this.parseDateAndTimeToTimestamp(normItemDate, timeStr);
-          if (t > 0 && t < (openTimestamp - 300000)) return false;
+      if (normItemDate !== normShiftDate) return false;
+
+      // 4. Validación temporal estricta con el momento de apertura del turno
+      if (openTimestamp > 0) {
+        if (itemTimestamp && itemTimestamp > 0) {
+          return itemTimestamp >= (openTimestamp - 60000);
         }
-        return true;
+        if (timeStr) {
+          const t = this.parseDateAndTimeToTimestamp(normItemDate, timeStr);
+          if (t > 0) return t >= (openTimestamp - 60000);
+        }
+        // Si no tiene hora ni timestamp, un egreso previo sin turno NO puede cargarse a un turno nuevo recién abierto
+        return false;
       }
-      return false;
+
+      return true;
     };
 
     // 1. Gastos Operativos en Efectivo
     (this.data.expenses || []).forEach(e => {
       const isCash = !e.method || e.method.toLowerCase().includes('efectivo') || e.method.toLowerCase().includes('caja');
-      if (isCash && matchesShift(e.date, e.time, e.shiftId)) {
+      if (isCash && matchesShift(e.date, e.time, e.shiftId, e.timestamp, e.closedShiftId)) {
         items.push({
           id: e.id,
           date: e.date,
@@ -10828,7 +10858,7 @@ class NexusApp {
     // 2. Abonos / Pagos a Proveedores en Efectivo
     (this.data.abonosCompras || []).forEach(a => {
       const isCash = (a.method || '').toLowerCase().includes('efectivo') || (a.method || '').toLowerCase().includes('caja');
-      if (isCash && matchesShift(a.date, a.time, a.shiftId)) {
+      if (isCash && matchesShift(a.date, a.time, a.shiftId, a.timestamp, a.closedShiftId)) {
         items.push({
           id: a.id,
           date: a.date,
@@ -10849,7 +10879,7 @@ class NexusApp {
     // 3. Compras de Mercancía en Efectivo
     (this.data.purchases || []).forEach(po => {
       const isCash = (po.paymentMethod || '').toLowerCase().includes('efectivo') || (po.paymentMethod || '').toLowerCase().includes('caja');
-      if (isCash && matchesShift(po.date, po.time, po.shiftId)) {
+      if (isCash && matchesShift(po.date, po.time, po.shiftId, po.timestamp, po.closedShiftId)) {
         items.push({
           id: po.id,
           date: po.date,
@@ -10873,7 +10903,7 @@ class NexusApp {
     const diff = recordedExpenses - currentSum;
     if (diff > 0) {
       const matchingPO = (this.data.purchases || []).find(p => 
-        matchesShift(p.date, p.time, p.shiftId) && Math.abs((Number(p.total) || 0) - diff) < 1 && !items.some(it => it.id === p.id)
+        matchesShift(p.date, p.time, p.shiftId, p.timestamp, p.closedShiftId) && Math.abs((Number(p.total) || 0) - diff) < 1 && !items.some(it => it.id === p.id)
       );
       if (matchingPO) {
         items.push({
@@ -11371,6 +11401,27 @@ class NexusApp {
       closedTimestamp: now.getTime()
     };
     this.data.cashShiftsHistory.unshift(closedRecord);
+
+    const closingShiftId = this.data.cashShiftLog?.shiftId;
+    if (closingShiftId) {
+      (this.getCashShiftExpenses() || []).forEach(it => {
+        if (!it.id) return;
+        const e = (this.data.expenses || []).find(x => x.id === it.id);
+        if (e) { e.closedShiftId = closingShiftId; if (!e.shiftId) e.shiftId = closingShiftId; }
+        const a = (this.data.abonosCompras || []).find(x => x.id === it.id);
+        if (a) { a.closedShiftId = closingShiftId; if (!a.shiftId) a.shiftId = closingShiftId; }
+        const p = (this.data.purchases || []).find(x => x.id === it.id);
+        if (p) { p.closedShiftId = closingShiftId; if (!p.shiftId) p.shiftId = closingShiftId; }
+      });
+      (this.getCashShiftTransactions() || []).forEach(t => {
+        t.closedShiftId = closingShiftId;
+        if (!t.shiftId) t.shiftId = closingShiftId;
+      });
+      (this.getCashShiftCustomerPayments() || []).forEach(a => {
+        a.closedShiftId = closingShiftId;
+        if (!a.shiftId) a.shiftId = closingShiftId;
+      });
+    }
 
     this.data.cashShiftLog.status = "Cerrado";
     this.data.cashShiftLog.closingCash = counted;
