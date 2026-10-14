@@ -4507,22 +4507,70 @@
       </div>
       <form id="open-cash-form" onsubmit="event.preventDefault(); app.submitCashShiftOpen();">
         <div class="modal-body">
-          <div style="background:var(--canvas-bg); padding:0.9rem; border-radius:var(--radius-md); margin-bottom:1rem;">
+          <div style="background:var(--canvas-bg); padding:0.9rem; border-radius:var(--radius-md); margin-bottom:1rem; border:1px solid var(--border-color);">
             <div class="text-xs" style="color:var(--text-muted); margin-bottom:0.25rem;">Cajero / Operador responsable:</div>
-            <strong id="open-cash-operator-name" style="font-size:1rem; color:var(--text-main);">Carlos Mendoza</strong>
+            <strong id="open-cash-operator-name" style="font-size:1.05rem; color:var(--text-main);">Carlos Mendoza</strong>
           </div>
-          <div class="form-group">
-            <label class="form-label" for="open-cash-base-input">Monto Base Inicial de Caja ($ COP) *</label>
-            <input type="text" inputmode="numeric" id="open-cash-base-input" class="form-input" value="500,000" style="font-size:1.15rem; font-weight:700;" required oninput="app.updateOpenCashBasePreview()">
-            <div id="open-cash-base-preview" style="margin-top:6px; font-size:0.88rem; font-weight:700; color:var(--emerald-text, #059669);">
-              💵 Base en Caja: $ 500.000 COP
+
+          <!-- MONTO BASE EN EFECTIVO -->
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label class="form-label" for="open-cash-base-input" style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-weight:700;">💵 Monto Base en Efectivo (Gaveta Física) *</span>
+              <span class="text-xs" style="color:var(--text-muted);">Billetes / Monedas</span>
+            </label>
+            <input type="text" inputmode="numeric" id="open-cash-base-input" class="form-input" value="500,000" style="font-size:1.2rem; font-weight:700; color:var(--text-main);" required oninput="app.updateOpenCashBasePreview()">
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(0)">$ 0</button>
+              <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(200000)">$ 200.000</button>
+              <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(500000)">$ 500.000</button>
+              <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(1000000)">$ 1.000.000</button>
             </div>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
-            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(200000)">$ 200.000</button>
-            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(300000)">$ 300.000</button>
-            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(500000)">$ 500.000</button>
-            <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashBase(1000000)">$ 1.000.000</button>
+
+          <!-- APERTURA CON SALDO BASE EN TARJETA / BANCO -->
+          <div style="background:rgba(99, 102, 241, 0.05); border:1px solid rgba(99, 102, 241, 0.25); border-radius:var(--radius-md); padding:0.9rem 1rem; margin-bottom:1.15rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <label for="open-cash-enable-card" style="font-weight:700; font-size:0.92rem; color:var(--text-main); display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+                <input type="checkbox" id="open-cash-enable-card" onchange="app.toggleOpenCashCardSection()" style="width:17px; height:17px; accent-color:var(--primary-indigo); cursor:pointer;">
+                <span>💳 Abrir también con Saldo Base en Tarjeta / Banco</span>
+              </label>
+            </div>
+
+            <div id="open-cash-card-fields" style="display:none; margin-top:0.85rem; padding-top:0.85rem; border-top:1px dashed rgba(99, 102, 241, 0.3);">
+              <div class="form-group" style="margin-bottom:0.75rem;">
+                <label class="form-label" for="open-cash-card-account-select" style="font-size:0.82rem; font-weight:700;">🏦 Seleccionar Cuenta Bancaria / Destino *</label>
+                <select id="open-cash-card-account-select" class="form-select" style="font-weight:600;" onchange="app.updateOpenCashBasePreview()">
+                  <!-- Poblado dinámicamente -->
+                </select>
+              </div>
+
+              <div class="form-group" style="margin-bottom:0.35rem;">
+                <label class="form-label" for="open-cash-card-input" style="font-size:0.82rem; font-weight:700;">Monto Base en Tarjeta / Cuenta ($ COP) *</label>
+                <input type="text" inputmode="numeric" id="open-cash-card-input" class="form-input" value="0" style="font-size:1.15rem; font-weight:700; color:#4F46E5;" oninput="app.updateOpenCashBasePreview()">
+                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashCardBase(200000)">$ 200.000</button>
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashCardBase(500000)">$ 500.000</button>
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashCardBase(1000000)">$ 1.000.000</button>
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.setOpenCashCardBase(2000000)">$ 2.000.000</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RESUMEN CONSOLIDADO DE APERTURA -->
+          <div id="open-cash-summary-box" style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:0.8rem 1rem; font-size:0.86rem;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+              <span style="color:var(--text-muted);">💵 Base Efectivo (Gaveta):</span>
+              <strong id="open-preview-cash-amount" style="color:var(--emerald-text); font-weight:800;">$ 500.000</strong>
+            </div>
+            <div id="open-preview-card-row" style="display:none; justify-content:space-between; margin-bottom:5px;">
+              <span style="color:var(--text-muted);">💳 Base Tarjeta (<span id="open-preview-account-name">--</span>):</span>
+              <strong id="open-preview-card-amount" style="color:#4F46E5; font-weight:800;">$ 0</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; border-top:1px dashed var(--border-color); padding-top:6px; margin-top:6px;">
+              <span style="font-weight:700; color:var(--text-main);">💼 Total Base de Apertura:</span>
+              <strong id="open-preview-total-amount" style="font-weight:900; font-size:1.05rem; color:var(--text-main);">$ 500.000</strong>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -4543,12 +4591,15 @@
       <div class="modal-body">
         <div style="background:var(--canvas-bg); padding:1rem; border-radius:var(--radius-md); margin-bottom:1rem; border:1px solid var(--border-color);">
           <div style="display:flex; justify-content:space-between; margin-bottom:0.45rem;"><span>Efectivo Teórico en Gaveta:</span><strong id="cash-theoretical-amount" style="color:var(--primary-indigo); font-size:1.05rem;">$0.00</strong></div>
+          <div id="cash-shift-opening-cash-row" style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💵 Base Inicial Efectivo:</span><strong id="cash-shift-opening-cash" style="color:var(--text-main);">+$0.00</strong></div>
+          <div id="cash-shift-opening-card-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💳 Base Inicial Tarjeta (<span id="cash-shift-opening-account-label">--</span>):</span><strong id="cash-shift-opening-card" style="color:#6366F1;">+$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💵 Ventas en Efectivo:</span><strong id="cash-shift-sales" style="color:var(--emerald-text);">+$0.00</strong></div>
           <div id="cash-shift-abonos-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>📥 Abonos Cartera en Efectivo:</span><strong id="cash-shift-abonos-cash" style="color:var(--emerald-text);">+$0.00</strong></div>
           <div id="cash-shift-expenses-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>📋 Retiros & Egresos Efectivo:</span><strong id="cash-shift-expenses-cash" style="color:var(--rose-text);">-$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏦 Ventas por Transferencia:</span><strong id="cash-shift-transfers" style="color:#4F46E5;">+$0.00</strong></div>
           <div id="cash-shift-cards-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>💳 Ventas con Tarjeta:</span><strong id="cash-shift-cards" style="color:#9333EA;">+$0.00</strong></div>
           <div id="cash-shift-credit-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem;"><span>🏷️ Ventas a Crédito (Por Cobrar):</span><strong id="cash-shift-credit" style="color:#D97706;">+$0.00</strong></div>
+          <div id="cash-shift-bank-total-row" style="display:none; justify-content:space-between; margin-bottom:0.35rem; font-size:0.88rem; background:rgba(99,102,241,0.06); padding:4px 8px; border-radius:4px;"><span>🏦 Saldo Teórico en Banco (<span id="cash-shift-bank-account-name">--</span>):</span><strong id="cash-shift-bank-total" style="color:#4F46E5;">$0.00</strong></div>
           <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.9rem;"><span>📊 Total Facturado Turno:</span><strong id="cash-shift-total-sales" style="font-weight:800; color:var(--text-main);">$0.00</strong></div>
         </div>
         <div class="form-group">

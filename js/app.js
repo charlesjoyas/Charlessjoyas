@@ -10489,11 +10489,20 @@ class NexusApp {
     const totalRecaudado = totalEfectivo + totalTransferencia + totalTarjeta + totalOtros;
 
     const openingCash = Math.round(Number(shift.openingCash) || 0);
+    const openingCard = Math.round(Number(shift.openingCard) || 0);
+    const openingAccount = shift.openingAccount || '';
+    const openingTotal = openingCash + openingCard;
     const shiftExpensesList = this.getCashShiftExpenses ? this.getCashShiftExpenses() : [];
     const cashExpenses = shiftExpensesList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
     // Saldo Teórico en gaveta física: Base de apertura + Todo el Efectivo recibido (ventas + abonos) - Salidas de efectivo reales
     const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
+
+    // Saldo Teórico en Cuenta Bancaria / Tarjeta: Base inicial en tarjeta + Ingresos por tarjeta + Ingresos por transferencia
+    const expectedCardInAccount = openingCard + totalTarjeta + totalTransferencia;
+
+    // Saldo Consolidado Total del Turno (Gaveta + Banco)
+    const expectedTotalShift = calculatedExpected + expectedCardInAccount;
 
     // Sincronizar en tiempo real el registro activo de caja para garantizar exactitud al 100%
     if (shift && shift.status === 'Abierto') {
@@ -10529,8 +10538,13 @@ class NexusApp {
       totalFacturado,
       totalRecaudado,
       openingCash,
+      openingCard,
+      openingAccount,
+      openingTotal,
       cashExpenses,
-      expectedCashInDrawer: calculatedExpected
+      expectedCashInDrawer: calculatedExpected,
+      expectedCardInAccount,
+      expectedTotalShift
     };
   }
 
@@ -11121,8 +11135,8 @@ class NexusApp {
         <!-- 1. Monto Apertura -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Monto Apertura (Base)</div>
-          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(openingCash)}</div>
-          ${shift.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">Base inicial de turno</div>'}
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(totals.openingTotal || openingCash)}</div>
+          ${totals.openingCard > 0 ? `<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">💵 ${this.formatCurrency(openingCash)} · 💳 ${this.formatCurrency(totals.openingCard)} (${this.escapeHtml(totals.openingAccount)})</div>` : (shift.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">Base inicial de turno</div>')}
         </div>
 
         <!-- 2. Ventas Efectivo -->
@@ -11229,13 +11243,48 @@ class NexusApp {
   openCashShiftModal() {
     const operatorEl = document.getElementById('open-cash-operator-name');
     if (operatorEl) operatorEl.innerText = this.currentUser?.name || 'Cajero';
-    const inputEl = document.getElementById('open-cash-base-input');
-    if (inputEl) {
-      inputEl.value = '500,000';
-    }
+
+    const inputCash = document.getElementById('open-cash-base-input');
+    if (inputCash) inputCash.value = '500,000';
+
+    const checkCard = document.getElementById('open-cash-enable-card');
+    if (checkCard) checkCard.checked = false;
+
+    const inputCard = document.getElementById('open-cash-card-input');
+    if (inputCard) inputCard.value = '0';
+
+    const cardFields = document.getElementById('open-cash-card-fields');
+    if (cardFields) cardFields.style.display = 'none';
+
+    this.populateOpenCashAccountSelect();
     this.attachGlobalNumberMasks();
     this.updateOpenCashBasePreview();
     this.openModal('open-cash-modal');
+  }
+
+  populateOpenCashAccountSelect() {
+    const select = document.getElementById('open-cash-card-account-select');
+    if (!select) return;
+    const accounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['Cuenta Carlos', 'Cuenta Sharick', 'CUENTA PRINCIPAL NEGOCIO'];
+    select.innerHTML = accounts.map(acc => `<option value="${this.escapeHtml(acc)}">${this.escapeHtml(acc)}</option>`).join('');
+  }
+
+  toggleOpenCashCardSection() {
+    const check = document.getElementById('open-cash-enable-card');
+    const fields = document.getElementById('open-cash-card-fields');
+    const cardRow = document.getElementById('open-preview-card-row');
+    const isChecked = check ? check.checked : false;
+
+    if (fields) fields.style.display = isChecked ? 'block' : 'none';
+    if (cardRow) cardRow.style.display = isChecked ? 'flex' : 'none';
+
+    if (isChecked) {
+      const inputCard = document.getElementById('open-cash-card-input');
+      if (inputCard && (this.parseCleanNumber(inputCard.value) <= 0)) {
+        inputCard.value = '500,000';
+      }
+    }
+    this.updateOpenCashBasePreview();
   }
 
   setOpenCashBase(val) {
@@ -11246,13 +11295,40 @@ class NexusApp {
     }
   }
 
-  updateOpenCashBasePreview() {
-    const el = document.getElementById('open-cash-base-input');
-    const preview = document.getElementById('open-cash-base-preview');
-    if (el && preview) {
-      const val = this.parseCleanNumber(el.value);
-      preview.innerText = `Base Inicial: ${this.formatCurrency(val)}`;
+  setOpenCashCardBase(val) {
+    const el = document.getElementById('open-cash-card-input');
+    if (el) {
+      el.value = this.formatNumberWithCommas(val);
+      this.updateOpenCashBasePreview();
     }
+  }
+
+  updateOpenCashBasePreview() {
+    const inputCash = document.getElementById('open-cash-base-input');
+    const inputCard = document.getElementById('open-cash-card-input');
+    const checkCard = document.getElementById('open-cash-enable-card');
+    const selectAcc = document.getElementById('open-cash-card-account-select');
+
+    const cashVal = inputCash ? this.parseCleanNumber(inputCash.value) : 0;
+    const isCardEnabled = checkCard ? checkCard.checked : false;
+    const cardVal = isCardEnabled && inputCard ? this.parseCleanNumber(inputCard.value) : 0;
+    const accName = selectAcc ? (selectAcc.value || 'Tarjeta') : 'Tarjeta';
+    const totalBase = cashVal + cardVal;
+
+    const previewCash = document.getElementById('open-preview-cash-amount');
+    if (previewCash) previewCash.innerText = this.formatCurrency(cashVal);
+
+    const previewCard = document.getElementById('open-preview-card-amount');
+    if (previewCard) previewCard.innerText = this.formatCurrency(cardVal);
+
+    const previewAcc = document.getElementById('open-preview-account-name');
+    if (previewAcc) previewAcc.innerText = accName;
+
+    const previewCardRow = document.getElementById('open-preview-card-row');
+    if (previewCardRow) previewCardRow.style.display = isCardEnabled ? 'flex' : 'none';
+
+    const previewTotal = document.getElementById('open-preview-total-amount');
+    if (previewTotal) previewTotal.innerText = this.formatCurrency(totalBase);
   }
 
   async submitCashShiftOpen() {
@@ -11260,18 +11336,33 @@ class NexusApp {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para aperturar turnos de caja.', 'danger');
       return;
     }
-    const inputEl = document.getElementById('open-cash-base-input');
-    const opening = this.parseCleanNumber(inputEl?.value) || 0;
+    const inputCash = document.getElementById('open-cash-base-input');
+    const inputCard = document.getElementById('open-cash-card-input');
+    const checkCard = document.getElementById('open-cash-enable-card');
+    const selectAcc = document.getElementById('open-cash-card-account-select');
+
+    const openingCash = this.parseCleanNumber(inputCash?.value) || 0;
+    const isCardEnabled = checkCard ? checkCard.checked : false;
+    const openingCard = isCardEnabled ? (this.parseCleanNumber(inputCard?.value) || 0) : 0;
+    const openingAccount = isCardEnabled ? (selectAcc?.value?.trim() || 'Cuenta Carlos') : '';
+    const openingTotal = openingCash + openingCard;
+
     const currentOperator = this.currentUser?.name || 'Cajero';
     const now = new Date();
 
     this.data.cashShiftLog = {
       shiftId: `TURNO-${String(Math.floor(100 + Math.random() * 900))}`,
-      openingCash: opening,
+      openingCash: openingCash,
+      openingCard: openingCard,
+      openingAccount: openingAccount,
+      openingTotal: openingTotal,
       cashSales: 0,
       cardSales: 0,
       cashExpenses: 0,
-      expectedCashInDrawer: opening,
+      expectedCashInDrawer: openingCash,
+      expectedCardInAccount: openingCard,
+      actualCashInDrawer: 0,
+      discrepancy: 0,
       status: "Abierto",
       openedBy: currentOperator,
       openedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -11280,10 +11371,18 @@ class NexusApp {
       openedIso: now.toISOString()
     };
 
+    if (this.data.store) {
+      this.data.store.cashInBox = openingCash;
+    }
+
     this.closeModal('open-cash-modal');
     await this.savePersistence();
     this.syncAllModules();
-    this.showToast(`Nuevo turno de caja abierto por ${currentOperator} con base de ${this.formatCurrency(opening)}`, 'success');
+
+    const toastMsg = openingCard > 0
+      ? `Turno abierto por ${currentOperator}: Base Efectivo ${this.formatCurrency(openingCash)} + Base Tarjeta (${openingAccount}) ${this.formatCurrency(openingCard)}`
+      : `Turno abierto por ${currentOperator} con base de efectivo de ${this.formatCurrency(openingCash)}`;
+    this.showToast(toastMsg, 'success');
   }
 
   openCashCloseModal() {
@@ -11316,6 +11415,35 @@ class NexusApp {
     const countedEl = document.getElementById('cash-physical-counted');
 
     if (theoEl) theoEl.innerText = this.formatCurrency(calculatedExpected);
+
+    const openCashEl = document.getElementById('cash-shift-opening-cash');
+    if (openCashEl) openCashEl.innerText = '+' + this.formatCurrency(totals.openingCash);
+
+    const openCardRow = document.getElementById('cash-shift-opening-card-row');
+    const openCardEl = document.getElementById('cash-shift-opening-card');
+    const openAccLabel = document.getElementById('cash-shift-opening-account-label');
+    if (openCardRow && openCardEl) {
+      if (totals.openingCard > 0) {
+        openCardRow.style.display = 'flex';
+        openCardEl.innerText = '+' + this.formatCurrency(totals.openingCard);
+        if (openAccLabel) openAccLabel.innerText = totals.openingAccount || 'Tarjeta';
+      } else {
+        openCardRow.style.display = 'none';
+      }
+    }
+
+    const bankTotalRow = document.getElementById('cash-shift-bank-total-row');
+    const bankTotalEl = document.getElementById('cash-shift-bank-total');
+    const bankAccName = document.getElementById('cash-shift-bank-account-name');
+    if (bankTotalRow && bankTotalEl) {
+      if (totals.openingCard > 0 || (totalTransfer + totalTarjeta > 0)) {
+        bankTotalRow.style.display = 'flex';
+        bankTotalEl.innerText = this.formatCurrency(totals.expectedCardInAccount);
+        if (bankAccName) bankAccName.innerText = totals.openingAccount || 'Banco';
+      } else {
+        bankTotalRow.style.display = 'none';
+      }
+    }
     if (salesEl) salesEl.innerText = '+' + this.formatCurrency(totals.salesEfectivo);
     if (abonosRowEl && abonosEl) {
       if (totals.abonosEfectivo > 0) {
@@ -11389,6 +11517,10 @@ class NexusApp {
       shiftId: this.data.cashShiftLog?.shiftId || '',
       status: "Cerrado",
       openingCash: totals.openingCash,
+      openingCard: totals.openingCard || 0,
+      openingAccount: totals.openingAccount || '',
+      openingTotal: totals.openingTotal || totals.openingCash,
+      expectedCardInAccount: totals.expectedCardInAccount || 0,
       cashSales: totals.totalEfectivo,
       cardSales: totals.totalTransferencia + totals.totalTarjeta,
       transferSales: totals.totalTransferencia,
@@ -11802,7 +11934,8 @@ class NexusApp {
             ${s.closedBy && s.closedBy !== s.openedBy ? `<div style="font-size:0.75rem; color:var(--text-muted);">Cierre: ${this.escapeHtml(s.closedBy)}</div>` : ''}
           </td>
           <td style="padding:10px 12px; font-size:0.85rem; font-weight:600; text-align:right;">
-            ${this.formatCurrency(openingCash)}
+            ${this.formatCurrency(Math.round(Number(s.openingTotal) || (openingCash + (Number(s.openingCard) || 0))))}
+            ${Number(s.openingCard) > 0 ? `<div style="font-size:0.7rem; color:var(--text-muted); font-weight:normal;">💵 ${this.formatCurrency(openingCash)} · 💳 ${this.formatCurrency(Number(s.openingCard))}</div>` : ''}
           </td>
           <td style="padding:10px 12px; font-size:0.85rem; font-weight:700; color:var(--emerald-text); text-align:right;">
             +${this.formatCurrency(cashSales)}
@@ -11878,6 +12011,9 @@ class NexusApp {
     }
 
     const opening = Math.round(Number(shift.openingCash) || 0);
+    const openingCard = Math.round(Number(shift.openingCard) || 0);
+    const openingAccount = shift.openingAccount || '';
+    const openingTotal = Math.round(Number(shift.openingTotal) || (opening + openingCard));
     const cashSales = Math.round(Number(shift.cashSales) || 0);
     const cardSales = Math.round(Number(shift.cardSales) || 0);
     const creditSales = Math.round(Number(shift.creditSales) || 0);
