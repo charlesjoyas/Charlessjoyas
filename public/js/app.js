@@ -8424,11 +8424,26 @@ class NexusApp {
           </span>
         </td>
         <td><span class="font-bold" style="color:var(--text-main);">${this.formatCurrency(Math.abs(tx.total))}</span></td>
-        <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span></td>
         <td>
-          <button class="btn-action-edit" onclick="app.showPastReceiptModal('${this.escapeHtml(tx.id)}')" title="Ver Recibo de esta Venta" style="font-size:0.75rem; padding:3px 8px;">
-            🧾 Recibo
-          </button>
+          ${tx.status === 'Reversada' || tx.status === 'Anulada' ? `
+            <span class="badge" style="background:rgba(239, 68, 68, 0.15); color:#DC2626; font-weight:700;"><span class="badge-dot" style="background:#DC2626;"></span>Reversada</span>
+          ` : `
+            <span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span>
+          `}
+        </td>
+        <td>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <button class="btn-action-edit" onclick="app.showPastReceiptModal('${this.escapeHtml(tx.id)}')" title="Ver Recibo de esta Venta" style="font-size:0.75rem; padding:3px 8px;">
+              🧾 Recibo
+            </button>
+            ${tx.status === 'Reversada' || tx.status === 'Anulada' ? `
+              <span class="text-xs" style="color:var(--text-muted); font-weight:600;">Reversada</span>
+            ` : `
+              <button class="btn-action-delete" onclick="app.revertSale('${this.escapeHtml(tx.id)}')" title="Reversar venta, devolver artículos al inventario y reintegrar dinero" style="font-size:0.72rem; padding:3px 6px; display:inline-flex; align-items:center; gap:2px; font-weight:700; cursor:pointer;">
+                🔄 Reversar
+              </button>
+            `}
+          </div>
         </td>
       </tr>
     `;
@@ -8739,8 +8754,10 @@ class NexusApp {
 
     const txs = this.getFilteredFinVentas();
 
-    // Calcular métricas del período filtrado
-    const totalFacturado = txs.reduce((sum, tx) => sum + Math.abs(Number(tx.total) || 0), 0);
+    // Calcular métricas del período filtrado (excluyendo ventas reversadas)
+    const totalFacturado = txs
+      .filter(tx => tx.status !== 'Reversada' && tx.status !== 'Anulada')
+      .reduce((sum, tx) => sum + Math.abs(Number(tx.total) || 0), 0);
 
     // Actualizar badges en la interfaz
     const countBadge = document.getElementById('fin-ventas-count-badge');
@@ -8832,17 +8849,199 @@ class NexusApp {
           ${tx.voucher ? `<div style="font-size:0.7rem; color:var(--text-subtle); margin-top:2px;">${(tx.paymentMethod || '').toLowerCase().includes('tarjeta') ? 'Voucher' : 'Comprobante'}: <b>#${this.escapeHtml(tx.voucher)}</b></div>` : ''}
         </td>
         <td><span class="font-bold">${this.formatCurrency(Math.abs(tx.total))}</span></td>
-        <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span></td>
         <td>
-          <div class="action-btn-group">
-            <button class="btn-action-edit" onclick="app.showPastReceiptModal('${this.escapeHtml(tx.id)}')" title="Ver Comprobante / Recibo">
-              🧾 Ver Recibo
+          ${tx.status === 'Reversada' || tx.status === 'Anulada' ? `
+            <span class="badge" style="background:rgba(239, 68, 68, 0.15); color:#DC2626; font-weight:700;"><span class="badge-dot" style="background:#DC2626;"></span>Reversada</span>
+          ` : `
+            <span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(tx.status || 'Completado')}</span>
+          `}
+        </td>
+        <td>
+          <div class="action-btn-group" style="display:flex; gap:5px; align-items:center;">
+            <button class="btn-action-edit" onclick="app.showPastReceiptModal('${this.escapeHtml(tx.id)}')" title="Ver Comprobante / Recibo" style="padding:3px 8px; font-size:0.75rem;">
+              🧾 Recibo
             </button>
+            ${tx.status === 'Reversada' || tx.status === 'Anulada' ? `
+              <span class="text-xs" style="color:var(--text-muted); font-weight:700; padding:2px 6px;">✔ Reversada</span>
+            ` : `
+              <button class="btn-action-delete" onclick="app.revertSale('${this.escapeHtml(tx.id)}')" title="Reversar venta, devolver artículos con código al inventario y reintegrar dinero" style="padding:3px 8px; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px; font-weight:700; cursor:pointer;">
+                🔄 Reversar Venta
+              </button>
+            `}
           </div>
         </td>
       </tr>
     `;
     }).join('');
+  }
+
+  async revertSale(txId) {
+    if (!this.currentUser) {
+      this.showToast('Acceso Denegado: Debes iniciar sesión para reversar ventas.', 'danger');
+      return;
+    }
+
+    const tx = (this.data.recentTransactions || []).find(t => t.id === txId);
+    if (!tx) {
+      this.showToast(`Venta #${txId} no encontrada.`, 'warning');
+      return;
+    }
+
+    if (tx.status === 'Reversada' || tx.status === 'Anulada') {
+      this.showToast(`La venta #${txId} ya se encuentra reversada.`, 'info');
+      return;
+    }
+
+    const itemsCount = (tx.items || []).length;
+    const confirmMsg = `¿Estás seguro de REVERSAR la venta #${tx.id} por ${this.formatCurrency(tx.total)} de ${tx.customer || 'Cliente Mostrador'}?\n\n` +
+      `Esta acción:\n` +
+      `1. Reintegrará ${itemsCount} artículo(s) con su código/SKU al inventario.\n` +
+      `2. Devolverá el dinero según el método de pago original (${tx.paymentMethod}).\n` +
+      `3. Descontará la venta del cuadre de caja y facturación del negocio.\n\n` +
+      `¿Desea proceder?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    // 1. REINTEGRAR ARTÍCULOS CON SU CÓDIGO AL INVENTARIO
+    const items = tx.items || [];
+    const restoredNames = [];
+
+    items.forEach(item => {
+      const soldQty = Number(item.qty || item.quantity) || 1;
+      let prod = (this.data.products || []).find(p => 
+        (item.id && p.id === item.id) || 
+        (item.sku && p.sku && String(p.sku).trim() === String(item.sku).trim()) ||
+        (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+      );
+
+      if (prod) {
+        const isPesaje = (prod.measureType || 'Pesaje') === 'Pesaje';
+        const pWeight = parseFloat(String(prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0)).replace(',', '.')) || 0;
+        const isUnitWithWeight = !isPesaje && pWeight > 0;
+        const unitsToAdd = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 100) / 100) : soldQty;
+
+        prod.stock = Math.round(((Number(prod.stock) || 0) + unitsToAdd) * 100) / 100;
+        const minStock = Number(prod.minStock) || 1;
+        prod.status = prod.stock > minStock ? 'active' : (prod.stock > 0 ? 'low_stock' : 'out_of_stock');
+        prod.sold30d = Math.max(0, (Number(prod.sold30d) || 0) - unitsToAdd);
+
+        restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id})`);
+      } else {
+        // Si el producto fue borrado, recrearlo en el inventario con su código y datos originales
+        const restoredProd = {
+          id: item.id || `PRD-${Date.now().toString().slice(-4)}`,
+          sku: item.sku || '',
+          name: item.name || 'Joya Reintegrada',
+          measureType: item.measureType || 'Pesaje',
+          pieceWeight: Number(item.pieceWeight) || 0,
+          weight: Number(item.pieceWeight) || 0,
+          category: item.category || 'general',
+          categoryName: item.categoryName || 'GENERAL',
+          price: Number(item.price) || 0,
+          stock: soldQty,
+          minStock: 1,
+          status: 'active',
+          sold30d: 0
+        };
+        if (!Array.isArray(this.data.products)) this.data.products = [];
+        this.data.products.push(restoredProd);
+        restoredNames.push(`${restoredProd.name} (SKU: ${restoredProd.sku || restoredProd.id})`);
+      }
+    });
+
+    this.syncAllCategoryGrams();
+
+    // 2. DEVOLVER EL DINERO SEGÚN EL MÉTODO DE PAGO
+    const payMethod = (tx.paymentMethod || '').toLowerCase();
+    const grandTotal = Math.abs(Number(tx.total) || 0);
+
+    if (tx.mixedPayments && Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
+      // Revertir pago mixto según sus componentes
+      tx.mixedPayments.forEach(mp => {
+        const mpAmt = Math.abs(Number(mp.amount) || 0);
+        const mpMethod = (mp.method || '').toLowerCase();
+        if (mpMethod.includes('efectivo') || mpMethod.includes('cash')) {
+          if (this.data.cashShiftLog) {
+            this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - mpAmt) * 100) / 100;
+            this.data.cashShiftLog.expectedCashInDrawer = Math.round(Math.max(0, (Number(this.data.cashShiftLog.expectedCashInDrawer) || 0) - mpAmt) * 100) / 100;
+          }
+        } else {
+          if (this.data.cashShiftLog) {
+            this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - mpAmt) * 100) / 100;
+          }
+        }
+      });
+    } else if (payMethod.includes('efectivo') || payMethod.includes('cash')) {
+      // Devolver efectivo físico de gaveta
+      if (this.data.cashShiftLog) {
+        this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - grandTotal) * 100) / 100;
+        this.data.cashShiftLog.expectedCashInDrawer = Math.round(Math.max(0, (Number(this.data.cashShiftLog.expectedCashInDrawer) || 0) - grandTotal) * 100) / 100;
+      }
+    } else if (payMethod.includes('tarjeta') || payMethod.includes('transfer') || payMethod.includes('banco')) {
+      // Revertir ingreso de cuenta bancaria / datáfono
+      if (this.data.cashShiftLog) {
+        this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - grandTotal) * 100) / 100;
+      }
+    } else if (payMethod.includes('crédito') || payMethod.includes('credito')) {
+      // Anular deuda de crédito al cliente
+      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
+      if (cust) {
+        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - grandTotal) * 100) / 100;
+      }
+      if (Array.isArray(this.data.customerCredits)) {
+        const cred = this.data.customerCredits.find(c => c.customer === tx.customer && (c.id === tx.id || c.currentBalance >= grandTotal));
+        if (cred) {
+          cred.currentBalance = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - grandTotal) * 100) / 100;
+          if (cred.currentBalance <= 0) cred.status = 'Anulado';
+        }
+      }
+    } else if (payMethod.includes('separe')) {
+      // Plan separe
+      const separeAbono = Number(tx.separeAbono) || 0;
+      if (separeAbono > 0 && this.data.cashShiftLog) {
+        this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - separeAbono) * 100) / 100;
+        this.data.cashShiftLog.expectedCashInDrawer = Math.round(Math.max(0, (Number(this.data.cashShiftLog.expectedCashInDrawer) || 0) - separeAbono) * 100) / 100;
+      }
+      if (Array.isArray(this.data.customerCredits)) {
+        const sep = this.data.customerCredits.find(c => c.customer === tx.customer && c.status === 'Plan Separe');
+        if (sep) {
+          sep.status = 'Anulado';
+          sep.currentBalance = 0;
+        }
+      }
+    }
+
+    // 3. SINCRONIZAR DINERO EN CAJA DE LA TIENDA Y TOTALES DE TURNO
+    const totals = this.calculateShiftTotals ? this.calculateShiftTotals() : null;
+    if (totals && this.data.cashShiftLog) {
+      this.data.cashShiftLog.cashSales = totals.salesEfectivo;
+      this.data.cashShiftLog.expectedCashInDrawer = totals.expectedCashInDrawer;
+      this.data.cashShiftLog.cardSales = totals.salesTarjeta + totals.salesTransferencia;
+    }
+    if (this.data.store && this.data.cashShiftLog) {
+      this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+    }
+
+    // 4. ACTUALIZAR ESTADO DE LA TRANSACCIÓN Y MÉTRICAS
+    tx.status = 'Reversada';
+    tx.reversedAt = new Date().toISOString();
+    tx.reversedBy = this.currentUser?.name || 'Administrador';
+
+    if (this.data.kpis) {
+      this.data.kpis.salesToday = Math.round(Math.max(0, (Number(this.data.kpis.salesToday) || 0) - grandTotal) * 100) / 100;
+      this.data.kpis.transactionsToday = Math.max(0, (Number(this.data.kpis.transactionsToday) || 1) - 1);
+    }
+
+    // 5. GUARDAR Y RE-RENDERIZAR EN TODA LA PLATAFORMA
+    await this.savePersistence();
+    this.syncAllModules();
+    this.renderFinVentasTable();
+    this.renderDashboardRecentSales();
+    this.renderCuadreCajaCard();
+    this.renderCashStatusIndicator();
+
+    const itemsSummary = restoredNames.length > 0 ? ` Artículos reintegrados: ${restoredNames.join(', ')}.` : '';
+    this.showToast(`Venta #${tx.id} reversada exitosamente.${itemsSummary} Dinero devuelto al canal original (${tx.paymentMethod}).`, 'success');
   }
 
   exportFinVentasExcel() {
@@ -10744,6 +10943,7 @@ class NexusApp {
 
     return (this.data.recentTransactions || []).filter(tx => {
       if (!tx.date) return false;
+      if (tx.status === 'Reversada' || tx.status === 'Anulada' || tx.status === 'reversada') return false;
 
       // 1. Explicit shiftId match
       if (tx.shiftId) {
