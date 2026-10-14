@@ -2981,8 +2981,9 @@
       </div>
       <div class="modal-body">
         <div style="text-align:center; margin-bottom:1.25rem;">
-          <div style="font-size:0.875rem; color:var(--text-muted);">Total Cobro Recibo</div>
+          <div style="font-size:0.875rem; color:var(--text-muted);" id="modal-checkout-total-subtitle">Total Cobro Recibo</div>
           <div style="font-family:var(--font-heading); font-size:2.5rem; font-weight:800; color:var(--primary-indigo);" id="modal-checkout-total">$0.00</div>
+          <div id="modal-checkout-fee-notice" style="display:none; font-size:0.8rem; font-weight:700; color:#9333EA; margin-top:4px; background:rgba(147,51,234,0.08); border:1px solid rgba(147,51,234,0.2); padding:3px 12px; border-radius:12px;"></div>
         </div>
 
         <!-- RESUMEN DETALLADO DE MERCANCÍA A VENDER (GRAMOS & PRECIO DE VENTA) -->
@@ -3049,6 +3050,51 @@
           <div>
             <label style="font-size:0.78rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.35rem;">N° de Voucher / Aprobación (Opcional)</label>
             <input type="text" id="checkout-card-voucher-input" class="form-input" placeholder="Ej: #048291" style="font-size:0.85rem;">
+          </div>
+
+          <!-- PORCENTAJE DE COMISIÓN BANCARIA / DATÁFONO (RECARGO AL CLIENTE) -->
+          <div style="background:rgba(255,255,255,0.7); border:1px solid rgba(147,51,234,0.25); border-radius:var(--radius-sm); padding:0.75rem 0.85rem; margin-top:0.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+              <label for="checkout-card-fee-percent" style="font-size:0.8rem; font-weight:700; color:#9333EA; margin:0; display:flex; align-items:center; gap:6px;">
+                <span>📊 % Comisión Bancaria / Datáfono</span>
+              </label>
+              <span class="text-xs" style="color:var(--text-muted); font-size:0.72rem;">Retenido por el banco</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.45rem;">
+              Porcentaje que cobra el datáfono/banco para sumar al cobro del cliente:
+            </div>
+            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+              <div style="position:relative; width:105px;">
+                <input type="number" step="0.1" min="0" max="30" id="checkout-card-fee-percent" class="form-input" value="0" placeholder="0" style="padding-right:24px; font-weight:800; font-size:1.05rem; text-align:right;" oninput="app.updateCardFeeCalculation()">
+                <span style="position:absolute; right:8px; top:50%; transform:translateY(-50%); font-weight:800; color:#9333EA; font-size:0.9rem;">%</span>
+              </div>
+              <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setCardFeePercent(0)">0%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setCardFeePercent(3)">3%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setCardFeePercent(4)">4%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setCardFeePercent(5)">5%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setCardFeePercent(7)">7%</button>
+              </div>
+            </div>
+
+            <!-- Desglose y Total con Tarjeta -->
+            <div id="card-fee-summary-strip" style="display:none; margin-top:0.7rem; padding-top:0.7rem; border-top:1px dashed rgba(147,51,234,0.3); font-size:0.84rem;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                <span style="color:var(--text-muted);">💎 Valor Venta (Ingreso Joyería):</span>
+                <strong id="card-fee-base-label" style="color:var(--text-main); font-weight:700;">$0 COP</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:#DC2626;">
+                <span>🏦 Retención del Banco (<span id="card-fee-pct-badge">0%</span>):</span>
+                <strong id="card-fee-amount-label">+$0 COP</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:6px; border-top:1px solid rgba(147,51,234,0.25); margin-top:4px;">
+                <span style="font-weight:800; color:#9333EA;">💳 TOTAL A COBRAR EN DATÁFONO:</span>
+                <strong id="card-fee-total-charged-label" style="font-weight:900; font-size:1.15rem; color:#9333EA;">$0 COP</strong>
+              </div>
+              <div style="font-size:0.72rem; color:var(--text-muted); margin-top:5px; line-height:1.3;">
+                ℹ️ <i>Este porcentaje se lo queda el banco directamente y <b>no ingresa</b> a la aplicación.</i>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -3180,6 +3226,55 @@
                 N° de Comprobante / Voucher (Opcional)
               </label>
               <input type="text" id="mixed-voucher-input" class="form-input text-xs" placeholder="Ej: #94821 / Nequi">
+            </div>
+          </div>
+
+          <!-- PORCENTAJE DE COMISIÓN BANCARIA SOBRE LA PORCIÓN DE TARJETA (PAGO MIXTO) -->
+          <div id="mixed-card-fee-section" style="display:none; background:rgba(255,255,255,0.7); border:1px solid rgba(2,132,199,0.25); border-radius:var(--radius-sm); padding:0.75rem 0.85rem; margin-top:0.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+              <label for="checkout-mixed-card-fee-percent" style="font-size:0.8rem; font-weight:700; color:#0284C7; margin:0; display:flex; align-items:center; gap:6px;">
+                <span>📊 % Comisión Banco sobre Tarjeta</span>
+              </label>
+              <span class="text-xs" style="color:var(--text-muted); font-size:0.72rem;">Retenido por el banco</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.45rem;">
+              Porcentaje que cobra el datáfono sobre la porción de tarjeta que se suma al cobro del cliente:
+            </div>
+            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+              <div style="position:relative; width:105px;">
+                <input type="number" step="0.1" min="0" max="30" id="checkout-mixed-card-fee-percent" class="form-input" value="0" placeholder="0" style="padding-right:24px; font-weight:800; font-size:1.05rem; text-align:right;" oninput="app.updateMixedCardFeeCalculation()">
+                <span style="position:absolute; right:8px; top:50%; transform:translateY(-50%); font-weight:800; color:#0284C7; font-size:0.9rem;">%</span>
+              </div>
+              <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setMixedCardFeePercent(0)">0%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setMixedCardFeePercent(3)">3%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setMixedCardFeePercent(4)">4%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setMixedCardFeePercent(5)">5%</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.75rem; font-weight:700;" onclick="app.setMixedCardFeePercent(7)">7%</button>
+              </div>
+            </div>
+
+            <!-- Desglose Mixto con Tarjeta -->
+            <div id="mixed-card-fee-summary-strip" style="display:none; margin-top:0.7rem; padding-top:0.7rem; border-top:1px dashed rgba(2,132,199,0.3); font-size:0.84rem;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                <span style="color:var(--text-muted);">💳 Base Tarjeta (Neto Tienda):</span>
+                <strong id="mixed-card-fee-base-label" style="color:var(--text-main); font-weight:700;">$0 COP</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:#DC2626;">
+                <span>🏦 Retención Banco sobre Tarjeta (<span id="mixed-card-fee-pct-badge">0%</span>):</span>
+                <strong id="mixed-card-fee-amount-label">+$0 COP</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:#0284C7;">
+                <span>💳 Total a Pasar por Datáfono:</span>
+                <strong id="mixed-card-fee-charged-label" style="font-weight:700;">$0 COP</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:6px; border-top:1px solid rgba(2,132,199,0.25); margin-top:4px;">
+                <span style="font-weight:800; color:var(--text-main);">💼 TOTAL COBRADO AL CLIENTE:</span>
+                <strong id="mixed-total-charged-to-customer-label" style="font-weight:900; font-size:1.15rem; color:#0284C7;">$0 COP</strong>
+              </div>
+              <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
+                ℹ️ <i>La comisión del banco <b>no ingresa</b> a la aplicación. En la contabilidad entra únicamente el total de la venta neta.</i>
+              </div>
             </div>
           </div>
         </div>

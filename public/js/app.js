@@ -18607,9 +18607,21 @@ class NexusApp {
             <span style="font-weight:700;">${this.formatCurrency(tax)}</span>
           </div>` : ''}
           <div style="display:flex; justify-content:space-between; font-weight:800; font-size:13.5px; margin:2px 0;">
-            <span style="font-weight:800;">TOTAL:</span>
+            <span style="font-weight:800;">TOTAL VENTA:</span>
             <span style="font-weight:800;">${this.formatCurrency(total)}</span>
           </div>
+          ${options.bankFeeAmount > 0 ? `
+          <div style="display:flex; justify-content:space-between; font-weight:700; color:#222; font-size:11.5px;">
+            <span>Recargo Banco/Datáfono (${options.bankFeePercent || 0}%):</span>
+            <span>+${this.formatCurrency(options.bankFeeAmount)}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-weight:800; font-size:13px; margin:3px 0 1px 0; color:#000;">
+            <span>TOTAL COBRADO CLIENTE:</span>
+            <span>${this.formatCurrency(options.totalChargedToCustomer || (total + options.bankFeeAmount))}</span>
+          </div>
+          <div style="font-size:10px; font-style:italic; color:#444; text-align:center; margin-bottom:4px;">
+            * Comisión bancaria retenida directamente por el datáfono
+          </div>` : ''}
           <div style="display:flex; justify-content:space-between; font-weight:700;">
             <span style="font-weight:700;">Pagado:</span>
             <span style="font-weight:700;">${this.formatCurrency(paidAmount)}</span>
@@ -24971,6 +24983,20 @@ class NexusApp {
     if (creditBox) creditBox.style.display = this.selectedPayMethod === 'credit' ? 'flex' : 'none';
     if (separeBox) separeBox.style.display = this.selectedPayMethod === 'separe' ? 'flex' : 'none';
 
+    // Actualizar cálculos de comisión bancaria según el método seleccionado
+    if (this.selectedPayMethod === 'card') {
+      this.updateCardFeeCalculation();
+    } else if (this.selectedPayMethod === 'mixed') {
+      this.updateMixedCardFeeCalculation();
+    } else {
+      const totalHeader = document.getElementById('modal-checkout-total');
+      const subtitleHeader = document.getElementById('modal-checkout-total-subtitle');
+      const noticeHeader = document.getElementById('modal-checkout-fee-notice');
+      if (totalHeader) totalHeader.innerText = this.formatCurrency(grandTotal);
+      if (subtitleHeader) subtitleHeader.innerText = 'Total Cobro Recibo';
+      if (noticeHeader) noticeHeader.style.display = 'none';
+    }
+
     if (this.selectedPayMethod === 'credit' && cust) {
       const limit = Number(cust.creditLimit) || 0;
       const current = Number(cust.creditBalance) || 0;
@@ -25006,6 +25032,143 @@ class NexusApp {
     const changeDue = Math.max(0, cashVal - grandTotal);
     const changeEl = document.getElementById('cash-change-due');
     if (changeEl) changeEl.innerText = this.formatCurrency(changeDue);
+  }
+
+  /* --------------------------------------------------------------------------
+     COMISIÓN BANCARIA / DATÁFONO EN VENTAS POS (TARJETA & PAGO MIXTO)
+     -------------------------------------------------------------------------- */
+  setCardFeePercent(pct) {
+    const input = document.getElementById('checkout-card-fee-percent');
+    if (input) {
+      input.value = pct;
+      this.updateCardFeeCalculation();
+    }
+  }
+
+  updateCardFeeCalculation() {
+    const input = document.getElementById('checkout-card-fee-percent');
+    const pct = Math.max(0, parseFloat(input?.value) || 0);
+
+    const subtotal = this.getCartSubtotal();
+    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const feeAmount = Math.round(grandTotal * (pct / 100));
+    const totalCharged = grandTotal + feeAmount;
+
+    const baseLabel = document.getElementById('card-fee-base-label');
+    if (baseLabel) baseLabel.innerText = this.formatCurrency(grandTotal);
+
+    const pctBadge = document.getElementById('card-fee-pct-badge');
+    if (pctBadge) pctBadge.innerText = `${pct}%`;
+
+    const amtLabel = document.getElementById('card-fee-amount-label');
+    if (amtLabel) amtLabel.innerText = `+${this.formatCurrency(feeAmount)}`;
+
+    const chargedLabel = document.getElementById('card-fee-total-charged-label');
+    if (chargedLabel) chargedLabel.innerText = this.formatCurrency(totalCharged);
+
+    const strip = document.getElementById('card-fee-summary-strip');
+    if (strip) strip.style.display = pct > 0 ? 'block' : 'none';
+
+    // Actualizar cabecera principal de cobro en modal
+    const totalHeader = document.getElementById('modal-checkout-total');
+    const subtitleHeader = document.getElementById('modal-checkout-total-subtitle');
+    const noticeHeader = document.getElementById('modal-checkout-fee-notice');
+
+    if (this.selectedPayMethod === 'card') {
+      if (totalHeader) totalHeader.innerText = this.formatCurrency(totalCharged);
+      if (subtitleHeader) {
+        subtitleHeader.innerText = pct > 0 
+          ? 'Total a Cobrar al Cliente (Incluye Comisión Datáfono)'
+          : 'Total Cobro Recibo';
+      }
+      if (noticeHeader) {
+        if (pct > 0) {
+          noticeHeader.style.display = 'inline-block';
+          noticeHeader.innerHTML = `💎 Venta Neto Joyería: ${this.formatCurrency(grandTotal)} · 🏦 Comisión Banco (${pct}%): +${this.formatCurrency(feeAmount)}`;
+        } else {
+          noticeHeader.style.display = 'none';
+        }
+      }
+    }
+  }
+
+  setMixedCardFeePercent(pct) {
+    const input = document.getElementById('checkout-mixed-card-fee-percent');
+    if (input) {
+      input.value = pct;
+      this.updateMixedCardFeeCalculation();
+    }
+  }
+
+  updateMixedCardFeeCalculation() {
+    const combo = this.currentMixedCombo || 'cash_transfer';
+    const feeSection = document.getElementById('mixed-card-fee-section');
+    const hasCard = combo === 'cash_card' || combo === 'card_transfer';
+
+    if (!hasCard) {
+      if (feeSection) feeSection.style.display = 'none';
+      return;
+    }
+
+    if (feeSection) feeSection.style.display = 'block';
+
+    const input1 = document.getElementById('mixed-amount-1');
+    const input2 = document.getElementById('mixed-amount-2');
+    const mAmount1 = this.parseCleanNumber(input1?.value);
+    const mAmount2 = this.parseCleanNumber(input2?.value);
+
+    // Identificar cuál parte corresponde a la tarjeta
+    const cardBase = combo === 'cash_card' ? mAmount2 : mAmount1;
+
+    const inputPct = document.getElementById('checkout-mixed-card-fee-percent');
+    const pct = Math.max(0, parseFloat(inputPct?.value) || 0);
+
+    const feeAmount = Math.round(cardBase * (pct / 100));
+    const cardCharged = cardBase + feeAmount;
+
+    const subtotal = this.getCartSubtotal();
+    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const totalChargedToCustomer = grandTotal + feeAmount;
+
+    const baseLabel = document.getElementById('mixed-card-fee-base-label');
+    if (baseLabel) baseLabel.innerText = this.formatCurrency(cardBase);
+
+    const pctBadge = document.getElementById('mixed-card-fee-pct-badge');
+    if (pctBadge) pctBadge.innerText = `${pct}%`;
+
+    const amtLabel = document.getElementById('mixed-card-fee-amount-label');
+    if (amtLabel) amtLabel.innerText = `+${this.formatCurrency(feeAmount)}`;
+
+    const chargedLabel = document.getElementById('mixed-card-fee-charged-label');
+    if (chargedLabel) chargedLabel.innerText = this.formatCurrency(cardCharged);
+
+    const totalCustLabel = document.getElementById('mixed-total-charged-to-customer-label');
+    if (totalCustLabel) totalCustLabel.innerText = this.formatCurrency(totalChargedToCustomer);
+
+    const strip = document.getElementById('mixed-card-fee-summary-strip');
+    if (strip) strip.style.display = pct > 0 ? 'block' : 'none';
+
+    // Actualizar cabecera principal de cobro en modal
+    const totalHeader = document.getElementById('modal-checkout-total');
+    const subtitleHeader = document.getElementById('modal-checkout-total-subtitle');
+    const noticeHeader = document.getElementById('modal-checkout-fee-notice');
+
+    if (this.selectedPayMethod === 'mixed') {
+      if (totalHeader) totalHeader.innerText = this.formatCurrency(totalChargedToCustomer);
+      if (subtitleHeader) {
+        subtitleHeader.innerText = pct > 0 
+          ? 'Total a Cobrar al Cliente (Incluye Comisión Datáfono)'
+          : 'Total Cobro Recibo';
+      }
+      if (noticeHeader) {
+        if (pct > 0) {
+          noticeHeader.style.display = 'inline-block';
+          noticeHeader.innerHTML = `💎 Venta Neto Joyería: ${this.formatCurrency(grandTotal)} · 🏦 Comisión Tarjeta (${pct}%): +${this.formatCurrency(feeAmount)}`;
+        } else {
+          noticeHeader.style.display = 'none';
+        }
+      }
+    }
   }
 
   /* --------------------------------------------------------------------------
@@ -25109,15 +25272,18 @@ class NexusApp {
       this.updateMixedBalanceStatus();
       this.updateMixedCashChange();
     }
+    this.updateMixedCardFeeCalculation();
   }
 
   onMixedAmount1Change() {
     this.updateMixedBalanceStatus();
     this.updateMixedCashChange();
+    this.updateMixedCardFeeCalculation();
   }
 
   onMixedAmount2Change() {
     this.updateMixedBalanceStatus();
+    this.updateMixedCardFeeCalculation();
   }
 
   quickSplitMixedFifty() {
@@ -25232,11 +25398,23 @@ class NexusApp {
     let targetAccount = '';
     let voucher = '';
     let mixedPaymentsData = null;
+    let bankFeePercent = 0;
+    let bankFeeAmount = 0;
+    let totalChargedToCustomer = grandTotal;
 
     if (this.selectedPayMethod === 'card') {
       targetAccount = cardAccount;
       voucher = cardVoucher;
-      if (cardAccount) txPaymentMethod = `Tarjeta (${cardAccount})`;
+
+      // Extraer porcentaje y calcular comisión que retiene el banco
+      bankFeePercent = Math.max(0, parseFloat(document.getElementById('checkout-card-fee-percent')?.value) || 0);
+      bankFeeAmount = Math.round(grandTotal * (bankFeePercent / 100));
+      totalChargedToCustomer = grandTotal + bankFeeAmount;
+
+      txPaymentMethod = cardAccount ? `Tarjeta (${cardAccount})` : 'Tarjeta';
+      if (bankFeePercent > 0) {
+        txPaymentMethod += ` [+${bankFeePercent}% Recargo Banco: ${this.formatCurrency(bankFeeAmount)}]`;
+      }
     } else if (this.selectedPayMethod === 'transfer') {
       targetAccount = transferAccount;
       voucher = transferVoucher;
@@ -25272,21 +25450,39 @@ class NexusApp {
         }
       }
 
+      // Verificar si hay tarjeta en el pago mixto y calcular recargo de comisión del banco
+      const hasCard = combo === 'cash_card' || combo === 'card_transfer';
+      if (hasCard) {
+        bankFeePercent = Math.max(0, parseFloat(document.getElementById('checkout-mixed-card-fee-percent')?.value) || 0);
+        const cardBaseAmt = combo === 'cash_card' ? mAmount2 : mAmount1;
+        bankFeeAmount = Math.round(cardBaseAmt * (bankFeePercent / 100));
+        totalChargedToCustomer = grandTotal + bankFeeAmount;
+      }
+
       mixedPaymentsData = [
         {
           method: m1Name,
           amount: mAmount1,
-          targetAccount: m1Account || undefined
+          targetAccount: m1Account || undefined,
+          bankFeePercent: combo === 'card_transfer' ? bankFeePercent : 0,
+          bankFeeAmount: combo === 'card_transfer' ? bankFeeAmount : 0,
+          totalCharged: combo === 'card_transfer' ? (mAmount1 + bankFeeAmount) : mAmount1
         },
         {
           method: m2Name,
           amount: mAmount2,
           targetAccount: m2Account,
-          voucher: mVoucher || undefined
+          voucher: mVoucher || undefined,
+          bankFeePercent: combo === 'cash_card' ? bankFeePercent : 0,
+          bankFeeAmount: combo === 'cash_card' ? bankFeeAmount : 0,
+          totalCharged: combo === 'cash_card' ? (mAmount2 + bankFeeAmount) : mAmount2
         }
       ];
 
       txPaymentMethod = `Pago Mixto (${m1Name}: ${this.formatCurrency(mAmount1)} + ${m2Name}: ${this.formatCurrency(mAmount2)})`;
+      if (bankFeePercent > 0) {
+        txPaymentMethod += ` [+${bankFeePercent}% Recargo Banco Tarjeta: ${this.formatCurrency(bankFeeAmount)}]`;
+      }
       targetAccount = m2Account;
       voucher = mVoucher;
     }
@@ -25473,7 +25669,11 @@ class NexusApp {
       }),
       subtotal: subtotal,
       tax: tax,
-      total: grandTotal,
+      total: grandTotal, // Neto real de venta de joyería que ingresa a la contabilidad
+      bankFeePercent: bankFeePercent,
+      bankFeeAmount: bankFeeAmount,
+      totalChargedToCustomer: totalChargedToCustomer, // Total cobrado al cliente en datáfono
+      bankWithheld: bankFeeAmount, // Retenido por el banco, NO entra a la caja ni a ingresos
       paymentMethod: txPaymentMethod,
       targetAccount: targetAccount || undefined,
       voucher: voucher || undefined,
@@ -25543,6 +25743,9 @@ class NexusApp {
       total: grandTotal,
       paidAmount: cashReceived,
       changeAmount: changeVal,
+      bankFeePercent: bankFeePercent,
+      bankFeeAmount: bankFeeAmount,
+      totalChargedToCustomer: totalChargedToCustomer,
       paymentMethod: txPaymentMethod,
       targetAccount: targetAccount || undefined,
       voucher: voucher || undefined,
