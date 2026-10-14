@@ -1013,7 +1013,7 @@
             <div class="section-header">
               <div>
                 <h1 class="section-title">Créditos con Proveedores (Cuentas por Pagar)</h1>
-                <p class="section-subtitle">Auditoría de deudas con distribuidores y compromisos comerciales.</p>
+                <p class="section-subtitle">Auditoría consolidada por proveedor, discriminación de facturas por fecha y amortización de pagos.</p>
               </div>
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <button type="button" class="btn btn-secondary text-sm" onclick="app.exportCreditosProveedoresExcel()" style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700;" title="Exportar Auditoría Completa de Créditos y Cuentas por Pagar a Excel Multi-Hoja">
@@ -1022,11 +1022,63 @@
                 </button>
               </div>
             </div>
+
+            <!-- KPIs CONSOLIDADOS DE PROVEEDORES -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:0.9rem; margin-bottom:1.15rem;">
+              <div style="background:var(--card-bg, #ffffff); border:1px solid var(--border-color, #e2e8f0); border-radius:var(--radius-md, 8px); padding:0.9rem 1.15rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">💰 Total Deuda Pendiente</div>
+                <div id="supplier-kpi-total-pending" style="font-size:1.5rem; font-weight:800; color:var(--rose-text, #e11d48); margin-top:0.2rem; font-family:var(--font-heading);">$ 0</div>
+                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.2rem;">Compromisos comerciales activos</div>
+              </div>
+              <div style="background:var(--card-bg, #ffffff); border:1px solid var(--border-color, #e2e8f0); border-radius:var(--radius-md, 8px); padding:0.9rem 1.15rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">🏢 Proveedores con Deuda</div>
+                <div id="supplier-kpi-suppliers-count" style="font-size:1.5rem; font-weight:800; color:var(--primary-indigo, #4F46E5); margin-top:0.2rem; font-family:var(--font-heading);">0</div>
+                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.2rem;">Proveedores con saldo por pagar</div>
+              </div>
+              <div style="background:var(--card-bg, #ffffff); border:1px solid var(--border-color, #e2e8f0); border-radius:var(--radius-md, 8px); padding:0.9rem 1.15rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">📦 Total Facturas / OCs Vinculadas</div>
+                <div id="supplier-kpi-pos-count" style="font-size:1.5rem; font-weight:800; color:var(--emerald-text, #10B981); margin-top:0.2rem; font-family:var(--font-heading);">0</div>
+                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.2rem;">Compras a crédito registradas</div>
+              </div>
+            </div>
+
+            <!-- BARRA DE PESTAÑAS / FILTROS Y BÚSQUEDA -->
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem; background:var(--canvas-bg); padding:0.6rem 0.8rem; border-radius:var(--radius-md); border:1px solid var(--border-color);">
+              <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+                <button type="button" class="btn btn-primary text-xs" id="supp-cred-tab-pending" onclick="app.setSupplierCreditFilter('pending', this)" style="display:flex; align-items:center; gap:6px; font-weight:700; padding:6px 14px;">
+                  <span>⏳ Deudas Pendientes</span>
+                  <span class="badge" id="badge-supp-cred-pending" style="background:rgba(255,255,255,0.25); color:inherit; font-size:0.72rem; padding:2px 7px;">0</span>
+                </button>
+                <button type="button" class="btn btn-secondary text-xs" id="supp-cred-tab-paid" onclick="app.setSupplierCreditFilter('paid', this)" style="display:flex; align-items:center; gap:6px; font-weight:700; padding:6px 14px;">
+                  <span>✅ Historial Saldadas</span>
+                  <span class="badge" id="badge-supp-cred-paid" style="background:rgba(0,0,0,0.08); font-size:0.72rem; padding:2px 7px;">0</span>
+                </button>
+                <button type="button" class="btn btn-secondary text-xs" id="supp-cred-tab-all" onclick="app.setSupplierCreditFilter('all', this)" style="display:flex; align-items:center; gap:6px; font-weight:700; padding:6px 14px;">
+                  <span>📋 Todas</span>
+                  <span class="badge" id="badge-supp-cred-all" style="background:rgba(0,0,0,0.08); font-size:0.72rem; padding:2px 7px;">0</span>
+                </button>
+              </div>
+              <div style="display:flex; align-items:center; gap:0.5rem; flex:1; max-width:320px;">
+                <input type="text" id="supp-cred-search-input" class="form-input text-xs" placeholder="🔍 Buscar proveedor o crédito..." oninput="app.filterSupplierCreditsTable()" style="padding:6px 12px; border-radius:var(--radius-sm); width:100%;">
+              </div>
+            </div>
+
+            <!-- TABLA DE CRÉDITOS PROVEEDORES -->
             <div class="table-wrapper">
               <div class="table-container">
                 <table class="data-table">
                   <thead>
-                    <tr><th>ID Deuda</th><th>Proveedor</th><th>Deuda Inicial</th><th>Monto Pendiente</th><th>Vencimiento</th><th>Estado</th><th>Acciones</th></tr>
+                    <tr>
+                      <th>ID Crédito</th>
+                      <th>Proveedor</th>
+                      <th>Total Compras</th>
+                      <th>Total Pagado</th>
+                      <th>Saldo Pendiente</th>
+                      <th>Última Compra</th>
+                      <th>Vencimiento</th>
+                      <th>Estado</th>
+                      <th style="text-align:center;">Acciones &amp; Detalle</th>
+                    </tr>
                   </thead>
                   <tbody id="fin-cred-prv-tbody"></tbody>
                 </table>
@@ -2705,6 +2757,89 @@
             <button type="submit" id="abono-submit-btn" class="btn btn-primary" style="flex:1.5;">Confirmar y Registrar Abono</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: DISCRIMINACIÓN DE FACTURAS Y FECHAS DE CRÉDITO PROVEEDOR -->
+  <div class="modal-backdrop" id="supplier-credit-purchases-modal">
+    <div class="modal-card" style="max-width: 860px; width: 95%;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:rgba(99,102,241,0.15); color:var(--primary-indigo); display:flex; align-items:center; justify-content:center; font-size:1.2rem;">📄</div>
+          <div>
+            <h3 class="modal-title" id="supp-purchases-modal-title">Facturas y Fechas del Proveedor</h3>
+            <p class="modal-subtitle" id="supp-purchases-modal-subtitle">Desglose de compras discriminadas por fecha asociadas a este crédito.</p>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="app.closeModal('supplier-credit-purchases-modal')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:1.25rem;">
+        <!-- Resumen Financiero del Proveedor -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem; margin-bottom:1.25rem;">
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); padding:0.75rem 1rem; border-radius:var(--radius-md);">
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Total Facturado Acumulado:</div>
+            <div id="supp-modal-total-owed" style="font-size:1.2rem; font-weight:800; color:var(--text-main); margin-top:2px;">$ 0</div>
+          </div>
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); padding:0.75rem 1rem; border-radius:var(--radius-md);">
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Total Pagado / Abonado:</div>
+            <div id="supp-modal-total-paid" style="font-size:1.2rem; font-weight:800; color:var(--emerald-text, #10B981); margin-top:2px;">$ 0</div>
+          </div>
+          <div style="background:rgba(225, 29, 72, 0.06); border:1px solid rgba(225, 29, 72, 0.25); padding:0.75rem 1rem; border-radius:var(--radius-md);">
+            <div style="font-size:0.75rem; color:var(--rose-text, #e11d48); font-weight:600;">Saldo Pendiente Actual:</div>
+            <div id="supp-modal-pending-amount" style="font-size:1.2rem; font-weight:800; color:var(--rose-text, #e11d48); margin-top:2px;">$ 0</div>
+          </div>
+        </div>
+
+        <!-- Tabla de Facturas / Compras Discriminadas -->
+        <div style="margin-bottom:1.25rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+            <h4 style="font-size:0.9rem; font-weight:700; color:var(--text-main); margin:0;">📦 Facturas &amp; Compras Registradas (<span id="supp-modal-po-count">0</span>)</h4>
+            <span class="text-xs" style="color:var(--text-muted);">Discriminadas por fecha y hora</span>
+          </div>
+          <div class="table-container" style="max-height: 280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-md);">
+            <table class="data-table" style="font-size:0.82rem; margin:0;">
+              <thead>
+                <tr>
+                  <th style="padding:8px 10px;">Fecha &amp; Hora</th>
+                  <th style="padding:8px 10px;">N° Orden (OC)</th>
+                  <th style="padding:8px 10px;">Producto / Joya</th>
+                  <th style="padding:8px 10px; text-align:right;">Gramaje / Cant</th>
+                  <th style="padding:8px 10px; text-align:right;">Monto Compra</th>
+                  <th style="padding:8px 10px; text-align:center;">Estado Pago</th>
+                </tr>
+              </thead>
+              <tbody id="supp-modal-po-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tabla de Abonos / Pagos Realizados -->
+        <div id="supp-modal-abonos-container">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+            <h4 style="font-size:0.9rem; font-weight:700; color:var(--text-main); margin:0;">💳 Historial de Pagos y Abonos Aplicados (<span id="supp-modal-abonos-count">0</span>)</h4>
+          </div>
+          <div class="table-container" style="max-height: 180px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-md);">
+            <table class="data-table" style="font-size:0.82rem; margin:0;">
+              <thead>
+                <tr>
+                  <th style="padding:8px 10px;">Fecha &amp; Hora</th>
+                  <th style="padding:8px 10px;">Comprobante</th>
+                  <th style="padding:8px 10px;">Método de Pago</th>
+                  <th style="padding:8px 10px;">Cajero</th>
+                  <th style="padding:8px 10px; text-align:right;">Monto Abonado</th>
+                </tr>
+              </thead>
+              <tbody id="supp-modal-abonos-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-top:1px solid var(--border-color);">
+        <button type="button" class="btn btn-secondary text-xs" onclick="app.closeModal('supplier-credit-purchases-modal')">Cerrar</button>
+        <button type="button" id="supp-modal-pay-btn" class="btn btn-primary text-xs" style="display:flex; align-items:center; gap:6px; font-weight:700;">
+          <span>💳 Registrar Pago a este Proveedor</span>
+        </button>
       </div>
     </div>
   </div>

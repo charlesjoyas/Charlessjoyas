@@ -1378,1404 +1378,524 @@
       "paidAmount": 0,
       "pendingAmount": 21328000,
       "date": "2026-09-19",
-      "dueDate": "2026-10-19",
-      "status": "Pendiente"
+      "lastPurchaseDate": "2026-09-19",
+      "dueDate": "2026-11-13",
+      "status": "Pendiente",
+      "purchaseOrderIds": [],
+      "history": []
     },
     {
       "id": "CP-002",
       "supplier": "ARISTIZABAL JOYERO",
       "supplierId": "PRV-753",
       "totalOwed": 104642700,
-      "paidAmount": 10800000,
+      "paidAmount": 13300000,
       "pendingAmount": 91342700,
       "date": "2026-09-17",
-      "dueDate": "2026-10-17",
-      "status": "Pendiente"
+      "lastPurchaseDate": "2026-09-17",
+      "dueDate": "2026-11-13",
+      "status": "Pendiente",
+      "purchaseOrderIds": [],
+      "history": [
+        {
+          "type": "payment",
+          "abonoId": "AB-C963941",
+          "amount": 1000000,
+          "method": "Efectivo",
+          "date": "2026-09-17 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C039527",
+          "amount": 1500000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-18 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C309433",
+          "amount": 3000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-22 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C695517",
+          "amount": 2000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-23 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C603992",
+          "amount": 1300000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-24 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C275593",
+          "amount": 1000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-26 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C329385",
+          "amount": 2500000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-02 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C114748",
+          "amount": 1000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-05 12:00"
+        }
+      ]
     },
     {
       "id": "CP-003",
       "supplier": "DH HERNANDEZ JOYEROS",
       "supplierId": "PRV-974",
-      "totalOwed": 11405230,
+      "totalOwed": 16769280,
       "paidAmount": 11405000,
       "pendingAmount": 5364280,
       "date": "2026-09-17",
-      "dueDate": "2026-10-17",
-      "status": "Pendiente"
+      "lastPurchaseDate": "2026-10-05",
+      "dueDate": "2026-11-13",
+      "status": "Pendiente",
+      "purchaseOrderIds": [
+        "OC-589753"
+      ],
+      "history": [
+        {
+          "type": "payment",
+          "abonoId": "AB-C183753",
+          "amount": 5405000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-21 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C637925",
+          "amount": 2960000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-30 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C848601",
+          "amount": 1040000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-02 12:00"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-589753",
+          "amount": 5364050,
+          "date": "2026-10-05 10:36",
+          "description": "BOLAS (15.11g)"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C634354",
+          "amount": 2000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-09 12:00"
+        }
+      ]
     },
     {
       "id": "CP-004",
-      "poId": "OC-589753",
-      "supplier": "DH HERNANDEZ JOYEROS",
-      "totalOwed": 5364050,
-      "pendingAmount": 5364050,
-      "date": "2026-10-05",
-      "dueDate": "2026-11-04",
-      "status": "Pendiente"
+      "supplier": "PIETRA MAYORISTA",
+      "supplierId": "PRV-1065",
+      "totalOwed": 6871500,
+      "paidAmount": 4581500,
+      "pendingAmount": 2290000,
+      "date": "2026-10-07",
+      "lastPurchaseDate": "2026-10-10",
+      "dueDate": "2026-11-13",
+      "status": "Pendiente",
+      "purchaseOrderIds": [
+        "OC-955827",
+        "OC-910870",
+        "OC-790773",
+        "OC-642181"
+      ],
+      "history": [
+        {
+          "type": "purchase",
+          "poId": "OC-642181",
+          "amount": 662200,
+          "date": "2026-10-07 12:54",
+          "description": "PULSO GUCC DE BB (1.72g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-790773",
+          "amount": 689150,
+          "date": "2026-10-07 12:56",
+          "description": "PULSO GUCCI  BB (1.79g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-910870",
+          "amount": 481250,
+          "date": "2026-10-07 12:58",
+          "description": "PULSO BB CADENA (1.25g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-955827",
+          "amount": 450450,
+          "date": "2026-10-07 12:59",
+          "description": "PULSO BB CADENA (1.17g)"
+        }
+      ]
     },
     {
       "id": "CP-005",
       "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
+      "supplierId": "PRV-1065",
+      "totalOwed": 226784250,
+      "paidAmount": 226784250,
       "pendingAmount": 0,
       "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
+      "lastPurchaseDate": "2026-10-10",
+      "dueDate": "2026-10-10",
+      "status": "Pagado Total",
+      "purchaseOrderIds": [
+        "OC-955827",
+        "OC-910870",
+        "OC-790773",
+        "OC-642181"
+      ],
+      "history": []
     },
     {
       "id": "CP-006",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
+      "supplier": "carlos andres garzon",
+      "supplierId": "PRV-907",
+      "totalOwed": 122399640,
+      "paidAmount": 16964620,
+      "pendingAmount": 105435020,
       "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
+      "lastPurchaseDate": "2026-10-10",
+      "dueDate": "2026-11-13",
+      "status": "Pendiente",
+      "purchaseOrderIds": [
+        "OC-260308",
+        "OC-238788",
+        "OC-194978",
+        "OC-149368",
+        "OC-101641",
+        "OC-787770",
+        "OC-249600",
+        "OC-777563",
+        "OC-026129",
+        "OC-801228",
+        "OC-769128",
+        "OC-738140",
+        "OC-705383",
+        "OC-647892",
+        "OC-505948",
+        "OC-471586",
+        "OC-448326",
+        "OC-446633",
+        "OC-413316",
+        "OC-388564",
+        "OC-358096",
+        "OC-958983",
+        "OC-956580",
+        "OC-302327"
+      ],
+      "history": [
+        {
+          "type": "payment",
+          "abonoId": "AB-C012319",
+          "amount": 50000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-18 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C586680",
+          "amount": 912000,
+          "method": "Transferencia",
+          "date": "2026-09-18 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C600191",
+          "amount": 912999,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-18 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C528733",
+          "amount": 1000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-19 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C675686",
+          "amount": 2000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-23 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C416240",
+          "amount": 320000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-28 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C784965",
+          "amount": 283800,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-29 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C917235",
+          "amount": 365000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-09-29 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C274531",
+          "amount": 350000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-02 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C062340",
+          "amount": 1000000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-05 12:00"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-302327",
+          "amount": 252800,
+          "date": "2026-10-06 12:05",
+          "description": "ANILLO INFINITO (0.79g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-956580",
+          "amount": 259200,
+          "date": "2026-10-06 12:10",
+          "description": "ANILLO INFINITO (0.81g)"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C232225",
+          "amount": 512000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-07 12:00"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C616126",
+          "amount": 280000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-08 12:00"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-958983",
+          "amount": 256000,
+          "date": "2026-10-08 17:52",
+          "description": "ANILLO INFINITO (0.8g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-388564",
+          "amount": 200320,
+          "date": "2026-10-09 14:49",
+          "description": "TOPOS VAN CLIF (0.64g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-358096",
+          "amount": 197190,
+          "date": "2026-10-09 14:49",
+          "description": "TOPOS VAN CLIF (0.63g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-448326",
+          "amount": 200320,
+          "date": "2026-10-09 14:50",
+          "description": "TOPOS VAN CLIF (0.64g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-446633",
+          "amount": 200320,
+          "date": "2026-10-09 14:50",
+          "description": "TOPOS VAN CLIF (0.64g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-413316",
+          "amount": 200320,
+          "date": "2026-10-09 14:50",
+          "description": "TOPOS VAN CLIF (0.64g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-505948",
+          "amount": 197190,
+          "date": "2026-10-09 14:51",
+          "description": "TOPOS VAN CLIF (0.63g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-471586",
+          "amount": 200320,
+          "date": "2026-10-09 14:51",
+          "description": "TOPOS VAN CLIF (0.64g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-647892",
+          "amount": 2166900,
+          "date": "2026-10-09 14:54",
+          "description": "TOPOS DE ESMERALDAS (1.55g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-738140",
+          "amount": 1831380,
+          "date": "2026-10-09 14:55",
+          "description": "TOPOS MEDIANO ESMERALDAS (1.31g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-705383",
+          "amount": 1719540,
+          "date": "2026-10-09 14:55",
+          "description": "TOPOS MEDIANO ESMERALDAS (1.23g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-801228",
+          "amount": 1244220,
+          "date": "2026-10-09 14:56",
+          "description": "TOPOS DE ESMERALDAS (0.89g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-769128",
+          "amount": 1467900,
+          "date": "2026-10-09 14:56",
+          "description": "TOPOS DE ESMERALDAS (1.05g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-026129",
+          "amount": 1024000,
+          "date": "2026-10-09 18:20",
+          "description": "TOPOS DE ESMERALDAS (3.2g)"
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C974523",
+          "amount": 2099600,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-10 04:00 p.m."
+        },
+        {
+          "type": "payment",
+          "abonoId": "AB-C937915",
+          "amount": 150000,
+          "method": "Efectivo (Caja)",
+          "date": "2026-10-10 04:00 p.m."
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-777563",
+          "amount": 642600,
+          "date": "2026-10-10 11:29",
+          "description": "BROCHES ITA (1.53g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-249600",
+          "amount": 3162600,
+          "date": "2026-10-10 11:37",
+          "description": "BOLAS (10.04g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-787770",
+          "amount": 669700,
+          "date": "2026-10-10 13:09",
+          "description": "PLACA FOT GR (1.81g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-149368",
+          "amount": 281200,
+          "date": "2026-10-10 14:05",
+          "description": "PLACA FOT GR (0.76g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-101641",
+          "amount": 410700,
+          "date": "2026-10-10 14:05",
+          "description": "PLACA FOT GR (1.11g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-194978",
+          "amount": 266400,
+          "date": "2026-10-10 14:06",
+          "description": "PLACA FOT GR (0.72g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-260308",
+          "amount": 210900,
+          "date": "2026-10-10 14:07",
+          "description": "PLACA FOT GR (0.57g)"
+        },
+        {
+          "type": "purchase",
+          "poId": "OC-238788",
+          "amount": 214600,
+          "date": "2026-10-10 14:07",
+          "description": "PLACA FOT GR (0.58g)"
+        }
+      ]
     },
     {
       "id": "CP-007",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-008",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-009",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-010",
-      "supplier": "carlos andres garzon",
-      "supplierId": "PRV-907",
-      "totalOwed": 105435020,
-      "paidAmount": 2529600,
-      "pendingAmount": 105435020,
-      "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-011",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-012",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-07",
-      "dueDate": "2026-11-06",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-013",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-014",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-015",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-016",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-017",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-018",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-019",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-020",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-021",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-022",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-023",
-      "poId": "OC-958983",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 256000,
-      "pendingAmount": 256000,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-024",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-025",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-026",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-08",
-      "dueDate": "2026-11-07",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-027",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-028",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-029",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-030",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-031",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-032",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-033",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-034",
-      "poId": "OC-358096",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 197190,
-      "pendingAmount": 197190,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-035",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-036",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-037",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-038",
-      "poId": "OC-388564",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 200320,
-      "pendingAmount": 200320,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-039",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-040",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-041",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-042",
-      "poId": "OC-413316",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 200320,
-      "pendingAmount": 200320,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-043",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-044",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-045",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-046",
-      "poId": "OC-446633",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 200320,
-      "pendingAmount": 200320,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-047",
-      "poId": "OC-448326",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 200320,
-      "pendingAmount": 200320,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-048",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-049",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-050",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-051",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-052",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-053",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-054",
-      "poId": "OC-471586",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 200320,
-      "pendingAmount": 200320,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-055",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-056",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-057",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-058",
-      "poId": "OC-505948",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 197190,
-      "pendingAmount": 197190,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-059",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-060",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-061",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-062",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-063",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-064",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-065",
-      "poId": "OC-647892",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 2166900,
-      "pendingAmount": 2166900,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-066",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-067",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-068",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-069",
-      "poId": "OC-705383",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 1719540,
-      "pendingAmount": 1719540,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-070",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-071",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-072",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-073",
-      "poId": "OC-738140",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 1831380,
-      "pendingAmount": 1831380,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-074",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-075",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-076",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-077",
-      "poId": "OC-769128",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 1467900,
-      "pendingAmount": 1467900,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-078",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-079",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-080",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-081",
-      "poId": "OC-801228",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 1244220,
-      "pendingAmount": 1244220,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-082",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-083",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-084",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-085",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-086",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-087",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-088",
-      "poId": "OC-026129",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 1024000,
-      "pendingAmount": 1024000,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-089",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-090",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-091",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-092",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-093",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-094",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-095",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-09",
-      "dueDate": "2026-11-08",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-096",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-097",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-098",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-099",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-100",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-101",
-      "poId": "OC-777563",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 642600,
-      "pendingAmount": 642600,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-102",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-103",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-104",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-105",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-106",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-107",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-108",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-109",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-110",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-111",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-112",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-113",
-      "poId": "OC-249600",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 3162600,
-      "pendingAmount": 3162600,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-114",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-115",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-116",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-117",
-      "poId": "OC-787770",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 669700,
-      "pendingAmount": 669700,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-118",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-119",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-120",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-121",
-      "poId": "OC-942280",
-      "supplier": "yepez",
-      "totalOwed": 290400,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total",
-      "paidAmount": 290400
-    },
-    {
-      "id": "CP-122",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 4581500,
-      "paidAmount": 0,
-      "pendingAmount": 2290000,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-123",
-      "poId": "OC-101641",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 410700,
-      "pendingAmount": 410700,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-124",
-      "poId": "OC-149368",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 281200,
-      "pendingAmount": 281200,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-125",
-      "poId": "OC-194978",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 266400,
-      "pendingAmount": 266400,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-126",
-      "poId": "OC-238788",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 214600,
-      "pendingAmount": 214600,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-127",
-      "poId": "OC-260308",
-      "supplier": "carlos andres garzon",
-      "totalOwed": 210900,
-      "pendingAmount": 210900,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
-    },
-    {
-      "id": "CP-128",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-956",
-      "totalOwed": 2290750,
-      "paidAmount": 0,
-      "pendingAmount": 0,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-129",
       "supplier": "YEPEZ",
       "supplierId": "PRV-570",
-      "totalOwed": 290400,
-      "paidAmount": 0,
+      "totalOwed": 580800,
+      "paidAmount": 580800,
       "pendingAmount": 0,
       "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pagado Total"
-    },
-    {
-      "id": "CP-130",
-      "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-1065",
-      "totalOwed": 2290000,
-      "paidAmount": 0,
-      "pendingAmount": 2290000,
-      "date": "2026-10-10",
-      "dueDate": "2026-11-09",
-      "status": "Pendiente"
+      "lastPurchaseDate": "2026-10-10",
+      "dueDate": "2026-10-10",
+      "status": "Pagado Total",
+      "purchaseOrderIds": [
+        "OC-942280",
+        "OC-730572"
+      ],
+      "history": []
     }
   ],
   "services": [],
@@ -23843,6 +22963,6 @@
       0
     ]
   },
-  "updatedAt": "2026-10-13T15:37:23.834Z",
+  "updatedAt": "2026-10-14T03:25:26.632Z",
   "sales": []
 }

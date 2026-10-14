@@ -851,43 +851,110 @@ class NexusApp {
     if (!this.data) return;
     if (!Array.isArray(this.data.suppliers)) this.data.suppliers = [];
     if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
+    if (!Array.isArray(this.data.purchases)) this.data.purchases = [];
 
-    this.normalizeSupplierCreditCodes();
+    // Auto-consolidar créditos por proveedor para evitar duplicación y fragmentación
+    const groups = {};
+    this.data.supplierCredits.forEach(sc => {
+      if (!sc) return;
+      const suppName = (sc.supplier || '').toLowerCase().trim();
+      if (!suppName) return;
+      if (!groups[suppName]) groups[suppName] = [];
+      groups[suppName].push(sc);
+    });
 
-    // Sincronizar deudas del Directorio de Proveedores hacia cuentas por pagar (supplierCredits)
+    const consolidated = [];
+    let nextIdCounter = 1;
+
+    for (const [suppName, credList] of Object.entries(groups)) {
+      const suppObj = this.data.suppliers.find(s => (s.name || '').toLowerCase().trim() === suppName);
+      const realName = suppObj ? suppObj.name : credList[0].supplier;
+      const suppId = suppObj ? suppObj.id : (credList[0].supplierId || '');
+      const suppCreditBalance = suppObj ? Math.max(0, Number(suppObj.creditBalance) || 0) : 0;
+
+      // Unir todas las OCs asociadas
+      const suppPOs = this.data.purchases.filter(p => (p.supplier || '').toLowerCase().trim() === suppName);
+      const allPOIds = new Set(suppPOs.map(p => p.id));
+      credList.forEach(c => {
+        if (c.poId) allPOIds.add(c.poId);
+        if (Array.isArray(c.purchaseOrderIds)) c.purchaseOrderIds.forEach(id => allPOIds.add(id));
+      });
+
+      const pendingList = credList.filter(c => (Number(c.pendingAmount) || 0) > 0 || c.status !== 'Pagado Total');
+      const paidList = credList.filter(c => (Number(c.pendingAmount) || 0) <= 0 || c.status === 'Pagado Total');
+
+      const totalOwedSum = pendingList.reduce((sum, c) => sum + (Number(c.totalOwed) || 0), 0);
+      const pendingVal = suppCreditBalance > 0 ? suppCreditBalance : pendingList.reduce((sum, c) => sum + (Number(c.pendingAmount) || 0), 0);
+      const paidVal = Math.max(0, totalOwedSum - pendingVal);
+
+      const allDates = credList.map(c => c.date).filter(Boolean).sort();
+      const earliest = allDates[0] || new Date().toISOString().slice(0, 10);
+      const latest = allDates[allDates.length - 1] || earliest;
+
+      // 1 registro consolidado pendiente si existe deuda
+      if (pendingVal > 0) {
+        consolidated.push({
+          id: `CP-${String(nextIdCounter++).padStart(3, '0')}`,
+          supplier: realName,
+          supplierId: suppId,
+          totalOwed: totalOwedSum > pendingVal ? totalOwedSum : pendingVal,
+          paidAmount: paidVal,
+          pendingAmount: pendingVal,
+          date: earliest,
+          lastPurchaseDate: latest,
+          dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+          status: 'Pendiente',
+          purchaseOrderIds: Array.from(allPOIds)
+        });
+      }
+
+      // 1 registro consolidado saldado si tiene historial pagado
+      if (paidList.length > 0 && (pendingVal === 0 || paidList.length > 5)) {
+        const totalPaidHist = paidList.reduce((sum, c) => sum + (Number(c.totalOwed) || Number(c.paidAmount) || 0), 0);
+        consolidated.push({
+          id: `CP-${String(nextIdCounter++).padStart(3, '0')}`,
+          supplier: realName,
+          supplierId: suppId,
+          totalOwed: totalPaidHist,
+          paidAmount: totalPaidHist,
+          pendingAmount: 0,
+          date: earliest,
+          lastPurchaseDate: latest,
+          dueDate: latest,
+          status: 'Pagado Total',
+          purchaseOrderIds: Array.from(allPOIds)
+        });
+      }
+    }
+
+    // Verificar si algún proveedor en el directorio tiene saldo y no estaba en supplierCredits
     this.data.suppliers.forEach(s => {
       const bal = Math.max(0, Number(s.creditBalance) || 0);
       if (bal > 0) {
-        const existing = this.data.supplierCredits.find(sc => 
+        const existing = consolidated.find(sc => 
           (sc.supplier?.toLowerCase().trim() === s.name?.toLowerCase().trim() || sc.supplierId === s.id) &&
           sc.status !== 'Pagado Total' && (Number(sc.pendingAmount) || 0) > 0
         );
         if (!existing) {
-          const newCreditId = this.getNextSupplierCreditId();
-          this.data.supplierCredits.push({
-            id: newCreditId,
+          const suppPOs = this.data.purchases.filter(p => (p.supplier || '').toLowerCase().trim() === (s.name || '').toLowerCase().trim());
+          consolidated.push({
+            id: `CP-${String(nextIdCounter++).padStart(3, '0')}`,
             supplier: s.name,
             supplierId: s.id,
             totalOwed: bal,
             paidAmount: 0,
             pendingAmount: bal,
             date: new Date().toISOString().slice(0, 10),
+            lastPurchaseDate: new Date().toISOString().slice(0, 10),
             dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-            status: "Pendiente"
+            status: "Pendiente",
+            purchaseOrderIds: suppPOs.map(p => p.id)
           });
-        } else if (existing && Math.abs((Number(existing.pendingAmount) || 0) - bal) > 0.01) {
-          existing.pendingAmount = bal;
-          if ((Number(existing.totalOwed) || 0) < bal) existing.totalOwed = bal;
         }
-      } else {
-        this.data.supplierCredits.forEach(sc => {
-          if (sc.supplier?.toLowerCase().trim() === s.name?.toLowerCase().trim() || sc.supplierId === s.id) {
-            sc.pendingAmount = 0;
-            sc.status = "Pagado Total";
-          }
-        });
       }
     });
+
+    this.data.supplierCredits = consolidated;
   }
 
   async savePersistence() {
@@ -3061,21 +3128,70 @@ class NexusApp {
           }
           this.data.purchases.unshift(newPO);
 
-          // Si fue a crédito (Pendiente), registrar deuda en cuentas por pagar de supplierCredits
+          // Si fue a crédito (Pendiente), acumular o registrar deuda en cuentas por pagar de supplierCredits (Híbrido)
           if (!isPaid) {
             if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
-            const newCreditId = this.getNextSupplierCreditId();
-            this.data.supplierCredits.push({
-              id: newCreditId,
-              poId: newPO.id,
-              supplier: supp,
-              totalOwed: totalCost,
-              pendingAmount: totalCost,
-              date: now.toISOString().slice(0, 10),
-              dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-              status: "Pendiente"
+            const suppNorm = (supp || '').toLowerCase().trim();
+            const suppObj = (this.data.suppliers || []).find(s => 
+              s.name?.toLowerCase().trim() === suppNorm || (s.id && s.id === newPO.supplierId)
+            );
+
+            // Buscar si ya existe un crédito activo pendiente para este proveedor
+            let activeCredit = this.data.supplierCredits.find(sc => {
+              const scSupp = (sc.supplier || '').toLowerCase().trim();
+              const matchSupp = scSupp === suppNorm || (suppObj && sc.supplierId === suppObj.id);
+              return matchSupp && (Number(sc.pendingAmount) > 0 || sc.status !== 'Pagado Total');
             });
-            const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === supp?.toLowerCase().trim());
+
+            if (activeCredit) {
+              // OPCION 3: Acumular la compra a la factura/deuda activa del proveedor
+              activeCredit.totalOwed = Math.round(((Number(activeCredit.totalOwed) || 0) + totalCost) * 100) / 100;
+              activeCredit.pendingAmount = Math.round(((Number(activeCredit.pendingAmount) || 0) + totalCost) * 100) / 100;
+              activeCredit.lastPurchaseDate = now.toISOString().slice(0, 10);
+              activeCredit.dueDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+              activeCredit.status = 'Pendiente';
+
+              if (!Array.isArray(activeCredit.purchaseOrderIds)) {
+                activeCredit.purchaseOrderIds = activeCredit.poId ? [activeCredit.poId] : [];
+              }
+              if (!activeCredit.purchaseOrderIds.includes(newPO.id)) {
+                activeCredit.purchaseOrderIds.push(newPO.id);
+              }
+              if (!Array.isArray(activeCredit.history)) activeCredit.history = [];
+              activeCredit.history.push({
+                type: 'purchase',
+                poId: newPO.id,
+                amount: totalCost,
+                date: `${now.toISOString().slice(0, 10)} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                description: `${newPO.productName || 'Producto'} (${totalGramsAdded > 0 ? totalGramsAdded + 'g' : (isUnidades ? quantity + ' und' : '')})`
+              });
+            } else {
+              // Crear nuevo crédito consolidado para este proveedor
+              const newCreditId = this.getNextSupplierCreditId();
+              activeCredit = {
+                id: newCreditId,
+                poId: newPO.id,
+                purchaseOrderIds: [newPO.id],
+                supplier: suppObj ? suppObj.name : supp,
+                supplierId: suppObj ? suppObj.id : '',
+                totalOwed: totalCost,
+                paidAmount: 0,
+                pendingAmount: totalCost,
+                date: now.toISOString().slice(0, 10),
+                lastPurchaseDate: now.toISOString().slice(0, 10),
+                dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                status: 'Pendiente',
+                history: [{
+                  type: 'purchase',
+                  poId: newPO.id,
+                  amount: totalCost,
+                  date: `${now.toISOString().slice(0, 10)} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                  description: `${newPO.productName || 'Producto'} (${totalGramsAdded > 0 ? totalGramsAdded + 'g' : (isUnidades ? quantity + ' und' : '')})`
+                }]
+              };
+              this.data.supplierCredits.push(activeCredit);
+            }
+
             if (suppObj) {
               suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + totalCost) * 100) / 100;
             }
@@ -5727,16 +5843,42 @@ class NexusApp {
         // y se registran en this.data.abonosCompras para auditoría y arqueo sin distorsionar el P&L ni el balance.
       }
 
-      // Sincronizar Orden de Compra asociada si existe
+      // Amortizar pago a proveedores en cascada a través de las órdenes de compra más antiguas (Híbrido)
       if (this.data.purchases && Array.isArray(this.data.purchases)) {
-        const po = this.data.purchases.find(p => p.id === cp.id || (p.supplier?.toLowerCase().trim() === cp.supplier?.toLowerCase().trim() && p.paymentStatus !== 'Pagado Total'));
-        if (po) {
-          po.paidAmount = Math.round(((Number(po.paidAmount) || 0) + actualPay) * 100) / 100;
-          if (po.paidAmount >= (Number(po.total) || 0) - 0.01) {
-            po.paymentStatus = "Pagado Total";
+        const suppNorm = (cp.supplier || '').toLowerCase().trim();
+        const linkedPOIds = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
+        
+        // Obtener todas las compras impagas de este proveedor
+        const unpaidPOs = this.data.purchases.filter(p => 
+          (linkedPOIds.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) &&
+          p.paymentStatus !== 'Pagado Total'
+        );
+        // Ordenar por fecha cronológica ascendente (las más viejas se pagan primero)
+        unpaidPOs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0) || (a.date || '').localeCompare(b.date || ''));
+
+        let unallocated = actualPay;
+        for (const po of unpaidPOs) {
+          if (unallocated <= 0) break;
+          const poTotal = Number(po.total) || 0;
+          const poPaid = Number(po.paidAmount) || 0;
+          const poPending = Math.max(0, poTotal - poPaid);
+          const payPortion = Math.min(unallocated, poPending);
+
+          po.paidAmount = Math.round((poPaid + payPortion) * 100) / 100;
+          if (po.paidAmount >= poTotal - 0.01) {
+            po.paymentStatus = 'Pagado Total';
           }
+          unallocated = Math.round((unallocated - payPortion) * 100) / 100;
         }
       }
+
+      if (!Array.isArray(cp.history)) cp.history = [];
+      cp.history.push({
+        type: 'payment',
+        amount: actualPay,
+        method: method,
+        date: `${new Date().toISOString().slice(0, 10)} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      });
 
       const activeCashier = this.data.store?.cashier || (this.currentUser ? this.currentUser.name : "Cajero");
       const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
@@ -9181,37 +9323,287 @@ class NexusApp {
     }).join('');
   }
 
-  renderFinCreditosProveedoresTable() {
-    this.syncSupplierCreditsState();
-    this.normalizeSupplierCreditCodes();
-    const tbody = document.getElementById('fin-cred-prv-tbody');
-    if (!tbody) return;
-    if (!this.data.supplierCredits || this.data.supplierCredits.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">📑</div><div style="font-weight:600;">No hay créditos de proveedores pendientes</div><div style="font-size:0.8rem; margin-top:0.25rem;">Las compras a crédito aparecerán aquí.</div></td></tr>`;
-      return;
-    }
-    const sortedCredits = [...this.data.supplierCredits].sort((a, b) => {
-      const numA = parseInt((String(a.id).match(/\d+/) || [0])[0], 10);
-      const numB = parseInt((String(b.id).match(/\d+/) || [0])[0], 10);
-      return numA - numB;
+  setSupplierCreditFilter(filter, btnEl) {
+    this.currentSupplierCreditFilter = filter || 'pending';
+    const btnPending = document.getElementById('supp-cred-tab-pending');
+    const btnPaid = document.getElementById('supp-cred-tab-paid');
+    const btnAll = document.getElementById('supp-cred-tab-all');
+
+    [btnPending, btnPaid, btnAll].forEach(b => {
+      if (!b) return;
+      b.classList.remove('btn-primary');
+      b.classList.add('btn-secondary');
     });
 
-    tbody.innerHTML = sortedCredits.map(cp => `
-      <tr>
-        <td><b>${cp.id}</b></td>
-        <td>${cp.supplier}</td>
-        <td>${this.formatCurrency(cp.totalOwed)}</td>
-        <td><span class="font-bold" style="color:var(--rose-text);">${this.formatCurrency(cp.pendingAmount)}</span></td>
-        <td>${cp.dueDate}</td>
-        <td><span class="badge ${cp.status === 'Pagado Total' ? 'badge-active' : 'badge-warning'}">${cp.status}</span></td>
-        <td>
-          <div class="action-btn-group">
-            ${cp.pendingAmount > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.paySupplierCredit('${cp.id}')">💳 Registrar Pago</button>` : `<span class="text-xs" style="color:var(--emerald-text);">Saldado</span>`}
-            <button class="btn-action-delete" style="padding:3px 10px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${cp.id}')">🗑️ Eliminar</button>
-          </div>
-        </td>
-      </tr>
-    `).join('');
+    if (btnEl) {
+      btnEl.classList.remove('btn-secondary');
+      btnEl.classList.add('btn-primary');
+    } else if (filter === 'pending' && btnPending) {
+      btnPending.classList.remove('btn-secondary');
+      btnPending.classList.add('btn-primary');
+    }
+
+    this.renderFinCreditosProveedoresTable();
+  }
+
+  filterSupplierCreditsTable() {
+    this.renderFinCreditosProveedoresTable();
+  }
+
+  renderFinCreditosProveedoresTable() {
+    this.syncSupplierCreditsState();
+    const tbody = document.getElementById('fin-cred-prv-tbody');
+    if (!tbody) return;
+
+    if (!this.currentSupplierCreditFilter) this.currentSupplierCreditFilter = 'pending';
+
+    const credits = Array.isArray(this.data.supplierCredits) ? this.data.supplierCredits : [];
+    const purchases = Array.isArray(this.data.purchases) ? this.data.purchases : [];
+
+    // Contadores para badges y KPIs
+    let pendingCount = 0;
+    let paidCount = 0;
+    let totalPendingDebt = 0;
+    const pendingSuppliersSet = new Set();
+    const allLinkedPOsSet = new Set();
+
+    credits.forEach(c => {
+      const pendingVal = Number(c.pendingAmount) || 0;
+      if (pendingVal > 0 && c.status !== 'Pagado Total') {
+        pendingCount++;
+        totalPendingDebt += pendingVal;
+        if (c.supplier) pendingSuppliersSet.add(c.supplier.toLowerCase().trim());
+      } else {
+        paidCount++;
+      }
+
+      if (Array.isArray(c.purchaseOrderIds)) {
+        c.purchaseOrderIds.forEach(id => allLinkedPOsSet.add(id));
+      } else if (c.poId) {
+        allLinkedPOsSet.add(c.poId);
+      }
+    });
+
+    // Actualizar KPIs de la cabecera
+    const kpiPendingEl = document.getElementById('supplier-kpi-total-pending');
+    if (kpiPendingEl) kpiPendingEl.innerText = this.formatCurrency(totalPendingDebt);
+
+    const kpiSuppsEl = document.getElementById('supplier-kpi-suppliers-count');
+    if (kpiSuppsEl) kpiSuppsEl.innerText = String(pendingSuppliersSet.size);
+
+    const kpiPosEl = document.getElementById('supplier-kpi-pos-count');
+    if (kpiPosEl) kpiPosEl.innerText = String(allLinkedPOsSet.size || purchases.length);
+
+    // Actualizar badges en botones de filtro
+    const bPending = document.getElementById('badge-supp-cred-pending');
+    if (bPending) bPending.innerText = String(pendingCount);
+
+    const bPaid = document.getElementById('badge-supp-cred-paid');
+    if (bPaid) bPaid.innerText = String(paidCount);
+
+    const bAll = document.getElementById('badge-supp-cred-all');
+    if (bAll) bAll.innerText = String(credits.length);
+
+    // Búsqueda por texto
+    const searchInput = document.getElementById('supp-cred-search-input');
+    const term = searchInput ? (searchInput.value || '').toLowerCase().trim() : '';
+
+    // Filtrar lista de créditos según la pestaña activa
+    let filtered = credits.filter(cp => {
+      const isPending = (Number(cp.pendingAmount) || 0) > 0 && cp.status !== 'Pagado Total';
+      if (this.currentSupplierCreditFilter === 'pending' && !isPending) return false;
+      if (this.currentSupplierCreditFilter === 'paid' && isPending) return false;
+      return true;
+    });
+
+    if (term) {
+      filtered = filtered.filter(cp => 
+        (cp.supplier || '').toLowerCase().includes(term) ||
+        (cp.id || '').toLowerCase().includes(term)
+      );
+    }
+
+    if (filtered.length === 0) {
+      const msg = this.currentSupplierCreditFilter === 'pending'
+        ? '¡Excelente! No hay deudas pendientes con proveedores.'
+        : (this.currentSupplierCreditFilter === 'paid' ? 'No hay créditos saldados en el historial.' : 'No se encontraron créditos de proveedores.');
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">${this.currentSupplierCreditFilter === 'pending' ? '🎉' : '📑'}</div><div style="font-weight:600;">${msg}</div><div style="font-size:0.8rem; margin-top:0.25rem;">Las compras a crédito acumuladas aparecerán aquí.</div></td></tr>`;
+      return;
+    }
+
+    // Ordenar: mayor deuda pendiente primero, luego fecha
+    filtered.sort((a, b) => {
+      const pA = Number(a.pendingAmount) || 0;
+      const pB = Number(b.pendingAmount) || 0;
+      if (pB !== pA) return pB - pA;
+      return (b.lastPurchaseDate || b.date || '').localeCompare(a.lastPurchaseDate || a.date || '');
+    });
+
+    tbody.innerHTML = filtered.map(cp => {
+      const pendingVal = Number(cp.pendingAmount) || 0;
+      const totalOwedVal = Number(cp.totalOwed) || 0;
+      const paidVal = Number(cp.paidAmount) || Math.max(0, totalOwedVal - pendingVal);
+      const isPaid = pendingVal <= 0 || cp.status === 'Pagado Total';
+      
+      // Contar OCs vinculadas
+      let poCount = 0;
+      if (Array.isArray(cp.purchaseOrderIds)) {
+        poCount = cp.purchaseOrderIds.length;
+      } else {
+        const suppNorm = (cp.supplier || '').toLowerCase().trim();
+        poCount = purchases.filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm).length || (cp.poId ? 1 : 0);
+      }
+
+      return `
+        <tr>
+          <td><b style="font-family:var(--font-mono, monospace);">${this.escapeHtml(cp.id)}</b></td>
+          <td>
+            <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(cp.supplier)}</div>
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">${poCount} orden(es) de compra acumulada(s)</div>
+          </td>
+          <td>${this.formatCurrency(totalOwedVal)}</td>
+          <td><span style="color:var(--emerald-text, #10B981); font-weight:600;">${this.formatCurrency(paidVal)}</span></td>
+          <td><span class="font-bold" style="color:${isPaid ? 'var(--emerald-text)' : 'var(--rose-text)'}; font-size:1rem;">${this.formatCurrency(pendingVal)}</span></td>
+          <td><span style="font-size:0.82rem; color:var(--text-muted);">${cp.lastPurchaseDate || cp.date || '---'}</span></td>
+          <td><span style="font-size:0.82rem;">${cp.dueDate || '---'}</span></td>
+          <td>
+            <span class="badge ${isPaid ? 'badge-active' : 'badge-warning'}" style="font-weight:700; font-size:0.75rem;">
+              <span class="badge-dot"></span>${isPaid ? 'Pagado Total' : 'Pendiente'}
+            </span>
+          </td>
+          <td style="text-align:center;">
+            <div class="action-btn-group" style="justify-content:center; gap:6px;">
+              <button class="btn btn-secondary text-xs" style="padding:4px 10px; font-weight:600; display:inline-flex; align-items:center; gap:4px;" onclick="app.viewSupplierCreditPurchases('${this.escapeHtml(cp.id)}')">
+                <span>📄 Ver Facturas (${poCount})</span>
+              </button>
+              ${!isPaid ? `<button class="btn btn-primary text-xs" style="padding:4px 12px; font-weight:700;" onclick="app.paySupplierCredit('${this.escapeHtml(cp.id)}')">💳 Pagar</button>` : ''}
+              <button class="btn-action-delete" style="padding:4px 8px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${this.escapeHtml(cp.id)}')">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  viewSupplierCreditPurchases(cpId) {
+    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
+    if (!cp) {
+      this.showToast('No se encontró el registro de crédito solicitado', 'warning');
+      return;
+    }
+
+    const suppNorm = (cp.supplier || '').toLowerCase().trim();
+    const purchases = Array.isArray(this.data.purchases) ? this.data.purchases : [];
+    const abonos = Array.isArray(this.data.abonosCompras) ? this.data.abonosCompras : [];
+
+    // Buscar todas las compras correspondientes
+    const linkedPOIds = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
+    let suppPOs = purchases.filter(p => linkedPOIds.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm);
+
+    // Ordenar compras cronológicamente descendente (más recientes primero)
+    suppPOs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.date || '').localeCompare(a.date || ''));
+
+    // Buscar abonos realizados a este proveedor
+    const suppAbonos = abonos.filter(ab => 
+      (ab.supplier || '').toLowerCase().trim() === suppNorm ||
+      (ab.poId && linkedPOIds.has(ab.poId)) ||
+      ab.poId === cp.id
+    );
+
+    // Actualizar cabecera del modal
+    const titleEl = document.getElementById('supp-purchases-modal-title');
+    if (titleEl) titleEl.innerText = `Facturas & Fechas: ${cp.supplier} (${cp.id})`;
+
+    const subEl = document.getElementById('supp-purchases-modal-subtitle');
+    if (subEl) subEl.innerText = `Trazabilidad completa de facturas y abonos discriminados por fecha para este proveedor.`;
+
+    // Resumen financiero
+    const pendingVal = Number(cp.pendingAmount) || 0;
+    const totalOwedVal = Number(cp.totalOwed) || 0;
+    const paidVal = Number(cp.paidAmount) || Math.max(0, totalOwedVal - pendingVal);
+
+    const elOwed = document.getElementById('supp-modal-total-owed');
+    if (elOwed) elOwed.innerText = this.formatCurrency(totalOwedVal);
+
+    const elPaid = document.getElementById('supp-modal-total-paid');
+    if (elPaid) elPaid.innerText = this.formatCurrency(paidVal);
+
+    const elPending = document.getElementById('supp-modal-pending-amount');
+    if (elPending) elPending.innerText = this.formatCurrency(pendingVal);
+
+    const elCount = document.getElementById('supp-modal-po-count');
+    if (elCount) elCount.innerText = String(suppPOs.length);
+
+    // Renderizar tabla de OCs discriminadas por fechas
+    const poTbody = document.getElementById('supp-modal-po-tbody');
+    if (poTbody) {
+      if (suppPOs.length === 0) {
+        poTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No se encontraron órdenes de compra vinculadas a este crédito.</td></tr>`;
+      } else {
+        poTbody.innerHTML = suppPOs.map(po => {
+          const poTotal = Number(po.total) || 0;
+          const poPaid = Number(po.paidAmount) || 0;
+          const isPoPaid = po.paymentStatus === 'Pagado Total' || poPaid >= poTotal - 0.01;
+          const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
+          const qty = po.itemsCount || po.quantity || 1;
+
+          return `
+            <tr>
+              <td style="padding:8px 10px; font-weight:600; color:var(--text-main);">
+                ${po.date || '---'} ${po.time ? `<span style="color:var(--text-muted); font-size:0.75rem;">${po.time}</span>` : ''}
+              </td>
+              <td style="padding:8px 10px; font-family:var(--font-mono, monospace); font-weight:700; color:var(--primary-indigo);">${this.escapeHtml(po.id)}</td>
+              <td style="padding:8px 10px;">
+                <div style="font-weight:600;">${this.escapeHtml(po.productName || 'Producto')}</div>
+                <div style="font-size:0.72rem; color:var(--text-muted);">SKU: ${this.escapeHtml(po.productSku || '---')}</div>
+              </td>
+              <td style="padding:8px 10px; text-align:right;">${grams > 0 ? `${grams}g` : `${qty} und`}</td>
+              <td style="padding:8px 10px; text-align:right; font-weight:700;">${this.formatCurrency(poTotal)}</td>
+              <td style="padding:8px 10px; text-align:center;">
+                <span class="badge ${isPoPaid ? 'badge-active' : 'badge-warning'}" style="font-size:0.7rem;">${isPoPaid ? 'Pagado Total' : 'Pendiente'}</span>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    // Renderizar tabla de abonos
+    const abTbody = document.getElementById('supp-modal-abonos-tbody');
+    const abCountEl = document.getElementById('supp-modal-abonos-count');
+    if (abCountEl) abCountEl.innerText = String(suppAbonos.length);
+
+    if (abTbody) {
+      if (suppAbonos.length === 0) {
+        abTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:1.2rem; color:var(--text-muted); font-size:0.8rem;">No se han registrado pagos o abonos para este crédito todavía.</td></tr>`;
+      } else {
+        abTbody.innerHTML = suppAbonos.map(ab => `
+          <tr>
+            <td style="padding:8px 10px; font-weight:600;">${ab.date || '---'} ${ab.time ? `<span style="color:var(--text-muted); font-size:0.75rem;">${ab.time}</span>` : ''}</td>
+            <td style="padding:8px 10px; font-family:var(--font-mono, monospace);">${this.escapeHtml(ab.id)}</td>
+            <td style="padding:8px 10px;">${this.escapeHtml(ab.method || 'Efectivo')}</td>
+            <td style="padding:8px 10px; color:var(--text-muted);">${this.escapeHtml(ab.cashier || 'Cajero')}</td>
+            <td style="padding:8px 10px; text-align:right; font-weight:700; color:var(--emerald-text, #10B981);">+${this.formatCurrency(ab.amount || 0)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // Botón de pago en el pie del modal
+    const payBtn = document.getElementById('supp-modal-pay-btn');
+    if (payBtn) {
+      if (pendingVal > 0) {
+        payBtn.style.display = 'inline-flex';
+        payBtn.onclick = () => {
+          this.closeModal('supplier-credit-purchases-modal');
+          this.paySupplierCredit(cp.id);
+        };
+      } else {
+        payBtn.style.display = 'none';
+      }
+    }
+
+    this.openModal('supplier-credit-purchases-modal');
   }
 
   renderInvServiciosTable() {
