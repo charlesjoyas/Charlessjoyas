@@ -18819,7 +18819,7 @@ class NexusApp {
             <span style="font-weight:700;">${this.formatCurrency(tax)}</span>
           </div>` : ''}
           <div style="display:flex; justify-content:space-between; font-weight:800; font-size:13.5px; margin:2px 0;">
-            <span style="font-weight:800;">TOTAL VENTA:</span>
+            <span style="font-weight:800;">${type === 'compra' ? 'TOTAL COMPRA:' : 'TOTAL VENTA:'}</span>
             <span style="font-weight:800;">${this.formatCurrency(total)}</span>
           </div>
           ${options.bankFeeAmount > 0 ? `
@@ -18993,6 +18993,7 @@ class NexusApp {
     const prod = (this.data.products || []).find(p => p.id === po.productId || p.sku === po.productSku || p.name === po.productName);
 
     const hasGrams = (Number(po.totalGrams) || 0) > 0;
+    const isPesaje = (po.measureType || prod?.measureType || (hasGrams && (!po.quantity || po.quantity === po.totalGrams) ? 'Pesaje' : 'Unidades')) === 'Pesaje';
     const unitLabel = isPesaje ? 'g' : (prod?.weightUnit || 'u.');
     const qtyVal = isPesaje ? (po.totalGrams || po.quantity || 1) : (po.quantity || po.itemsCount || 1);
     const formattedQty = (hasGrams && !isPesaje)
