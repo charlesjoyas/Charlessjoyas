@@ -1574,6 +1574,12 @@ class NexusApp {
     return false;
   }
 
+  isAdminUser() {
+    if (!this.currentUser) return false;
+    const role = (this.currentUser.role || '').toLowerCase().trim();
+    return role === 'super admin' || role === 'administrador' || role === 'admin';
+  }
+
   canPerformAction(action, entity) {
     if (!this.currentUser) return false;
     const role = (this.currentUser.role || '').toLowerCase();
@@ -5347,8 +5353,8 @@ class NexusApp {
   }
 
   async deletePurchaseOrder(id) {
-    if (!this.canPerformAction('delete', 'purchase')) {
-      this.showToast('Acceso Denegado: No tienes permisos para eliminar órdenes de compra.', 'danger');
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para eliminar o reversar compras.', 'danger');
       return;
     }
     const po = (this.data.purchases || []).find(p => p.id === id);
@@ -5448,8 +5454,8 @@ class NexusApp {
   }
 
   async deleteAbonoCompra(id) {
-    if (!this.canPerformAction('delete', 'purchase') && !this.canPerformAction('delete', 'expense')) {
-      this.showToast('Acceso Denegado: No tienes permisos para anular abonos.', 'danger');
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para anular abonos de compras.', 'danger');
       return;
     }
     const ab = (this.data.abonosCompras || []).find(a => a.id === id);
@@ -5918,6 +5924,10 @@ class NexusApp {
   }
 
   deleteSupplierCredit(deudaId) {
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para eliminar créditos de proveedores.', 'danger');
+      return;
+    }
     const credit = (this.data.supplierCredits || []).find(sc => sc.id === deudaId);
     const supplierName = credit ? credit.supplier : 'este proveedor';
     const pendingFmt = credit ? this.formatCurrency(credit.pendingAmount || 0) : '';
@@ -8396,6 +8406,7 @@ class NexusApp {
   renderDashboardRecentSales() {
     const tbody = document.getElementById('dashboard-recent-sales-tbody');
     if (!tbody) return;
+    const canRevertSale = this.isAdminUser();
     const txs = (this.data.recentTransactions || []).slice(0, 6);
     if (txs.length === 0) {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--text-muted);">No hay ventas registradas aún. Registre una venta en el Punto de Venta (POS).</td></tr>`;
@@ -8438,11 +8449,11 @@ class NexusApp {
             </button>
             ${tx.status === 'Reversada' || tx.status === 'Anulada' ? `
               <span class="text-xs" style="color:var(--text-muted); font-weight:600;">Reversada</span>
-            ` : `
+            ` : (canRevertSale ? `
               <button class="btn-action-delete" onclick="app.revertSale('${this.escapeHtml(tx.id)}')" title="Reversar venta, devolver artículos al inventario y reintegrar dinero" style="font-size:0.72rem; padding:3px 6px; display:inline-flex; align-items:center; gap:2px; font-weight:700; cursor:pointer;">
                 🔄 Reversar
               </button>
-            `}
+            ` : '')}
           </div>
         </td>
       </tr>
@@ -8752,6 +8763,7 @@ class NexusApp {
     const tbody = document.getElementById('fin-ventas-tbody');
     if (!tbody) return;
 
+    const canRevertSale = this.isAdminUser();
     const txs = this.getFilteredFinVentas();
 
     // Calcular métricas del período filtrado (excluyendo ventas reversadas)
@@ -8863,11 +8875,11 @@ class NexusApp {
             </button>
             ${tx.status === 'Reversada' || tx.status === 'Anulada' ? `
               <span class="text-xs" style="color:var(--text-muted); font-weight:700; padding:2px 6px;">✔ Reversada</span>
-            ` : `
+            ` : (canRevertSale ? `
               <button class="btn-action-delete" onclick="app.revertSale('${this.escapeHtml(tx.id)}')" title="Reversar venta, devolver artículos con código al inventario y reintegrar dinero" style="padding:3px 8px; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px; font-weight:700; cursor:pointer;">
                 🔄 Reversar Venta
               </button>
-            `}
+            ` : '')}
           </div>
         </td>
       </tr>
@@ -8876,8 +8888,8 @@ class NexusApp {
   }
 
   async revertSale(txId) {
-    if (!this.currentUser) {
-      this.showToast('Acceso Denegado: Debes iniciar sesión para reversar ventas.', 'danger');
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para reversar ventas.', 'danger');
       return;
     }
 
@@ -9365,7 +9377,7 @@ class NexusApp {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">📦</div><div style="font-weight:600;">No hay órdenes de compra registradas</div><div style="font-size:0.8rem; margin-top:0.25rem;">Haga clic en "+ Nueva Orden de Compra" para registrar una entrada de stock.</div></td></tr>`;
       return;
     }
-    const canDeletePO = this.canPerformAction('delete', 'purchase');
+    const canDeletePO = this.isAdminUser();
 
     tbody.innerHTML = this.data.purchases.map(po => {
       const isPaid = po.paymentStatus === 'Pagado Total';
@@ -9373,7 +9385,7 @@ class NexusApp {
       const payBtn = !isPaid 
         ? `<button class="btn btn-primary text-xs" onclick="app.markPurchaseAsPaid('${po.id}')" title="Marcar como pagada y saldar cuenta" style="padding:2px 8px; margin-right:4px; font-weight:700; background:#059669; border-color:#059669;">💳 Pagar</button>` 
         : '';
-      const deleteBtn = canDeletePO ? `<button class="btn-action-delete" onclick="app.deletePurchaseOrder('${po.id}')">Eliminar</button>` : '';
+      const deleteBtn = canDeletePO ? `<button class="btn-action-delete" onclick="app.deletePurchaseOrder('${po.id}')" title="Reversar compra, devolver dinero a caja y descontar inventario" style="padding:2px 8px; font-size:0.75rem; font-weight:700;">🔄 Reversar Compra</button>` : '';
       const actionHtml = `<div class="action-btn-group">${payBtn}${receiptBtn}${deleteBtn}</div>`;
 
       const prodDisplay = po.productName ? `
@@ -9676,7 +9688,7 @@ class NexusApp {
                 <span>📄 Ver Facturas (${poCount})</span>
               </button>
               ${!isPaid ? `<button class="btn btn-primary text-xs" style="padding:4px 12px; font-weight:700;" onclick="app.paySupplierCredit('${this.escapeHtml(cp.id)}')">💳 Pagar</button>` : ''}
-              <button class="btn-action-delete" style="padding:4px 8px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${this.escapeHtml(cp.id)}')">🗑️</button>
+              ${this.isAdminUser() ? `<button class="btn-action-delete" style="padding:4px 8px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${this.escapeHtml(cp.id)}')">🗑️</button>` : ''}
             </div>
           </td>
         </tr>
@@ -13213,7 +13225,7 @@ class NexusApp {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.6rem; margin-bottom:0.5rem;">🧾</div><div style="font-weight:700; color:var(--text-main);">No hay abonos a compras registrados</div><div style="font-size:0.85rem; margin-top:0.25rem;">Los pagos realizados a proveedores desde Órdenes de Compra o Créditos aparecerán aquí.</div></td></tr>`;
       return;
     }
-    const canDelete = this.canPerformAction('delete', 'purchase') || this.canPerformAction('delete', 'expense');
+    const canDelete = this.isAdminUser();
     tbody.innerHTML = list.map(ab => `
       <tr>
         <td><b>${this.escapeHtml(ab.id)}</b></td>
