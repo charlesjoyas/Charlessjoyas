@@ -117,7 +117,8 @@ const INITIAL_DATA = {
     { id: "PM-02", name: "Tarjeta Débito/Crédito", icon: "card", fee: "0.8%", active: true },
     { id: "PM-03", name: "Bizum / Pago QR", icon: "qr", fee: "0%", active: true },
     { id: "PM-04", name: "Crédito Cliente", icon: "credit", fee: "0%", active: true },
-    { id: "PM-05", name: "Transferencia Bancaria", icon: "bank", fee: "0%", active: true }
+    { id: "PM-05", name: "Transferencia Bancaria", icon: "bank", fee: "0%", active: true },
+    { id: "PM-06", name: "Pago Mixto", icon: "mixed", fee: "0%", active: true }
   ],
 
   // 2. FINANZAS SUB-DATA

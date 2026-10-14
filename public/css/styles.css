@@ -5133,14 +5133,34 @@ html, body {
 /* POS Checkout Payment Buttons */
 #checkout-pay-methods-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.4rem;
 }
 
 @media (max-width: 640px) {
   #checkout-pay-methods-grid {
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(85px, 1fr));
   }
+}
+
+.btn-mixed-type {
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-mixed-type:hover {
+  border-color: #0284c7;
+  color: #0284c7;
+}
+
+.btn-mixed-type.active {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35) !important;
 }
 
 .pay-method-btn {
