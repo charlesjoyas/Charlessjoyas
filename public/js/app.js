@@ -1578,7 +1578,13 @@ class NexusApp {
   isAdminUser() {
     if (!this.currentUser) return false;
     const role = (this.currentUser.role || '').toLowerCase().trim();
-    return role === 'super admin' || role === 'administrador' || role === 'admin';
+    return role === 'super admin' || 
+           role === 'administrador' || 
+           role === 'admin' || 
+           role.includes('super admin') || 
+           role.includes('super administrador') || 
+           role.includes('administrador') ||
+           (this.currentUser.role === 'Super Admin');
   }
 
   canPerformAction(action, entity) {
@@ -24448,6 +24454,12 @@ class NexusApp {
     const costPerGram = Number(p.cost || cat?.cost || 0);
     const unitReplacementCost = isUnitWithWeight ? Math.round(pWeight * costPerGram) : costPerGram;
 
+    const canViewProfit = this.isAdminUser();
+    const costBox = document.getElementById('pos-add-cost-box');
+    const baseCostGrid = document.getElementById('pos-add-price-cost-grid');
+    if (costBox) costBox.style.display = canViewProfit ? 'block' : 'none';
+    if (baseCostGrid) baseCostGrid.style.gridTemplateColumns = canViewProfit ? '1fr 1fr' : '1fr';
+
     if (elCost) {
       if (unitReplacementCost > 0) {
         elCost.textContent = `${this.formatCurrency(unitReplacementCost)} / u.`;
@@ -24577,6 +24589,23 @@ class NexusApp {
     const profit = totalSale - totalCost;
     const marginPct = totalSale > 0 ? Math.round((profit / totalSale) * 1000) / 10 : 0;
 
+    // Keep legacy references updated for backwards compatibility
+    const elSub = document.getElementById('pos-add-subtotal-val');
+    if (elSub) elSub.textContent = this.formatCurrency(totalSale);
+
+    // Restricción de seguridad: Solo se le muestra la utilidad al Administrador y Super Administrador
+    const canViewProfit = this.isAdminUser();
+    const profitCardEl = document.getElementById('pos-add-profit-card');
+    const lossAlertEl = document.getElementById('pos-add-loss-alert');
+
+    if (!canViewProfit) {
+      if (profitCardEl) profitCardEl.style.display = 'none';
+      if (lossAlertEl) lossAlertEl.style.display = 'none';
+      return;
+    }
+
+    if (profitCardEl) profitCardEl.style.display = 'block';
+
     // Update dedicated real-time Profit Panel elements
     const costTotalEl = document.getElementById('pos-add-cost-total-val');
     if (costTotalEl) costTotalEl.textContent = this.formatCurrency(totalCost);
@@ -24586,8 +24615,6 @@ class NexusApp {
 
     const profitValEl = document.getElementById('pos-add-profit-val');
     const marginValEl = document.getElementById('pos-add-margin-val');
-    const profitCardEl = document.getElementById('pos-add-profit-card');
-    const lossAlertEl = document.getElementById('pos-add-loss-alert');
 
     if (profitValEl) {
       if (priceVal === 0 && totalSale === 0) {
