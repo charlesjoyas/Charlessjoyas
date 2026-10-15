@@ -2916,49 +2916,91 @@
             </label>
             <div style="display:flex; gap:6px; align-items:center;">
               <button type="button" class="btn btn-secondary" style="padding:0.5rem 0.85rem; font-weight:800;" onclick="app.adjustAddToCartQty(-1)">-</button>
-              <input type="text" inputmode="decimal" id="pos-add-qty-input" class="form-control" style="font-size:1.1rem; font-weight:800; text-align:center;" required oninput="app.updateAddToCartModalPreview()">
+              <input type="text" inputmode="decimal" id="pos-add-qty-input" class="form-control" style="font-size:1.1rem; font-weight:800; text-align:center;" required oninput="app.onAddToCartQtyInput(this.value)">
               <button type="button" class="btn btn-secondary" style="padding:0.5rem 0.85rem; font-weight:800;" onclick="app.adjustAddToCartQty(1)">+</button>
               <span id="pos-add-unit-badge" class="badge" style="font-size:0.85rem; font-weight:800; padding:0.6rem 0.85rem; background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-main);">g</span>
             </div>
           </div>
 
-          <!-- PRECIO DE VENTA MANUAL A APLICAR -->
-          <div class="form-group" style="margin-bottom:0.75rem;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
-              <label class="form-label" style="margin-bottom:0; font-weight:800; color:var(--brand-primary);">
-                💰 Precio de Venta a Aplicar ($ COP) *
-              </label>
-              <button type="button" class="btn btn-sm btn-outline-primary" style="font-size:0.7rem; padding:1px 6px;" onclick="app.setAddToCartPriceToBase()">
-                ↺ Usar Precio Base
-              </button>
+          <!-- ENTRADA DUAL SINCRONIZADA (BIDIRECCIONAL) -->
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+            <!-- CAMPO A: VALOR POR GRAMO / UNIDAD -->
+            <div class="form-group" style="margin-bottom:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+                <label class="form-label" style="margin-bottom:0; font-weight:800; color:var(--brand-primary); font-size:0.8rem;">
+                  💰 Valor / Gramo o Unidad *
+                </label>
+                <button type="button" class="btn btn-sm btn-outline-primary" style="font-size:0.65rem; padding:1px 5px;" onclick="app.setAddToCartPriceToBase()" title="Cargar precio base sugerido">
+                  ↺ Base
+                </button>
+              </div>
+              <div class="input-with-icon" style="position:relative;">
+                <span class="input-icon" style="font-weight:800; color:var(--brand-primary);">$</span>
+                <input type="text" inputmode="numeric" id="pos-add-custom-price-input" class="form-control" style="font-size:1.15rem; font-weight:800; color:var(--brand-primary); border-color:var(--brand-primary); padding-right:2.8rem;" required oninput="app.onAddToCartPriceGramInput(this.value)">
+                <span id="pos-add-price-unit-tag" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); font-size:0.75rem; font-weight:700; color:var(--text-muted); pointer-events:none;">/ g</span>
+              </div>
             </div>
-            <div class="input-with-icon">
-              <span class="input-icon" style="font-weight:800; color:var(--brand-primary);">$</span>
-              <input type="text" inputmode="numeric" id="pos-add-custom-price-input" class="form-control" style="font-size:1.25rem; font-weight:800; color:var(--brand-primary); border-color:var(--brand-primary);" required oninput="app.updateAddToCartModalPreview()">
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-              <span style="font-size:0.72rem; color:var(--text-subtle);">Ingrese manualmente el valor pactado con el cliente.</span>
-              <div style="display:flex; gap:4px;">
-                <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(-0.05)">-5%</button>
-                <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(-0.10)">-10%</button>
-                <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(0.05)">+5%</button>
-                <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(0.10)">+10%</button>
+
+            <!-- CAMPO B: TOTAL A COBRAR AL CLIENTE -->
+            <div class="form-group" style="margin-bottom:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+                <label class="form-label" style="margin-bottom:0; font-weight:800; color:var(--pos-checkout); font-size:0.8rem;">
+                  🏷️ Total Venta Cliente *
+                </label>
+              </div>
+              <div class="input-with-icon" style="position:relative;">
+                <span class="input-icon" style="font-weight:800; color:var(--pos-checkout);">$</span>
+                <input type="text" inputmode="numeric" id="pos-add-total-sale-input" class="form-control" style="font-size:1.15rem; font-weight:800; color:var(--pos-checkout); border-color:var(--pos-checkout); padding-right:3rem;" required oninput="app.onAddToCartTotalSaleInput(this.value)">
+                <span style="position:absolute; right:10px; top:50%; transform:translateY(-50%); font-size:0.75rem; font-weight:700; color:var(--pos-checkout); pointer-events:none;">COP</span>
               </div>
             </div>
           </div>
 
-          <!-- RESUMEN EN VIVO: SUBTOTAL & MARGEN -->
-          <div style="background:rgba(2,132,199,0.06); border:1px solid rgba(2,132,199,0.25); border-radius:var(--radius-md); padding:0.75rem 0.9rem; margin-bottom:1.25rem; display:flex; justify-content:space-between; align-items:center;">
-            <div>
-              <div style="font-size:0.72rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Subtotal de la Línea</div>
-              <div id="pos-add-subtotal-val" style="font-size:1.35rem; font-weight:800; color:var(--text-main); margin-top:1px;">$ 0 COP</div>
+          <!-- BOTONES DE AJUSTE RÁPIDO DE PRECIO -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem;">
+            <span style="font-size:0.7rem; color:var(--text-subtle);">Digita el valor por gramo o el total pactado (se sincronizan).</span>
+            <div style="display:flex; gap:4px;">
+              <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(-0.05)">-5%</button>
+              <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(-0.10)">-10%</button>
+              <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(0.05)">+5%</button>
+              <button type="button" class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:0.68rem; padding:2px 5px;" onclick="app.adjustAddToCartPrice(0.10)">+10%</button>
             </div>
-            <div style="text-align:right;">
-              <div style="font-size:0.72rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Rentabilidad Proyectada</div>
-              <div id="pos-add-margin-badge" class="badge" style="font-size:0.78rem; font-weight:800; padding:3px 8px; border-radius:6px; margin-top:2px; background:#D1FAE5; color:#065F46;">
-                Margen: +0.0%
+          </div>
+
+          <!-- PANEL DE RENTABILIDAD CLARO Y VISIBLE -->
+          <div id="pos-add-profit-card" style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.3); border-radius:var(--radius-md); padding:0.85rem 1rem; margin-bottom:1.15rem; transition:all 0.25s ease;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem; padding-bottom:0.4rem; border-bottom:1px solid rgba(0,0,0,0.05);">
+              <span style="font-size:0.75rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted); display:flex; align-items:center; gap:5px;">
+                <span>📊</span> Rentabilidad en Tiempo Real
+              </span>
+              <span id="pos-add-margin-val" class="badge" style="font-size:0.8rem; font-weight:800; padding:3px 9px; border-radius:6px; background:#D1FAE5; color:#065F46; border:1px solid #10B981;">
+                +0.0% Margen
+              </span>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.6rem; align-items:center;">
+              <div>
+                <div style="font-size:0.68rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Costo Total Joya</div>
+                <div id="pos-add-cost-total-val" style="font-size:0.95rem; font-weight:800; color:#D97706; margin-top:1px;">$ 0 COP</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:0.68rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Venta al Cliente</div>
+                <div id="pos-add-sale-total-val" style="font-size:0.95rem; font-weight:800; color:var(--text-main); margin-top:1px;">$ 0 COP</div>
+              </div>
+              <div style="grid-column: span 2; margin-top:0.35rem; padding-top:0.45rem; border-top:1px dashed rgba(0,0,0,0.08); display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.75rem; font-weight:800; text-transform:uppercase; color:var(--text-muted);">Utilidad Ganada:</span>
+                <span id="pos-add-profit-val" style="font-size:1.25rem; font-weight:900; color:#10B981; letter-spacing:-0.02em;">+$ 0 COP</span>
               </div>
             </div>
+
+            <!-- ADVERTENCIA DE PÉRDIDA SI VENDE BAJO COSTO -->
+            <div id="pos-add-loss-alert" style="display:none; background:#FEE2E2; border:1px solid #EF4444; color:#991B1B; border-radius:6px; padding:6px 10px; margin-top:0.5rem; font-size:0.72rem; font-weight:700;">
+              ⚠️ Advertencia: Venta por debajo del costo de reposición.
+            </div>
+
+            <!-- Legacy fallback elements hidden for compatibility -->
+            <div id="pos-add-subtotal-val" style="display:none;"></div>
+            <div id="pos-add-margin-badge" style="display:none;"></div>
           </div>
 
           <div style="display:flex; gap:0.75rem; justify-content:flex-end;">

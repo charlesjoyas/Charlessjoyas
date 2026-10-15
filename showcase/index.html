@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>Nexus POS SaaS — El Futuro de la Gestión & POS de Alta Joyería</title>
+  <meta name="description" content="Experiencia inmersiva y presentación cinematográfica de Nexus POS SaaS para Charles Joyas SAS. Control de inventario por gramaje, arqueo ciego, impresión térmica ESC/POS e Inteligencia Artificial DeepSeek.">
+  <meta name="theme-color" content="#060913">
+
+  <!-- Luxury & High-Tech Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&family=Outfit:wght@400;500;600;700;800;900&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/showcase.css">
+</head>
+<body class="cinematic-theme">
+
+  <!-- Background Cyber Luxury Grid & Particle Canvas -->
+  <div class="space-ambient-bg">
+    <div class="cyber-grid"></div>
+    <div class="ambient-glow glow-gold"></div>
+    <div class="ambient-glow glow-violet"></div>
+    <div class="ambient-glow glow-cyan"></div>
+    <canvas id="ambient-canvas"></canvas>
+  </div>
+
+  <!-- TOP HEADER / BRAND BAR -->
+  <header class="showcase-nav">
+    <div class="nav-left">
+      <div class="brand-badge-logo">
+        <span class="diamond-sparkle">💎</span>
+        <div class="brand-titles">
+          <span class="brand-hero-title">CHARLES JOYAS <span class="badge-gold">SAS</span></span>
+          <span class="brand-hero-sub">NEXUS POS • ERP DE ALTA JOYERÍA</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAPTER NAVIGATION TABS -->
+    <nav class="nav-center" id="chapter-nav">
+      <button type="button" class="chapter-tab active" data-scene="0" onclick="showcase.goToScene(0)">
+        <span class="tab-num">01</span> Overview
+      </button>
+      <button type="button" class="chapter-tab" data-scene="1" onclick="showcase.goToScene(1)">
+        <span class="tab-num">02</span> Pesaje & Gramaje
+      </button>
+      <button type="button" class="chapter-tab" data-scene="2" onclick="showcase.goToScene(2)">
+        <span class="tab-num">03</span> POS & Utilidad
+      </button>
+      <button type="button" class="chapter-tab" data-scene="3" onclick="showcase.goToScene(3)">
+        <span class="tab-num">04</span> Ticket Térmico
+      </button>
+      <button type="button" class="chapter-tab" data-scene="4" onclick="showcase.goToScene(4)">
+        <span class="tab-num">05</span> Arqueo Ciego
+      </button>
+      <button type="button" class="chapter-tab" data-scene="5" onclick="showcase.goToScene(5)">
+        <span class="tab-num">06</span> Cartera & WhatsApp
+      </button>
+      <button type="button" class="chapter-tab" data-scene="6" onclick="showcase.goToScene(6)">
+        <span class="tab-num">07</span> Copiloto IA
+      </button>
+    </nav>
+
+    <div class="nav-right">
+      <button type="button" class="audio-toggle-btn" id="audio-toggle-btn" onclick="showcase.toggleSound()" title="Efectos de sonido interactivos">
+        <span id="audio-icon">🔇</span>
+        <span id="audio-text" class="audio-label">FX OFF</span>
+      </button>
+      <a href="../index.html" class="btn-demo-cta" title="Abrir software en vivo">
+        <span>Abrir Sistema</span>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </a>
+    </div>
+  </header>
+
+  <!-- MAIN CINEMATIC STAGE (SCENES CONTAINER) -->
+  <main class="cinematic-stage" id="stage">
+
+    <!-- =====================================================================
+         SCENE 0: CINEMATIC OVERVIEW / HERO
+         ===================================================================== -->
+    <section class="scene-panel active" id="scene-0" data-index="0">
+      <div class="scene-inner hero-layout">
+        <div class="hero-content">
+          <div class="tag-pill-gold">
+            <span class="pulse-dot-gold"></span>
+            <span>PLATAFORMA SAAS JOYERA 2026 • EDICIÓN MULTI-ROL</span>
+          </div>
+          <h1 class="hero-glitch-title">
+            Revolución en <br>
+            <span class="gradient-text-gold">Punto de Venta Joyero</span> <br>
+            & Control de Metales
+          </h1>
+          <p class="hero-tagline">
+            Control milimétrico por pesaje en gramos reales, liquidación de compras de oro, ticket térmico directo ESC/POS, arqueo de caja ciego y análisis predictivo con Inteligencia Artificial.
+          </p>
+
+          <div class="hero-stats-row">
+            <div class="stat-box">
+              <span class="stat-number">0.01<span class="stat-unit">g</span></span>
+              <span class="stat-label">Precisión en Pesaje</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-number">100<span class="stat-unit">%</span></span>
+              <span class="stat-label">Persistencia Offline & Cloud</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-number">80<span class="stat-unit">mm</span></span>
+              <span class="stat-label">Ticket Térmico Directo</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-number">Deep<span class="stat-unit">Seek</span></span>
+              <span class="stat-label">CFO Copilot con IA</span>
+            </div>
+          </div>
+
+          <div class="hero-actions">
+            <button type="button" class="btn-primary-glow" onclick="showcase.startTour()">
+              <span>▶ Iniciar Tour Interactivo</span>
+              <span class="glow-ring"></span>
+            </button>
+            <button type="button" class="btn-ghost-cyan" onclick="showcase.goToScene(2)">
+              <span>Ver POS & Margen en Vivo</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3D HOLO DASHBOARD SHOWCASE -->
+        <div class="hero-visual">
+          <div class="holo-card-wrapper">
+            <div class="holo-card">
+              <div class="holo-header">
+                <div class="holo-dots">
+                  <span></span><span></span><span></span>
+                </div>
+                <div class="holo-title">NEXUS LIVE TERMINAL • CHARLES JOYAS SAS</div>
+                <div class="holo-badge">STATUS: ONLINE • SYNC ATLAS</div>
+              </div>
+              <div class="holo-body">
+                <!-- Mini Metric Stream -->
+                <div class="holo-kpis">
+                  <div class="hk-card gold">
+                    <span class="hk-title">Oro 18K en Vitrina</span>
+                    <span class="hk-val" id="hk-oro-val">1,842.50 g</span>
+                    <span class="hk-sub">$ 580.000 COP / g</span>
+                  </div>
+                  <div class="hk-card emerald">
+                    <span class="hk-title">Ventas Hoy (POS)</span>
+                    <span class="hk-val" id="hk-sales-val">$ 28.450.000</span>
+                    <span class="hk-sub">14 transacciones</span>
+                  </div>
+                  <div class="hk-card cyan">
+                    <span class="hk-title">Efectivo en Caja</span>
+                    <span class="hk-val">$ 8.210.000</span>
+                    <span class="hk-sub">Turno Mañana Abierto</span>
+                  </div>
+                </div>
+
+                <!-- Animated Interactive Mini POS Preview -->
+                <div class="holo-pos-preview">
+                  <div class="holo-scanner-line"></div>
+                  <div class="holo-tx-row">
+                    <div class="holo-item-meta">
+                      <span class="h-sku">SKU: AN-ORO-18K-084</span>
+                      <span class="h-name">Anillo Corona Solitario Oro 18K Italiano</span>
+                      <span class="h-gram">4.85 g • Ley 750</span>
+                    </div>
+                    <div class="holo-item-price">
+                      <span class="h-calc">4.85g × $530.000/g</span>
+                      <span class="h-total">$ 2.570.500 COP</span>
+                      <span class="h-profit badge-profit">+ $ 417.000 Utilidad</span>
+                    </div>
+                  </div>
+
+                  <div class="holo-tx-row">
+                    <div class="holo-item-meta">
+                      <span class="h-sku">SKU: CAD-ORO-18K-019</span>
+                      <span class="h-name">Cadena Tejido Cartier Oro 18K</span>
+                      <span class="h-gram">14.20 g • Ley 750</span>
+                    </div>
+                    <div class="holo-item-price">
+                      <span class="h-calc">14.20g × $525.000/g</span>
+                      <span class="h-total">$ 7.455.000 COP</span>
+                      <span class="h-profit badge-profit">+ $ 1.150.200 Utilidad</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Hologram Terminal Footer -->
+                <div class="holo-footer">
+                  <div class="holo-sync-pill">
+                    <span class="sync-dot"></span>
+                    <span>Doble persistencia activa (LocalStorage + Mongo Atlas)</span>
+                  </div>
+                  <div class="holo-fps">FPS: 60 • LATENCIA: 12ms</div>
+                </div>
+              </div>
+            </div>
+            <!-- Glow Underlay -->
+            <div class="holo-glow"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- =====================================================================
+         SCENE 1: PESAJE JOYERO & COSTO PONDERADO
+         ===================================================================== -->
+    <section class="scene-panel" id="scene-1" data-index="1">
+      <div class="scene-inner split-layout">
+        <div class="scene-text-side">
+          <div class="scene-badge gold">⚖️ MÓDULO DE INGENIERÍA JOYERA</div>
+          <h2 class="scene-heading">
+            Control de Inventario por <br>
+            <span class="gradient-text-gold">Gramaje & Pesaje Real</span>
+          </h2>
+          <p class="scene-desc">
+            Cada joya se administra en gramos físicos exactos. El sistema calcula en milisegundos el costo promedio ponderado de compra para metales finos (Oro 18K, 14K, Plata 925), discriminando piezas por peso unitario y aislando accesorios sin metal (manillas y estuches).
+          </p>
+
+          <div class="feature-bullets">
+            <div class="bullet-card">
+              <span class="bullet-icon">⚖️</span>
+              <div>
+                <strong>Conversión Automática de Unidades</strong>
+                <p>Soporte de unidades universales de joyería: gramos (g), miligramos (mg), kilogramos (kg) y onzas troy (oz).</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">📈</span>
+              <div>
+                <strong>Costo Promedio Ponderado en Vivo</strong>
+                <p>Cada compra a proveedor o particular recalcula la valorización real del stock sin alterar el costo histórico al vender.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">🛡️</span>
+              <div>
+                <strong>Protección de Metales</strong>
+                <p>Categorías de fantasía o extras (hilos, manillas) no suman gramos de oro al valor patrimonial de vitrina.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INTERACTIVE BALANCE SIMULATOR -->
+        <div class="scene-interactive-side">
+          <div class="cyber-device-frame">
+            <div class="device-header">
+              <span class="device-status">BALANZA JOYERA DIGITAL • ESCALADO REAL-TIME</span>
+              <span class="device-brand">PRECISION 0.01g</span>
+            </div>
+
+            <div class="scale-visual-container">
+              <!-- Digital Display -->
+              <div class="scale-lcd-panel">
+                <div class="lcd-top-line">
+                  <span>METROLOGÍA CALIBRADA</span>
+                  <span class="lcd-indicator gold" id="scale-metal-tag">ORO 18K (750)</span>
+                </div>
+                <div class="lcd-main-digits">
+                  <span id="scale-grams-display">12.50</span> <span class="lcd-unit">g</span>
+                </div>
+                <div class="lcd-bottom-line">
+                  <span>COSTO BASE: <b id="scale-cost-base">$ 444.000 / g</b></span>
+                  <span>TASA DÍA: <b id="scale-rate-day">$ 580.000 / g</b></span>
+                </div>
+              </div>
+
+              <!-- Interactive Scale Plate -->
+              <div class="scale-pan-stage">
+                <div class="pan-ring"></div>
+                <div class="pan-plate" id="scale-pan">
+                  <div class="jewel-hologram">
+                    <span class="jewel-emoji" id="scale-jewel-icon">💍</span>
+                    <div class="jewel-sparkles"></div>
+                  </div>
+                </div>
+                <div class="pan-stand"></div>
+              </div>
+
+              <!-- Control Slider -->
+              <div class="scale-controls">
+                <label for="scale-slider" class="slider-label">
+                  <span>Ajustar Peso de la Muestra:</span>
+                  <span id="scale-slider-val" class="slider-val-readout">12.50 g</span>
+                </label>
+                <input type="range" id="scale-slider" min="0.5" max="50.0" step="0.25" value="12.5" oninput="showcase.onScaleSlider(this.value)">
+
+                <!-- Metal Selector Chips -->
+                <div class="metal-chips">
+                  <button type="button" class="chip-metal active" onclick="showcase.setScaleMetal('oro18k')">Oro 18K ($580k/g)</button>
+                  <button type="button" class="chip-metal" onclick="showcase.setScaleMetal('oro14k')">Oro 14K ($510k/g)</button>
+                  <button type="button" class="chip-metal" onclick="showcase.setScaleMetal('plata925')">Plata 925 ($38k/g)</button>
+                </div>
+
+                <!-- Real-time Live Financial Results -->
+                <div class="scale-results-grid">
+                  <div class="s-res-card">
+                    <span class="sr-label">Costo Reposición</span>
+                    <span class="sr-val" id="sr-cost-val">$ 5.550.000</span>
+                  </div>
+                  <div class="s-res-card">
+                    <span class="sr-label">Valor en Vitrina</span>
+                    <span class="sr-val gold" id="sr-sale-val">$ 7.250.000</span>
+                  </div>
+                  <div class="s-res-card highlight">
+                    <span class="sr-label">Utilidad Bruta Estimada</span>
+                    <span class="sr-val emerald" id="sr-profit-val">+ $ 1.700.000</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- =====================================================================
+         SCENE 2: PUNTO DE VENTA (POS), PRECIO CLIENTE & UTILIDAD EN VIVO
+         ===================================================================== -->
+    <section class="scene-panel" id="scene-2" data-index="2">
+      <div class="scene-inner split-layout">
+        <div class="scene-text-side">
+          <div class="scene-badge cyan">🛒 NEGOCIACIÓN EN MOSTRADOR & MARGEN</div>
+          <h2 class="scene-heading">
+            Punto de Venta con <br>
+            <span class="gradient-text-cyan">Cálculo de Utilidad en Vivo</span>
+          </h2>
+          <p class="scene-desc">
+            Diseñado para la realidad del joyero: permite pactar el valor por gramo o fijar un precio total cerrado con el cliente. En todo momento el vendedor conoce su costo, la ganancia neta en dinero real ($ COP) y el margen porcentual antes de añadir al carrito.
+          </p>
+
+          <div class="feature-bullets">
+            <div class="bullet-card">
+              <span class="bullet-icon">💵</span>
+              <div>
+                <strong>Entrada Dual Bidireccional</strong>
+                <p>Escribe el valor por gramo o escribe el precio cerrado pactado con el cliente; el sistema sincroniza ambos al instante.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">✨</span>
+              <div>
+                <strong>Auditoría Visual de Rentabilidad</strong>
+                <p>Identifica de inmediato cuánto dinero líquido deja cada artículo y alerta con aviso rojo si se pretende vender por debajo del costo.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">💳</span>
+              <div>
+                <strong>Multi-Pago Flexible</strong>
+                <p>Soporte para Efectivo con devuelta, Tarjeta con recargo configurable, Transferencias con voucher, Plan Separe y Pagos Mixtos.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LIVE INTERACTIVE POS MODAL SIMULATOR -->
+        <div class="scene-interactive-side">
+          <div class="cyber-device-frame">
+            <div class="device-header">
+              <span class="device-status">SIMULADOR DE VENTA POS • CÁLCULO DE UTILIDAD</span>
+              <span class="device-brand">NEXUS CHECKOUT</span>
+            </div>
+
+            <div class="pos-sim-card">
+              <!-- Item Header -->
+              <div class="pos-sim-item-header">
+                <div class="psi-left">
+                  <div class="psi-title" id="sim-prod-name">Cadena Lazo de Amor Oro 18K</div>
+                  <div class="psi-meta">
+                    <span class="badge-sku" id="sim-prod-sku">SKU: CAD-18K-042</span>
+                    <span class="badge-cat" id="sim-prod-cat">Oro 18K Italiano</span>
+                  </div>
+                </div>
+                <div class="psi-stock-badge">
+                  <span>Stock: 8.40 g</span>
+                </div>
+              </div>
+
+              <!-- Cost Reference Strip -->
+              <div class="cost-reference-strip">
+                <div class="cr-box">
+                  <span class="cr-label">Costo por Gramo:</span>
+                  <span class="cr-num gold" id="sim-cost-per-gram">$ 444.000 / g</span>
+                </div>
+                <div class="cr-box">
+                  <span class="cr-label">Costo Total Lote:</span>
+                  <span class="cr-num red" id="sim-total-cost-line">$ 3.729.600 COP</span>
+                </div>
+              </div>
+
+              <!-- Interactive Inputs -->
+              <div class="pos-sim-inputs">
+                <!-- Weight Input -->
+                <div class="pos-sim-field">
+                  <label class="ps-label">
+                    <span>1. Gramos a Despachar:</span>
+                    <span class="ps-sub">Peso real báscula</span>
+                  </label>
+                  <div class="input-unit-group">
+                    <button type="button" class="btn-step" onclick="showcase.stepGrams(-1)">-</button>
+                    <input type="text" id="sim-grams-input" class="sim-input" value="8.40" oninput="showcase.onSimGramsInput(this.value)">
+                    <button type="button" class="btn-step" onclick="showcase.stepGrams(1)">+</button>
+                    <span class="unit-tag">g</span>
+                  </div>
+                </div>
+
+                <!-- Price Per Gram Input -->
+                <div class="pos-sim-field">
+                  <label class="ps-label">
+                    <span>2. Precio Pactado por Gramo ($/g):</span>
+                    <span class="ps-sub">A cómo se le vende el gramo</span>
+                  </label>
+                  <div class="input-money-group">
+                    <span class="money-sign">$</span>
+                    <input type="text" id="sim-price-gram-input" class="sim-input money" value="530,000" oninput="showcase.onSimPriceGramInput(this.value)">
+                    <span class="unit-tag">/ g</span>
+                  </div>
+                </div>
+
+                <!-- Total Sale to Customer Input (Bidirectional) -->
+                <div class="pos-sim-field highlight-field">
+                  <label class="ps-label">
+                    <span>3. Valor Total de Venta al Cliente:</span>
+                    <span class="ps-sub">Total cerrado que paga el cliente</span>
+                  </label>
+                  <div class="input-money-group gold">
+                    <span class="money-sign gold">$</span>
+                    <input type="text" id="sim-total-sale-input" class="sim-input money gold-text" value="4,452,000" oninput="showcase.onSimTotalSaleInput(this.value)">
+                    <span class="unit-tag gold">COP</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- LIVE PROFIT CARD (Efecto WOW) -->
+              <div class="live-profit-glow-card" id="sim-profit-card">
+                <div class="profit-grid">
+                  <div class="pg-item">
+                    <span class="pg-label">Total Venta Cliente:</span>
+                    <span class="pg-val" id="sim-summary-sale">$ 4.452.000 COP</span>
+                  </div>
+                  <div class="pg-item">
+                    <span class="pg-label">Costo Real Joya:</span>
+                    <span class="pg-val cost" id="sim-summary-cost">-$ 3.729.600 COP</span>
+                  </div>
+                  <div class="pg-item big-profit">
+                    <span class="pg-label">Utilidad Neta en Dinero:</span>
+                    <span class="pg-val profit" id="sim-summary-profit">+ $ 722.400 COP</span>
+                  </div>
+                  <div class="pg-item margin-pill">
+                    <span class="margin-badge-glow" id="sim-summary-margin">+16.2% Margen</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pos-sim-action">
+                <button type="button" class="btn-add-sim" onclick="showcase.triggerSimulateSale()">
+                  <span>🛒 Simular Agregar al Carrito & Emitir Ticket</span>
+                  <span class="btn-ripple"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- =====================================================================
+         SCENE 3: IMPRESIÓN TÉRMICA DIRECTA (80mm & 58mm)
+         ===================================================================== -->
+    <section class="scene-panel" id="scene-3" data-index="3">
+      <div class="scene-inner split-layout">
+        <div class="scene-text-side">
+          <div class="scene-badge gold">🧾 IMPRESIÓN DIRECTA ESC/POS</div>
+          <h2 class="scene-heading">
+            Tickets Térmicos <br>
+            <span class="gradient-text-gold">Formateados al Milímetro</span>
+          </h2>
+          <p class="scene-desc">
+            Emisión de recibos térmicos de alta definición para impresoras de 80mm y 58mm mediante iframe aislado. Sin márgenes en blanco de navegador, con tipografía nítida para comprobantes de venta, recibos de compra de oro y notas de abono.
+          </p>
+
+          <div class="feature-bullets">
+            <div class="bullet-card">
+              <span class="bullet-icon">🖨️</span>
+              <div>
+                <strong>Cero Fallas de Impresión</strong>
+                <p>Canaliza el ticket a través de un iframe invisible con reglas <code>@media print</code> estrictas, eliminando cabeceras web no deseadas.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">💎</span>
+              <div>
+                <strong>Detalle de Ley & Pesaje</strong>
+                <p>Desglosa gramaje exacto de cada joya, ley del metal ("Oro 18k"), forma de pago, desglose de recargos y políticas del taller.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">📦</span>
+              <div>
+                <strong>Recibos de Compra a Clientes</strong>
+                <p>Genera comprobantes oficiales de compra de oro y retazos con firma de entrega y recibo.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="scene-cta-row">
+            <button type="button" class="btn-primary-glow" onclick="showcase.feedThermalPrinter()">
+              <span>🖨️ Probar Expulsión de Ticket</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- REALISTIC 80MM THERMAL PRINTER HARDWARE MOCKUP -->
+        <div class="scene-interactive-side">
+          <div class="printer-hardware-housing">
+            <div class="printer-top-slot">
+              <div class="slot-cut"></div>
+              <div class="slot-leds">
+                <span class="led green" title="Power Ready"></span>
+                <span class="led blue" title="Data Feed"></span>
+              </div>
+            </div>
+
+            <!-- Ejected Paper Sheet -->
+            <div class="paper-ejection-stage" id="paper-stage">
+              <div class="thermal-ticket-live" id="demo-receipt">
+                <div class="t-head">
+                  <div class="t-logo">💎</div>
+                  <div class="t-store">CHARLES JOYAS</div>
+                  <div class="t-slogan">Oro 18k</div>
+                  <div class="t-sep">--------------------------------</div>
+                  <div class="t-line">Inversiones Charles Joyas S.A.S</div>
+                  <div class="t-line">Carrera 53 # 47 - 21, Local 109</div>
+                  <div class="t-line">C.C Luz del Dia • CEL 323 491 3454</div>
+                  <div class="t-line">NIT 901838998-0</div>
+                  <div class="t-line bold" id="t-ticket-id">Venta #TX-89241</div>
+                  <div class="t-line bold" id="t-ticket-time">14/10/2026 12:45 PM</div>
+                  <div class="t-sep">================================</div>
+                </div>
+
+                <div class="t-client-block">
+                  <div><b>Cliente:</b> Mariana Gómez Restrepo</div>
+                  <div><b>CC:</b> 1.037.648.291</div>
+                  <div><b>Vendedor:</b> Carlos Mendoza</div>
+                </div>
+                <div class="t-sep">--------------------------------</div>
+
+                <div class="t-items-list" id="t-items-body">
+                  <div class="t-item-entry">
+                    <div class="t-item-name">[CAD-18K-042] Cadena Lazo de Amor</div>
+                    <div class="t-item-flex">
+                      <span>8.40g × $530.000/g</span>
+                      <b>$ 4.452.000</b>
+                    </div>
+                  </div>
+                  <div class="t-item-entry">
+                    <div class="t-item-name">[TOP-18K-011] Topos Diamante Ruso</div>
+                    <div class="t-item-flex">
+                      <span>2.10g × $550.000/g</span>
+                      <b>$ 1.155.000</b>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="t-sep">================================</div>
+                <div class="t-totals-block">
+                  <div class="t-row"><span>SUBTOTAL:</span> <b>$ 5.607.000</b></div>
+                  <div class="t-row"><span>IVA (0%):</span> <b>$ 0</b></div>
+                  <div class="t-row grand"><span>TOTAL A PAGAR:</span> <b>$ 5.607.000 COP</b></div>
+                  <div class="t-row"><span>MÉTODO:</span> <b>Transferencia (Bancolombia)</b></div>
+                  <div class="t-row"><span>COMPROBANTE:</span> <b>#BANC-847291</b></div>
+                </div>
+
+                <div class="t-sep">--------------------------------</div>
+                <div class="t-foot">
+                  <div>* GRACIAS POR SU PREFERENCIA *</div>
+                  <div>Garantía legal sobre autenticidad de metal 18K (750).</div>
+                  <div>No se hacen devoluciones de dinero en prendas sobre pedido.</div>
+                  <div class="barcode-mock">||| | ||||| || |||| ||| |||| | |||</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- =====================================================================
+         SCENE 4: ARQUEO DE CAJA & CUADRE CIEGO
+         ===================================================================== -->
+    <section class="scene-panel" id="scene-4" data-index="4">
+      <div class="scene-inner split-layout">
+        <div class="scene-text-side">
+          <div class="scene-badge emerald">💰 SEGURIDAD FINANCIERA & CAJA</div>
+          <h2 class="scene-heading">
+            Arqueo & Cierre de Caja <br>
+            <span class="gradient-text-emerald">Modo Cuadre Ciego</span>
+          </h2>
+          <p class="scene-desc">
+            Protege el dinero físico del negocio. Al cerrar turno, el cajero debe ingresar el conteo billete a billete antes de que el sistema le revele el saldo teórico esperado. Cero sesgos, cero alteraciones y detección instantánea de sobrantes o faltantes.
+          </p>
+
+          <div class="feature-bullets">
+            <div class="bullet-card">
+              <span class="bullet-icon">🔒</span>
+              <div>
+                <strong>Cuadre Ciego Inalterable</strong>
+                <p>El operador digita su conteo físico a ciegas. Si hay descuadre, queda registrado en la auditoría con justificación obligatoria.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">📊</span>
+              <div>
+                <strong>Apertura Híbrida: Efectivo + Banco</strong>
+                <p>Permite registrar base de efectivo en cajón y saldo inicial de cuenta bancaria o datáfono.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">📑</span>
+              <div>
+                <strong>Historial & Exportación a Excel</strong>
+                <p>Descarga libros contables formateados con fórmulas, turnos anteriores y desglose de ventas por método de pago.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INTERACTIVE CASH COUNTING SIMULATOR -->
+        <div class="scene-interactive-side">
+          <div class="cyber-device-frame">
+            <div class="device-header">
+              <span class="device-status">TERMINAL DE ARQUEO • TURNO-2026-01</span>
+              <span class="device-brand">AUDITORÍA ACTIVA</span>
+            </div>
+
+            <div class="cash-blind-sim">
+              <!-- Shift Header Status -->
+              <div class="cash-stat-bar">
+                <div>
+                  <span class="cs-label">Operador en Turno:</span>
+                  <span class="cs-val">Carlos Mendoza (Cajero)</span>
+                </div>
+                <div>
+                  <span class="cs-label">Base Inicial:</span>
+                  <span class="cs-val">$ 500.000 COP</span>
+                </div>
+                <div>
+                  <span class="cs-label">Estado Turno:</span>
+                  <span class="badge-status open">🟢 Abierto</span>
+                </div>
+              </div>
+
+              <!-- Interactive Blind Count Input -->
+              <div class="blind-input-card">
+                <div class="bic-title">💵 Conteo Físico Real de Billetes en Cajón:</div>
+                <div class="bic-sub">Digita la cantidad real que tienes en la mano:</div>
+                <div class="input-money-group emerald-glow">
+                  <span class="money-sign green">$</span>
+                  <input type="text" id="blind-count-input" class="sim-input money green-text" value="3,845,000" oninput="showcase.onBlindCountChange(this.value)">
+                  <span class="unit-tag green">COP</span>
+                </div>
+              </div>
+
+              <!-- System Reconciliation Drawer (Unlocked on submit/simulate) -->
+              <div class="reconciliation-panel" id="reconcile-panel">
+                <div class="rec-row">
+                  <span>(+) Base de Apertura en Efectivo:</span>
+                  <b>$ 500.000 COP</b>
+                </div>
+                <div class="rec-row">
+                  <span>(+) Ventas Realizadas en Efectivo Hoy:</span>
+                  <b>$ 3.425.000 COP</b>
+                </div>
+                <div class="rec-row">
+                  <span>(+) Abonos de Cartera Recibidos en Efectivo:</span>
+                  <b>$ 120.000 COP</b>
+                </div>
+                <div class="rec-row">
+                  <span>(-) Gastos de Caja Chica Egresados:</span>
+                  <b class="red">-$ 200.000 COP</b>
+                </div>
+                <div class="rec-divider"></div>
+                <div class="rec-row expected">
+                  <span>(=) EFECTIVO TEÓRICO ESPERADO EN CAJÓN:</span>
+                  <b id="rec-expected-val">$ 3.845.000 COP</b>
+                </div>
+                <div class="rec-row actual">
+                  <span>(=) EFECTIVO FÍSICO REPORTADO POR CAJERO:</span>
+                  <b id="rec-actual-val">$ 3.845.000 COP</b>
+                </div>
+
+                <!-- Discrepancy Alert Box -->
+                <div class="discrepancy-card exact" id="discrepancy-card">
+                  <span class="disc-icon" id="disc-icon">✅</span>
+                  <div class="disc-info">
+                    <strong id="disc-status">¡CUADRE PERFECTO EXACTO (0 DESCUADRE)!</strong>
+                    <p id="disc-detail">El dinero físico coincide con exactitud matemática frente al libro diario.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cash-sim-quick-actions">
+                <button type="button" class="btn-micro" onclick="showcase.setBlindCash(3845000)">Cuadre Exacto</button>
+                <button type="button" class="btn-micro" onclick="showcase.setBlindCash(3820000)">Simular Faltante (-$25k)</button>
+                <button type="button" class="btn-micro" onclick="showcase.setBlindCash(3870000)">Simular Sobrante (+$25k)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- =====================================================================
+         SCENE 5: CARTERA, PLAN SEPARE & COBRANZA WHATSAPP
+         ===================================================================== -->
+    <section class="scene-panel" id="scene-5" data-index="5">
+      <div class="scene-inner split-layout">
+        <div class="scene-text-side">
+          <div class="scene-badge cyan">📲 COBRANZA INTELIGENTE EN 1 CLIC</div>
+          <h2 class="scene-heading">
+            Gestión de Cartera & <br>
+            <span class="gradient-text-cyan">WhatsApp Instantáneo</span>
+          </h2>
+          <p class="scene-desc">
+            Administra clientes con crédito abierto y reservas de Plan Separe. Visualiza la cartera estratificada por días de mora y contacta a cada deudor en un solo clic con mensajes diplomáticos redactados y formateados listos para enviar.
+          </p>
+
+          <div class="feature-bullets">
+            <div class="bullet-card">
+              <span class="bullet-icon">📅</span>
+              <div>
+                <strong>Estratificación por Días de Mora</strong>
+                <p>Clasificación automática: Al día, 1 a 30 días, 31 a 60 días y cartera crítica mayor a 60 días.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">💬</span>
+              <div>
+                <strong>Enlace Directo WhatsApp API</strong>
+                <p>Sin guardar el contacto en el móvil: un clic abre WhatsApp Web o App con el saldo pendiente y vencimiento exacto.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">💍</span>
+              <div>
+                <strong>Control de Plan Separe</strong>
+                <p>Seguimiento de abonos parciales a joyas reservadas, control de saldo pendiente y fecha límite de retiro.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INTERACTIVE WHATSAPP COBRANZA PREVIEW -->
+        <div class="scene-interactive-side">
+          <div class="phone-housing">
+            <div class="phone-speaker"></div>
+            <div class="phone-screen">
+              <!-- WhatsApp Header -->
+              <div class="wa-header">
+                <div class="wa-avatar">👤</div>
+                <div class="wa-contact">
+                  <div class="wa-name">Alejandro Morales V.</div>
+                  <div class="wa-status">En línea • Saldo: $ 1.850.000 COP</div>
+                </div>
+                <div class="wa-actions">📞 💬 ⚙️</div>
+              </div>
+
+              <!-- Chat Message Bubble Area -->
+              <div class="wa-chat-canvas">
+                <div class="wa-date-chip">Hoy, 12:50 PM</div>
+
+                <!-- Incoming friendly message -->
+                <div class="wa-bubble incoming">
+                  <p>Buenas tardes don Carlos, ¿cómo está? Quería consultar cómo va mi cuenta de la pulsera que tengo en crédito.</p>
+                  <span class="wa-time">12:51 PM</span>
+                </div>
+
+                <!-- Outgoing Automated Collection Message -->
+                <div class="wa-bubble outgoing" id="wa-generated-bubble">
+                  <p id="wa-text-content">
+                    Hola estimado <b>Alejandro Morales</b>, te saludamos cordialmente de <b>Charles Joyas SAS</b>. 👋✨<br><br>
+                    Te recordamos amablemente que presentas un saldo pendiente de <b>$ 1.850.000 COP</b> con <b>14 días</b> de vencimiento.<br><br>
+                    Queremos facilitarte el proceso para ponerte al día. Puedes realizar tu abono mediante transferencia a nuestras cuentas autorizadas o directamente en el local 109 de C.C Luz del Día.<br><br>
+                    ¿Nos confirmas si te queda bien realizar el pago el día de hoy? ¡Muchas gracias por tu compromiso! 🙏💎
+                  </p>
+                  <span class="wa-time">12:52 PM <span class="wa-check">✓✓</span></span>
+                </div>
+              </div>
+
+              <!-- Interactive Controls for WhatsApp -->
+              <div class="wa-interactive-bar">
+                <button type="button" class="btn-wa-action" onclick="showcase.generateWaMessage('amigable')">Tono Amistoso</button>
+                <button type="button" class="btn-wa-action" onclick="showcase.generateWaMessage('formal')">Tono Formal</button>
+                <button type="button" class="btn-wa-action" onclick="showcase.generateWaMessage('urgente')">Tono Vencido</button>
+                <button type="button" class="btn-wa-send" onclick="showcase.openRealWhatsApp()">
+                  <span>📲 Probar Enviar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- =====================================================================
+         SCENE 6: NEXUS AI COPILOT (DEEPSEEK-V3 CFO)
+         ===================================================================== -->
+    <section class="scene-panel" id="scene-6" data-index="6">
+      <div class="scene-inner split-layout">
+        <div class="scene-text-side">
+          <div class="scene-badge violet">🧠 DIRECTOR FINANCIERO CON INTELIGENCIA ARTIFICIAL</div>
+          <h2 class="scene-heading">
+            Nexus AI Copilot <br>
+            <span class="gradient-text-violet">Impulsado por DeepSeek-V3</span>
+          </h2>
+          <p class="scene-desc">
+            Tu Director Financiero (CFO) digital disponible las 24 horas. Analiza en tiempo real los datos contables consolidados sin recalcular ni inventar números: diagnósticos ejecutivos diarios, auditoría forense de turnos, liquidación de "stock hueso" e interpretación de balances patrimoniales.
+          </p>
+
+          <div class="feature-bullets">
+            <div class="bullet-card">
+              <span class="bullet-icon">🛡️</span>
+              <div>
+                <strong>Cero Alucinaciones Contables</strong>
+                <p>Las cifras de ventas, costos, gastos y pasivos son inmutables; provienen con exactitud del libro mayor oficial del software.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">⚡</span>
+              <div>
+                <strong>Ultra Rápido & Económico</strong>
+                <p>Conectado a la API DeepSeek-V3 de última generación: respuestas financieras instantáneas a fracciones de centavo.</p>
+              </div>
+            </div>
+            <div class="bullet-card">
+              <span class="bullet-icon">📦</span>
+              <div>
+                <strong>Detección de Stock Estancado</strong>
+                <p>Recomienda combos estratégicos y estrategias de fundición o liquidación de metales de baja rotación.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INTERACTIVE AI COPILOT TERMINAL -->
+        <div class="scene-interactive-side">
+          <div class="ai-terminal-housing">
+            <div class="ai-term-header">
+              <div class="ai-term-title">
+                <span class="ai-avatar">🧠</span>
+                <div>
+                  <strong>Nexus AI Copilot</strong>
+                  <span class="ai-status-pill">DeepSeek-V3 Connected</span>
+                </div>
+              </div>
+              <div class="ai-term-tags">
+                <span class="tag-ai">CFO MODE</span>
+              </div>
+            </div>
+
+            <!-- Chat Output Scroll -->
+            <div class="ai-term-messages" id="ai-messages-box">
+              <div class="ai-msg user">
+                <div class="ai-bubble user">
+                  📊 Nexus AI, ¿cómo está la salud financiera del negocio hoy y qué sugerencias prioritarias tienes?
+                </div>
+              </div>
+
+              <div class="ai-msg bot">
+                <div class="ai-bubble bot" id="ai-bot-reply">
+                  <div class="ai-bot-header">
+                    <span>💎 DIAGNÓSTICO EJECUTIVO CONSOLIDADO</span>
+                    <span>14 OCT • 12:55 PM</span>
+                  </div>
+                  <ul class="ai-bullet-list">
+                    <li>💰 <b>Ventas Facturadas Hoy:</b> <b>$ 28.450.000 COP</b> (14 transacciones, ticket promedio: $ 2.032.140 COP).</li>
+                    <li>💵 <b>Efectivo Físico en Caja:</b> <b>$ 8.210.000 COP</b> (0 descuadres en turno actual).</li>
+                    <li>📉 <b>Cartera Pendiente por Cobrar:</b> <b>$ 12.350.000 COP</b> (84% al día, 16% con mora menor a 30 días).</li>
+                    <li>📦 <b>Inventario Activo Valorizado:</b> <b>$ 184.200.000 COP</b> (540g equivalentes de oro base).</li>
+                  </ul>
+                  <div class="ai-recommendation-box">
+                    <strong>🚀 2 Recomendaciones Clave:</strong>
+                    <p>1. Envía hoy los 3 recordatorios de WhatsApp a los clientes con mora menor a 15 días para liberar $ 1.950.000 COP de liquidez inmediata.</p>
+                    <p>2. El margen bruto de Oro 18K se mantiene sólido en <b>18.4%</b>. Mantener la tasa de $ 580.000 COP/g frente al comportamiento del mercado.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick Action Chips for AI -->
+            <div class="ai-quick-chips">
+              <button type="button" class="ai-chip" onclick="showcase.triggerAiPrompt('diagnostico')">📊 Diagnóstico Hoy</button>
+              <button type="button" class="ai-chip" onclick="showcase.triggerAiPrompt('caja')">🚨 Auditoría Caja</button>
+              <button type="button" class="ai-chip" onclick="showcase.triggerAiPrompt('hueso')">📦 Stock Hueso</button>
+              <button type="button" class="ai-chip" onclick="showcase.triggerAiPrompt('balance')">⚖️ Interpretar Balance</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+
+  <!-- =====================================================================
+       CINEMATIC VIDEO CONTROLLER BAR (STICKY BOTTOM)
+       ===================================================================== -->
+  <footer class="video-timeline-bar">
+    <div class="timeline-controls-left">
+      <button type="button" class="v-btn play-pause" id="v-play-btn" onclick="showcase.toggleAutoplay()" title="Reproducir / Pausar Tour Automático">
+        <span id="v-play-icon">⏸</span>
+      </button>
+      <button type="button" class="v-btn" onclick="showcase.prevScene()" title="Escena Anterior">⏮</button>
+      <button type="button" class="v-btn" onclick="showcase.nextScene()" title="Siguiente Escena">⏭</button>
+      <div class="timeline-time">
+        <span id="v-current-time">00:15</span> / <span id="v-total-time">01:45</span>
+      </div>
+    </div>
+
+    <!-- Central Interactive Scrub Bar with Chapters -->
+    <div class="timeline-track-center" id="timeline-track">
+      <div class="timeline-progress-fill" id="v-progress-fill"></div>
+      <div class="timeline-markers">
+        <div class="t-mark active" data-scene="0" onclick="showcase.goToScene(0)" title="Overview"></div>
+        <div class="t-mark" data-scene="1" onclick="showcase.goToScene(1)" title="Pesaje"></div>
+        <div class="t-mark" data-scene="2" onclick="showcase.goToScene(2)" title="POS & Utilidad"></div>
+        <div class="t-mark" data-scene="3" onclick="showcase.goToScene(3)" title="Ticket"></div>
+        <div class="t-mark" data-scene="4" onclick="showcase.goToScene(4)" title="Arqueo Caja"></div>
+        <div class="t-mark" data-scene="5" onclick="showcase.goToScene(5)" title="Cartera"></div>
+        <div class="t-mark" data-scene="6" onclick="showcase.goToScene(6)" title="Nexus AI"></div>
+      </div>
+    </div>
+
+    <div class="timeline-controls-right">
+      <span class="active-chapter-name" id="v-chapter-name">01. Overview General</span>
+      <a href="../index.html" class="v-btn cta" title="Abrir sistema de producción">
+        <span>Ingresar al POS</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </a>
+    </div>
+  </footer>
+
+  <!-- Notification Toast for Showcase -->
+  <div class="showcase-toast" id="showcase-toast"></div>
+
+  <!-- Showcase Application Engine -->
+  <script src="js/showcase.js"></script>
+</body>
+</html>

@@ -209,6 +209,7 @@ class NexusApp {
       'new-prod-cost',
       'edit-prod-cost',
       'pos-add-custom-price-input',
+      'pos-add-total-sale-input',
       'po-unit-cost',
       'cat-cost-input',
       'edit-cat-cost-input',
@@ -24499,7 +24500,18 @@ class NexusApp {
     }
 
     if (elPriceInput) {
-      elPriceInput.value = this.formatNumberWithCommas(initialPrice);
+      elPriceInput.value = initialPrice > 0 ? this.formatNumberWithCommas(initialPrice) : '';
+    }
+
+    const elPriceUnitTag = document.getElementById('pos-add-price-unit-tag');
+    if (elPriceUnitTag) {
+      elPriceUnitTag.textContent = `/ ${unit}`;
+    }
+
+    const elTotalSaleInput = document.getElementById('pos-add-total-sale-input');
+    const initialTotal = Math.round(initialPrice * defaultQty);
+    if (elTotalSaleInput) {
+      elTotalSaleInput.value = initialTotal > 0 ? this.formatNumberWithCommas(initialTotal) : '';
     }
 
     this.updateAddToCartModalPreview();
@@ -24513,6 +24525,33 @@ class NexusApp {
     }, 150);
   }
 
+  onAddToCartQtyInput(val) {
+    const qtyVal = this.parseCleanNumber(val);
+    const priceVal = this.parseCleanNumber(document.getElementById('pos-add-custom-price-input')?.value);
+    const totalSale = Math.round(qtyVal * priceVal);
+    const totalInput = document.getElementById('pos-add-total-sale-input');
+    if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
+    this.updateAddToCartModalPreview();
+  }
+
+  onAddToCartPriceGramInput(val) {
+    const priceVal = this.parseCleanNumber(val);
+    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+    const totalSale = Math.round(qtyVal * priceVal);
+    const totalInput = document.getElementById('pos-add-total-sale-input');
+    if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
+    this.updateAddToCartModalPreview();
+  }
+
+  onAddToCartTotalSaleInput(val) {
+    const totalSale = this.parseCleanNumber(val);
+    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+    const priceVal = (qtyVal > 0) ? Math.round(totalSale / qtyVal) : 0;
+    const priceInput = document.getElementById('pos-add-custom-price-input');
+    if (priceInput) priceInput.value = priceVal > 0 ? this.formatNumberWithCommas(priceVal) : '';
+    this.updateAddToCartModalPreview();
+  }
+
   updateAddToCartModalPreview() {
     const pId = document.getElementById('pos-add-product-id')?.value;
     const p = this.data.products.find(item => item.id === pId);
@@ -24520,10 +24559,7 @@ class NexusApp {
 
     const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
     const priceVal = this.parseCleanNumber(document.getElementById('pos-add-custom-price-input')?.value);
-
-    const subtotal = Math.max(0, qtyVal * priceVal);
-    const elSub = document.getElementById('pos-add-subtotal-val');
-    if (elSub) elSub.textContent = this.formatCurrency(subtotal);
+    const totalSale = Math.round(qtyVal * priceVal);
 
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
@@ -24535,20 +24571,85 @@ class NexusApp {
       elTotalWeightVal.textContent = qtyVal.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
-    const cat = this.data.categories.find(c => c.id === p.category || c.name === p.categoryName);
+    const cat = this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName);
     const costPerGram = Number(p.cost || cat?.cost || 0);
+    const totalCost = Math.round(qtyVal * costPerGram);
+    const profit = totalSale - totalCost;
+    const marginPct = totalSale > 0 ? Math.round((profit / totalSale) * 1000) / 10 : 0;
 
+    // Update dedicated real-time Profit Panel elements
+    const costTotalEl = document.getElementById('pos-add-cost-total-val');
+    if (costTotalEl) costTotalEl.textContent = this.formatCurrency(totalCost);
+
+    const saleTotalEl = document.getElementById('pos-add-sale-total-val');
+    if (saleTotalEl) saleTotalEl.textContent = this.formatCurrency(totalSale);
+
+    const profitValEl = document.getElementById('pos-add-profit-val');
+    const marginValEl = document.getElementById('pos-add-margin-val');
+    const profitCardEl = document.getElementById('pos-add-profit-card');
+    const lossAlertEl = document.getElementById('pos-add-loss-alert');
+
+    if (profitValEl) {
+      if (priceVal === 0 && totalSale === 0) {
+        profitValEl.textContent = '$ 0 COP';
+        profitValEl.style.color = 'var(--text-subtle)';
+      } else if (profit >= 0) {
+        profitValEl.textContent = `+${this.formatCurrency(profit)}`;
+        profitValEl.style.color = '#10B981';
+      } else {
+        profitValEl.textContent = `-${this.formatCurrency(Math.abs(profit))} (PÉRDIDA)`;
+        profitValEl.style.color = '#EF4444';
+      }
+    }
+
+    if (marginValEl) {
+      if (priceVal === 0 && totalSale === 0) {
+        marginValEl.textContent = 'Fijar precio de venta';
+        marginValEl.style.background = 'var(--canvas-bg)';
+        marginValEl.style.color = 'var(--text-muted)';
+        marginValEl.style.border = '1px solid var(--border-color)';
+      } else if (profit >= 0) {
+        marginValEl.textContent = `+${marginPct.toFixed(1)}% Margen`;
+        marginValEl.style.background = '#D1FAE5';
+        marginValEl.style.color = '#065F46';
+        marginValEl.style.border = '1px solid #10B981';
+      } else {
+        marginValEl.textContent = `⚠️ Venta por debajo del costo (${marginPct.toFixed(1)}%)`;
+        marginValEl.style.background = '#FEE2E2';
+        marginValEl.style.color = '#991B1B';
+        marginValEl.style.border = '1px solid #EF4444';
+      }
+    }
+
+    if (profitCardEl) {
+      if (profit < 0 && priceVal > 0) {
+        profitCardEl.style.background = 'rgba(239, 68, 68, 0.08)';
+        profitCardEl.style.borderColor = '#EF4444';
+        profitCardEl.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.2)';
+      } else {
+        profitCardEl.style.background = 'rgba(16, 185, 129, 0.06)';
+        profitCardEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        profitCardEl.style.boxShadow = 'none';
+      }
+    }
+
+    if (lossAlertEl) {
+      lossAlertEl.style.display = (profit < 0 && priceVal > 0) ? 'block' : 'none';
+    }
+
+    // Keep legacy references updated for backwards compatibility
+    const elSub = document.getElementById('pos-add-subtotal-val');
+    if (elSub) elSub.textContent = this.formatCurrency(totalSale);
     const elMargin = document.getElementById('pos-add-margin-badge');
     if (elMargin) {
       if (priceVal > 0 && costPerGram > 0) {
         const profitPerUnit = priceVal - costPerGram;
-        const marginPct = Math.round((profitPerUnit / priceVal) * 1000) / 10;
         if (profitPerUnit >= 0) {
-          elMargin.textContent = `Margen: +${marginPct}% (${this.formatCurrency(profitPerUnit)}/${unit})`;
+          elMargin.textContent = `Margen: +${marginPct.toFixed(1)}% (${this.formatCurrency(profitPerUnit)}/${unit})`;
           elMargin.style.background = '#D1FAE5';
           elMargin.style.color = '#065F46';
         } else {
-          elMargin.textContent = `ALERTA BAJO COSTO: ${marginPct}% (${this.formatCurrency(profitPerUnit)}/${unit})`;
+          elMargin.textContent = `ALERTA BAJO COSTO: ${marginPct.toFixed(1)}% (${this.formatCurrency(profitPerUnit)}/${unit})`;
           elMargin.style.background = '#FEE2E2';
           elMargin.style.color = '#991B1B';
         }
@@ -24586,6 +24687,13 @@ class NexusApp {
     if (next < minVal) next = minVal;
     if (next > maxStock) next = maxStock;
     input.value = this.formatNumberWithCommas(next, isPesaje || isUnitWithWeight);
+
+    // Synchronize Campo B based on Campo A price
+    const priceVal = this.parseCleanNumber(document.getElementById('pos-add-custom-price-input')?.value);
+    const totalSale = Math.round(next * priceVal);
+    const totalInput = document.getElementById('pos-add-total-sale-input');
+    if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
+
     this.updateAddToCartModalPreview();
   }
 
@@ -24596,6 +24704,12 @@ class NexusApp {
     if (cur <= 0) return;
     const next = Math.round(cur * (1 + deltaPercent));
     input.value = this.formatNumberWithCommas(next);
+
+    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+    const totalSale = Math.round(next * qtyVal);
+    const totalInput = document.getElementById('pos-add-total-sale-input');
+    if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
+
     this.updateAddToCartModalPreview();
   }
 
@@ -24604,17 +24718,21 @@ class NexusApp {
     const p = this.data.products.find(item => item.id === pId);
     const input = document.getElementById('pos-add-custom-price-input');
     if (p && input) {
+      let suggestedPrice = 0;
       if (p.price && Number(p.price) > 0) {
-        input.value = this.formatNumberWithCommas(p.price);
+        suggestedPrice = Number(p.price);
       } else {
         const cat = this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName);
         const costPerGram = Number(p.cost || cat?.cost || 0);
-        const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
-        const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
-        const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const suggestedPrice = isUnitWithWeight ? costPerGram : (isPesaje ? costPerGram : costPerGram);
-        input.value = suggestedPrice > 0 ? this.formatNumberWithCommas(suggestedPrice) : '';
+        suggestedPrice = costPerGram;
       }
+      input.value = suggestedPrice > 0 ? this.formatNumberWithCommas(suggestedPrice) : '';
+
+      const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+      const totalSale = Math.round(suggestedPrice * qtyVal);
+      const totalInput = document.getElementById('pos-add-total-sale-input');
+      if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
+
       this.updateAddToCartModalPreview();
     }
   }
