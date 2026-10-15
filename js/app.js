@@ -24665,8 +24665,6 @@ class NexusApp {
     }
 
     // Keep legacy references updated for backwards compatibility
-    const elSub = document.getElementById('pos-add-subtotal-val');
-    if (elSub) elSub.textContent = this.formatCurrency(totalSale);
     const elMargin = document.getElementById('pos-add-margin-badge');
     if (elMargin) {
       if (priceVal > 0 && costPerGram > 0) {
