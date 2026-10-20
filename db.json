@@ -3254,7 +3254,7 @@
       "status": "low_stock"
     },
     {
-      "id": "PRD-981",
+      "id": "PRD-CJ-792-UJ98",
       "sku": "792",
       "name": "PULSO CORAZON 19 CM",
       "measureType": "Unidades",
@@ -3330,7 +3330,7 @@
       "status": "active"
     },
     {
-      "id": "PRD-549",
+      "id": "PRD-CJ-788-HSET",
       "sku": "788",
       "name": "PULSO 3 X 1 20 CM",
       "measureType": "Unidades",
@@ -9688,7 +9688,7 @@
       "createdAt": "2026-09-16T19:12:12.925Z"
     },
     {
-      "id": "PRD-CJ-0305",
+      "id": "PRD-CJ-304-3G8A",
       "sku": "304",
       "name": "DIJE CORAZON",
       "measureType": "Pesaje",
@@ -19066,7 +19066,7 @@
       "createdAt": "2026-09-16T19:12:12.929Z"
     },
     {
-      "id": "PRD-CJ-0771",
+      "id": "PRD-CJ-772-MTD1",
       "sku": "772",
       "name": "CANDONGA DIAMA",
       "measureType": "Pesaje",
@@ -22963,6 +22963,6 @@
       0
     ]
   },
-  "updatedAt": "2026-10-14T03:25:26.632Z",
+  "updatedAt": "2026-10-20T19:34:05.268Z",
   "sales": []
 }

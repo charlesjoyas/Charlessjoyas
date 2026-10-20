@@ -64,6 +64,20 @@ class NexusApp {
     this.init();
   }
 
+  generateUniqueId(prefix = 'ID', existingCollection = null) {
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const entropy = Math.random().toString(36).substring(2, 6).toUpperCase();
+    let candidate = `${prefix}-${timestamp}-${entropy}`;
+    if (Array.isArray(existingCollection) && existingCollection.length > 0) {
+      const existingIds = new Set(existingCollection.map(item => item && (item.id || item.shiftId)).filter(Boolean));
+      while (existingIds.has(candidate)) {
+        const extra = Math.random().toString(36).substring(2, 6).toUpperCase();
+        candidate = `${prefix}-${timestamp}-${extra}`;
+      }
+    }
+    return candidate;
+  }
+
   // Cached Intl.NumberFormat instances — created once, reused on every call
   // Avoids creating a new formatter object on each of the ~183 formatCurrency calls per render.
   _getIntlFmt(minDec) {
@@ -2219,7 +2233,7 @@ class NexusApp {
         }
 
         const newCust = {
-          id: `CLI-${Math.floor(106 + Math.random() * 900)}`,
+          id: this.generateUniqueId('CLI', this.data.customers),
           docType,
           document: documentVal,
           name,
@@ -2403,7 +2417,7 @@ class NexusApp {
         }
 
         const newSupp = {
-          id: `PRV-${Math.floor(205 + Math.random() * 900)}`,
+          id: this.generateUniqueId('PRV', this.data.suppliers),
           docType,
           nit,
           name,
@@ -2554,7 +2568,7 @@ class NexusApp {
         });
 
         const newPrf = {
-          id: `PRF-${Math.floor(10 + Math.random() * 90)}`,
+          id: this.generateUniqueId('PRF', this.data.perfiles),
           name,
           permissions: desc || `Acceso a ${allowedModules.length} módulo(s)`,
           usersCount: assignedUserIds.length,
@@ -2639,7 +2653,7 @@ class NexusApp {
         const fee = document.getElementById('pm-fee-input').value;
 
         const newPm = {
-          id: `PM-${Math.floor(10 + Math.random() * 90)}`,
+          id: this.generateUniqueId('PM', this.data.paymentMethods),
           name,
           icon: "card",
           fee: fee.includes('%') ? fee : `${fee}%`,
@@ -2695,7 +2709,7 @@ class NexusApp {
         const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
         const now = new Date();
         const newExp = {
-          id: `EXP-${Math.floor(805 + Math.random() * 900)}`,
+          id: this.generateUniqueId('EXP', this.data.expenses),
           date: now.toISOString().slice(0, 10),
           time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           timestamp: now.getTime(),
@@ -2767,7 +2781,7 @@ class NexusApp {
         const price = this.parseCleanNumber(document.getElementById('srv-price-input')?.value);
 
         const newSrv = {
-          id: `SRV-${Math.floor(10 + Math.random() * 90)}`,
+          id: this.generateUniqueId('SRV', this.data.services),
           name, category: cat, price, status: "Active"
         };
         this.data.services.unshift(newSrv);
@@ -2942,7 +2956,7 @@ class NexusApp {
         const cost = this.parseCleanNumber(document.getElementById('ast-cost-input')?.value);
 
         const newAst = {
-          id: `ACT-${Math.floor(10 + Math.random() * 90)}`,
+          id: this.generateUniqueId('ACT', this.data.assets),
           name, category: cat,
           purchaseDate: new Date().toISOString().slice(0, 10),
           costValue: cost, currentVal: cost, status: "Excelente"
@@ -3036,8 +3050,8 @@ class NexusApp {
           // Si el SKU no existe en catálogo, ES UN NUEVO PRODUCTO
           // (No se reutiliza otro producto existente aunque comparta el mismo nombre de modelo)
           if (!targetProd) {
-            const newProdId = `PRD-CJ-${Date.now().toString().slice(-4)}`;
-            const newSku = prodSku || `SKU-${Date.now().toString().slice(-4)}`;
+            const newProdId = this.generateUniqueId('PRD-CJ', this.data.products);
+            const newSku = prodSku || this.generateUniqueId('SKU', this.data.products);
             targetProd = {
               id: newProdId,
               sku: newSku,
@@ -3113,7 +3127,7 @@ class NexusApp {
 
           const now = new Date();
           const newPO = {
-            id: `OC-${Date.now().toString().slice(-6)}`,
+            id: this.generateUniqueId('OC', this.data.purchases),
             supplier: supp,
             productId: targetProd.id,
             productName: targetProd.name,
@@ -3292,7 +3306,7 @@ class NexusApp {
         const categoryName = catObj ? catObj.name : 'General';
 
         const newP = {
-          id: `PRD-${Math.floor(106 + Math.random() * 900)}`,
+          id: this.generateUniqueId('PRD', this.data.products),
           sku: sku || '001',
           name,
           measureType: isExtraCat ? 'Unidades' : measureType,
@@ -5654,7 +5668,7 @@ class NexusApp {
       if (!cred) {
         if (cust && cust.creditBalance > 0) {
           cred = {
-            id: `CC-${Math.floor(304 + Math.random() * 900)}`,
+            id: this.generateUniqueId('CC', this.data.customerCredits),
             customer: entityName,
             totalGranted: cust.creditBalance,
             currentBalance: cust.creditBalance,
@@ -5754,10 +5768,10 @@ class NexusApp {
 
       if (!this.data.abonosVentas) this.data.abonosVentas = [];
       this.data.abonosVentas.unshift({
-        id: `AB-V${Date.now().toString().slice(-6)}`,
+        id: this.generateUniqueId('AB-V', this.data.abonosVentas),
         date: new Date().toISOString().slice(0, 16).replace('T', ' '),
         customer: cred.customer,
-        invoiceId: `TX-${Date.now().toString().slice(-5)}`,
+        invoiceId: this.generateUniqueId('TX', this.data.recentTransactions || this.data.sales),
         amount: actualPay,
         method: method,
         cashier: this.data.store?.cashier || (this.currentUser ? this.currentUser.name : "Cajero")
@@ -5899,13 +5913,13 @@ class NexusApp {
 
       if (!this.data.abonosCompras) this.data.abonosCompras = [];
       this.data.abonosCompras.unshift({
-        id: `AB-C${Date.now().toString().slice(-6)}`,
+        id: this.generateUniqueId('AB-C', this.data.abonosCompras),
         date: now.toISOString().slice(0, 10),
         time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         timestamp: now.getTime(),
         shiftId: activeShift ? activeShift.shiftId : null,
         supplier: cp.supplier,
-        poId: cp.id || `OC-${Date.now().toString().slice(-5)}`,
+        poId: cp.id || this.generateUniqueId('OC', this.data.purchases),
         amount: actualPay,
         method: shouldDeductFromCash ? `${method} (Caja)` : method,
         cashier: activeCashier,
@@ -8948,7 +8962,7 @@ class NexusApp {
       } else {
         // Si el producto fue borrado, recrearlo en el inventario con su código y datos originales
         const restoredProd = {
-          id: item.id || `PRD-${Date.now().toString().slice(-4)}`,
+          id: item.id || this.generateUniqueId('PRD', this.data.products),
           sku: item.sku || '',
           name: item.name || 'Joya Reintegrada',
           measureType: item.measureType || 'Pesaje',
@@ -9468,7 +9482,7 @@ class NexusApp {
     const now = new Date();
     if (!this.data.abonosCompras) this.data.abonosCompras = [];
     this.data.abonosCompras.unshift({
-      id: `AB-C${Date.now().toString().slice(-6)}`,
+      id: this.generateUniqueId('AB-C', this.data.abonosCompras),
       date: now.toISOString().slice(0, 10),
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: now.getTime(),
@@ -11962,7 +11976,7 @@ class NexusApp {
     const now = new Date();
 
     this.data.cashShiftLog = {
-      shiftId: `TURNO-${String(Math.floor(100 + Math.random() * 900))}`,
+      shiftId: this.generateUniqueId('TURNO', this.data.cashShiftsHistory),
       openingCash: openingCash,
       openingCard: openingCard,
       openingAccount: openingAccount,
@@ -12124,7 +12138,7 @@ class NexusApp {
     }
 
     const closedRecord = {
-      id: `TRN-${Date.now().toString().slice(-6)}`,
+      id: this.generateUniqueId('TRN', this.data.cashShiftsHistory),
       shiftId: this.data.cashShiftLog?.shiftId || '',
       status: "Cerrado",
       openingCash: totals.openingCash,
@@ -25965,7 +25979,7 @@ class NexusApp {
           existing.status = 'Al Día';
         } else {
           this.data.customerCredits.unshift({
-            id: `CC-${Math.floor(310 + Math.random() * 600)}`,
+            id: this.generateUniqueId('CC', this.data.customerCredits),
             customer: cust.name,
             totalGranted: grandTotal,
             currentBalance: grandTotal,
@@ -25985,7 +25999,7 @@ class NexusApp {
       if (cust && separePending > 0) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + separePending) * 100) / 100;
         this.data.customerCredits.unshift({
-          id: `SEP-${Math.floor(500 + Math.random() * 500)}`,
+          id: this.generateUniqueId('SEP', this.data.customerCredits),
           customer: cust.name,
           totalGranted: grandTotal,
           currentBalance: separePending,
