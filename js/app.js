@@ -24500,7 +24500,7 @@ class NexusApp {
       if (isUnitWithWeight) {
         defaultQty = pWeight;
       } else if (isPesaje) {
-        defaultQty = stockNum < 1 ? stockNum : 1;
+        defaultQty = stockNum;
       } else {
         defaultQty = 1;
       }
@@ -24860,7 +24860,7 @@ class NexusApp {
         existing.customPrice = resolvedPrice;
       }
     } else {
-      const initialQty = qty !== null ? qty : (isUnitWithWeight ? pWeight : (isPesaje ? (stockNum < 1 ? stockNum : 1) : 1));
+      const initialQty = qty !== null ? qty : (isUnitWithWeight ? pWeight : (isPesaje ? stockNum : 1));
       this.cart.push({
         product,
         qty: initialQty,
