@@ -141,7 +141,7 @@
   ],
   "customers": [
     {
-      "id": "CLI-1003",
+      "id": "CLI-001",
       "docType": "CC",
       "document": "123",
       "name": "Joyería santa isabel",
@@ -160,7 +160,7 @@
       "status": "Active"
     },
     {
-      "id": "CLI-886",
+      "id": "CLI-002",
       "docType": "CC",
       "document": "11111",
       "name": "zharick",
@@ -179,7 +179,7 @@
       "status": "Active"
     },
     {
-      "id": "CLI-257",
+      "id": "CLI-003",
       "docType": "CC",
       "document": "2522",
       "name": "Milton Garzón",
@@ -198,7 +198,7 @@
       "status": "Active"
     },
     {
-      "id": "CLI-744",
+      "id": "CLI-004",
       "docType": "CC",
       "document": "1234456",
       "name": "emerson zuluaga",
@@ -217,7 +217,7 @@
       "status": "Active"
     },
     {
-      "id": "CLI-541",
+      "id": "CLI-005",
       "docType": "CC",
       "document": "123456",
       "name": "Juliana Meneses",
@@ -236,7 +236,7 @@
       "status": "Active"
     },
     {
-      "id": "CLI-344",
+      "id": "CLI-006",
       "docType": "CC",
       "document": "1143339747",
       "name": "carlos garzon",
@@ -256,7 +256,7 @@
   ],
   "suppliers": [
     {
-      "id": "PRV-1065",
+      "id": "PRV-001",
       "docType": "NIT",
       "nit": "QWQW",
       "name": "PIETRA MAYORISTA",
@@ -270,7 +270,7 @@
       "status": "Active"
     },
     {
-      "id": "PRV-570",
+      "id": "PRV-002",
       "docType": "NIT",
       "nit": "122",
       "name": "YEPEZ",
@@ -284,7 +284,7 @@
       "status": "Active"
     },
     {
-      "id": "PRV-665",
+      "id": "PRV-003",
       "docType": "CC",
       "nit": "1233456",
       "name": "JUAN DAVID",
@@ -298,7 +298,7 @@
       "status": "Active"
     },
     {
-      "id": "PRV-855",
+      "id": "PRV-004",
       "docType": "CC",
       "nit": "11433367",
       "name": "santiago rosita",
@@ -312,7 +312,7 @@
       "status": "Active"
     },
     {
-      "id": "PRV-460",
+      "id": "PRV-005",
       "docType": "NIT",
       "nit": "000000",
       "name": "Calia joyería",
@@ -326,7 +326,7 @@
       "status": "Active"
     },
     {
-      "id": "PRV-501",
+      "id": "PRV-006",
       "docType": "NIT",
       "nit": "11111",
       "name": "joyeria santa isabel",
@@ -340,7 +340,7 @@
       "status": "Active"
     },
     {
-      "id": "PRV-974",
+      "id": "PRV-007",
       "nit": "1222",
       "name": "DH HERNANDEZ JOYEROS",
       "phone": "11111",
@@ -354,7 +354,7 @@
       "docType": "NIT"
     },
     {
-      "id": "PRV-753",
+      "id": "PRV-008",
       "nit": "12234",
       "name": "ARISTIZABAL JOYERO",
       "phone": "1234",
@@ -368,7 +368,7 @@
       "docType": "NIT"
     },
     {
-      "id": "PRV-907",
+      "id": "PRV-009",
       "nit": "1143339747",
       "name": "carlos andres garzon",
       "phone": "3205675131",
@@ -384,7 +384,7 @@
   ],
   "perfiles": [
     {
-      "id": "PRF-01",
+      "id": "PRF-001",
       "name": "Super Admin",
       "permissions": "Acceso total sin restricciones: Gestión Global, Usuarios, Ajustes, Inventario, Finanzas y POS",
       "usersCount": 2,
@@ -394,7 +394,7 @@
       ]
     },
     {
-      "id": "PRF-62",
+      "id": "PRF-002",
       "name": "Gerente de Tienda Regional",
       "permissions": "Acceso total a finanzas y reportes",
       "usersCount": 0,
@@ -420,7 +420,7 @@
       ]
     },
     {
-      "id": "PRF-03",
+      "id": "PRF-003",
       "name": "Cajero",
       "permissions": "Ventas en POS, Cobros, Apertura y Cierre de Caja Chica",
       "usersCount": 2,
@@ -438,7 +438,7 @@
   ],
   "expenses": [
     {
-      "id": "EXP-971",
+      "id": "EXP-001",
       "date": "2026-10-10",
       "description": "pago taller",
       "category": "Servicios Básicos",
@@ -450,7 +450,7 @@
       "time": "04:00 p.m."
     },
     {
-      "id": "EXP-1153",
+      "id": "EXP-002",
       "date": "2026-10-10",
       "description": "pago arriendo local",
       "category": "Servicios Básicos",
@@ -459,7 +459,7 @@
       "method": "Transferencia"
     },
     {
-      "id": "EXP-1543",
+      "id": "EXP-003",
       "date": "2026-10-07",
       "description": "pago internet ",
       "category": "Servicios Básicos",
@@ -468,7 +468,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1132",
+      "id": "EXP-004",
       "date": "2026-10-06",
       "description": "compra aro de luz insumos fotografia",
       "category": "Suministros",
@@ -477,7 +477,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1625",
+      "id": "EXP-005",
       "date": "2026-10-05",
       "description": "compra cajas de joyas ",
       "category": "Suministros",
@@ -486,7 +486,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1576",
+      "id": "EXP-006",
       "date": "2026-10-05",
       "description": "compra pacas de agua",
       "category": "Suministros",
@@ -495,7 +495,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1025",
+      "id": "EXP-007",
       "date": "2026-10-02",
       "description": "pago nomina santiGO",
       "category": "Nómina",
@@ -504,7 +504,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-882",
+      "id": "EXP-008",
       "date": "2026-10-02",
       "description": "compra decoración y aseo ",
       "category": "Suministros",
@@ -513,7 +513,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1046",
+      "id": "EXP-009",
       "date": "2026-10-02",
       "description": "pago nomina zharick ",
       "category": "Nómina",
@@ -522,7 +522,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1681",
+      "id": "EXP-010",
       "date": "2026-09-23",
       "description": "compra targetas certificados ",
       "category": "Suministros",
@@ -531,7 +531,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1456",
+      "id": "EXP-011",
       "date": "2026-09-18",
       "description": "compra agua",
       "category": "Suministros",
@@ -540,7 +540,7 @@
       "method": "Efectivo"
     },
     {
-      "id": "EXP-1151",
+      "id": "EXP-012",
       "date": "2026-09-18",
       "description": "Pago marcación láser ",
       "category": "Servicios Básicos",
@@ -551,56 +551,56 @@
   ],
   "paymentMethods": [
     {
-      "id": "PM-51",
+      "id": "PM-001",
       "name": "CUENTA CHARLES JOYAS SAS",
       "icon": "card",
       "fee": "7%",
       "active": true
     },
     {
-      "id": "PM-74",
+      "id": "PM-002",
       "name": "CUENTA BANCARIA CARLOS",
       "icon": "card",
       "fee": "0%",
       "active": true
     },
     {
-      "id": "PM-15",
+      "id": "PM-003",
       "name": "PLAN SEPARE",
       "icon": "card",
       "fee": "0%",
       "active": true
     },
     {
-      "id": "PM-01",
+      "id": "PM-004",
       "name": "EFECTIVO",
       "icon": "cash",
       "fee": "0%",
       "active": true
     },
     {
-      "id": "PM-02",
+      "id": "PM-005",
       "name": "Tarjeta Débito/Crédito",
       "icon": "card",
       "fee": "0.8%",
       "active": true
     },
     {
-      "id": "PM-03",
+      "id": "PM-006",
       "name": "Bizum / Pago QR",
       "icon": "qr",
       "fee": "0%",
       "active": true
     },
     {
-      "id": "PM-04",
+      "id": "PM-007",
       "name": "Crédito Cliente",
       "icon": "credit",
       "fee": "0%",
       "active": true
     },
     {
-      "id": "PM-05",
+      "id": "PM-008",
       "name": "Transferencia Bancaria CTA ZHARICK",
       "icon": "bank",
       "fee": "0%",
@@ -609,7 +609,7 @@
   ],
   "purchases": [
     {
-      "id": "OC-260308",
+      "id": "OC-001",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-0305",
       "productName": "PLACA FOT GR",
@@ -631,7 +631,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-238788",
+      "id": "OC-002",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-8784",
       "productName": "PLACA FOT GR",
@@ -653,7 +653,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-194978",
+      "id": "OC-003",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-7206",
       "productName": "PLACA FOT GR",
@@ -675,7 +675,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-149368",
+      "id": "OC-004",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-9365",
       "productName": "PLACA FOT GR",
@@ -697,7 +697,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-101641",
+      "id": "OC-005",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-1639",
       "productName": "PLACA FOT GR",
@@ -719,7 +719,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-942280",
+      "id": "OC-006",
       "supplier": "yepez",
       "productId": "PRD-CJ-0782",
       "productName": "BOLAS",
@@ -741,7 +741,7 @@
       "paidAmount": 290400
     },
     {
-      "id": "OC-787770",
+      "id": "OC-007",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-7767",
       "productName": "PLACA FOT GR",
@@ -763,7 +763,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-249600",
+      "id": "OC-008",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-0782",
       "productName": "BOLAS",
@@ -785,7 +785,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-777563",
+      "id": "OC-009",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-0753",
       "productName": "BROCHES ITA",
@@ -807,7 +807,7 @@
       "paidAmount": 2249600
     },
     {
-      "id": "OC-026129",
+      "id": "OC-010",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-6127",
       "productName": "TOPOS DE ESMERALDAS",
@@ -829,7 +829,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-801228",
+      "id": "OC-011",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-1226",
       "productName": "TOPOS DE ESMERALDAS",
@@ -851,7 +851,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-769128",
+      "id": "OC-012",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-9126",
       "productName": "TOPOS DE ESMERALDAS",
@@ -873,7 +873,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-738140",
+      "id": "OC-013",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-8137",
       "productName": "TOPOS MEDIANO ESMERALDAS",
@@ -895,7 +895,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-705383",
+      "id": "OC-014",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-5381",
       "productName": "TOPOS MEDIANO ESMERALDAS",
@@ -917,7 +917,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-647892",
+      "id": "OC-015",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-7890",
       "productName": "TOPOS DE ESMERALDAS",
@@ -939,7 +939,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-505948",
+      "id": "OC-016",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-5946",
       "productName": "TOPOS VAN CLIF",
@@ -961,7 +961,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-471586",
+      "id": "OC-017",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-1584",
       "productName": "TOPOS VAN CLIF",
@@ -983,7 +983,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-448326",
+      "id": "OC-018",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-6631",
       "productName": "TOPOS VAN CLIF",
@@ -1005,7 +1005,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-446633",
+      "id": "OC-019",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-6631",
       "productName": "TOPOS VAN CLIF",
@@ -1027,7 +1027,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-413316",
+      "id": "OC-020",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-3314",
       "productName": "TOPOS VAN CLIF",
@@ -1049,7 +1049,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-388564",
+      "id": "OC-021",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-8563",
       "productName": "TOPOS VAN CLIF",
@@ -1071,7 +1071,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-358096",
+      "id": "OC-022",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-8094",
       "productName": "TOPOS VAN CLIF",
@@ -1093,7 +1093,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-958983",
+      "id": "OC-023",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-8982",
       "productName": "ANILLO INFINITO",
@@ -1115,7 +1115,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-955827",
+      "id": "OC-024",
       "supplier": "PIETRA MAYORISTA",
       "productId": "PRD-CJ-5826",
       "productName": "PULSO BB CADENA",
@@ -1137,7 +1137,7 @@
       "paidAmount": 2290750
     },
     {
-      "id": "OC-910870",
+      "id": "OC-025",
       "supplier": "PIETRA MAYORISTA",
       "productId": "PRD-CJ-7831",
       "productName": "PULSO BB CADENA",
@@ -1159,7 +1159,7 @@
       "paidAmount": 2290750
     },
     {
-      "id": "OC-790773",
+      "id": "OC-026",
       "supplier": "PIETRA MAYORISTA",
       "productId": "PRD-CJ-0771",
       "productName": "PULSO GUCCI  BB",
@@ -1181,7 +1181,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-642181",
+      "id": "OC-027",
       "supplier": "PIETRA MAYORISTA",
       "productId": "PRD-CJ-2179",
       "productName": "PULSO GUCC DE BB",
@@ -1203,7 +1203,7 @@
       "paidAmount": 0
     },
     {
-      "id": "OC-956580",
+      "id": "OC-028",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-0824",
       "productName": "ANILLO INFINITO",
@@ -1225,7 +1225,7 @@
       "paidAmount": 512000
     },
     {
-      "id": "OC-302327",
+      "id": "OC-029",
       "supplier": "carlos andres garzon",
       "productId": "PRD-CJ-0823",
       "productName": "ANILLO INFINITO",
@@ -1247,7 +1247,7 @@
       "paidAmount": 280000
     },
     {
-      "id": "OC-589753",
+      "id": "OC-030",
       "supplier": "DH HERNANDEZ JOYEROS",
       "productId": "PRD-CJ-0782",
       "productName": "BOLAS",
@@ -1269,7 +1269,7 @@
       "paidAmount": 2000000
     },
     {
-      "id": "OC-730572",
+      "id": "OC-031",
       "supplier": "yepez",
       "productId": "PRD-CJ-0753",
       "productName": "BROCHES ITA",
@@ -1291,7 +1291,7 @@
       "paidAmount": 638400
     },
     {
-      "id": "OC-154989",
+      "id": "OC-032",
       "supplier": "JUAN DAVID",
       "productId": "PRD-CJ-0782",
       "productName": "BOLAS",
@@ -1313,7 +1313,7 @@
       "paidAmount": 299200
     },
     {
-      "id": "OC-236068",
+      "id": "OC-033",
       "supplier": "JUAN DAVID",
       "productId": "PRD-CJ-0782",
       "productName": "BOLAS",
@@ -1337,7 +1337,7 @@
   ],
   "customerCredits": [
     {
-      "id": "CC-512",
+      "id": "CC-001",
       "customer": "zharick",
       "totalGranted": 2390800,
       "currentBalance": 890800,
@@ -1345,7 +1345,7 @@
       "status": "Al Día"
     },
     {
-      "id": "CC-498",
+      "id": "CC-002",
       "customer": "Milton Garzón",
       "totalGranted": 300960,
       "currentBalance": 0,
@@ -1353,7 +1353,7 @@
       "status": "Saldado"
     },
     {
-      "id": "CC-845",
+      "id": "CC-003",
       "customer": "emerson zuluaga",
       "totalGranted": 1469100,
       "currentBalance": 469100,
@@ -1361,7 +1361,7 @@
       "status": "Al Día"
     },
     {
-      "id": "CC-604",
+      "id": "CC-004",
       "customer": "carlos garzon",
       "totalGranted": 2099600,
       "currentBalance": 0,
@@ -1373,7 +1373,7 @@
     {
       "id": "CP-001",
       "supplier": "santiago rosita",
-      "supplierId": "PRV-855",
+      "supplierId": "PRV-004",
       "totalOwed": 21328000,
       "paidAmount": 0,
       "pendingAmount": 21328000,
@@ -1387,7 +1387,7 @@
     {
       "id": "CP-002",
       "supplier": "ARISTIZABAL JOYERO",
-      "supplierId": "PRV-753",
+      "supplierId": "PRV-008",
       "totalOwed": 104642700,
       "paidAmount": 13300000,
       "pendingAmount": 91342700,
@@ -1458,7 +1458,7 @@
     {
       "id": "CP-003",
       "supplier": "DH HERNANDEZ JOYEROS",
-      "supplierId": "PRV-974",
+      "supplierId": "PRV-007",
       "totalOwed": 16769280,
       "paidAmount": 11405000,
       "pendingAmount": 5364280,
@@ -1467,7 +1467,7 @@
       "dueDate": "2026-11-13",
       "status": "Pendiente",
       "purchaseOrderIds": [
-        "OC-589753"
+        "OC-030"
       ],
       "history": [
         {
@@ -1510,7 +1510,7 @@
     {
       "id": "CP-004",
       "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-1065",
+      "supplierId": "PRV-001",
       "totalOwed": 6871500,
       "paidAmount": 4581500,
       "pendingAmount": 2290000,
@@ -1519,10 +1519,10 @@
       "dueDate": "2026-11-13",
       "status": "Pendiente",
       "purchaseOrderIds": [
-        "OC-955827",
-        "OC-910870",
-        "OC-790773",
-        "OC-642181"
+        "OC-024",
+        "OC-025",
+        "OC-026",
+        "OC-027"
       ],
       "history": [
         {
@@ -1558,7 +1558,7 @@
     {
       "id": "CP-005",
       "supplier": "PIETRA MAYORISTA",
-      "supplierId": "PRV-1065",
+      "supplierId": "PRV-001",
       "totalOwed": 226784250,
       "paidAmount": 226784250,
       "pendingAmount": 0,
@@ -1567,17 +1567,17 @@
       "dueDate": "2026-10-10",
       "status": "Pagado Total",
       "purchaseOrderIds": [
-        "OC-955827",
-        "OC-910870",
-        "OC-790773",
-        "OC-642181"
+        "OC-024",
+        "OC-025",
+        "OC-026",
+        "OC-027"
       ],
       "history": []
     },
     {
       "id": "CP-006",
       "supplier": "carlos andres garzon",
-      "supplierId": "PRV-907",
+      "supplierId": "PRV-009",
       "totalOwed": 122399640,
       "paidAmount": 16964620,
       "pendingAmount": 105435020,
@@ -1586,30 +1586,30 @@
       "dueDate": "2026-11-13",
       "status": "Pendiente",
       "purchaseOrderIds": [
-        "OC-260308",
-        "OC-238788",
-        "OC-194978",
-        "OC-149368",
-        "OC-101641",
-        "OC-787770",
-        "OC-249600",
-        "OC-777563",
-        "OC-026129",
-        "OC-801228",
-        "OC-769128",
-        "OC-738140",
-        "OC-705383",
-        "OC-647892",
-        "OC-505948",
-        "OC-471586",
-        "OC-448326",
-        "OC-446633",
-        "OC-413316",
-        "OC-388564",
-        "OC-358096",
-        "OC-958983",
-        "OC-956580",
-        "OC-302327"
+        "OC-001",
+        "OC-002",
+        "OC-003",
+        "OC-004",
+        "OC-005",
+        "OC-007",
+        "OC-008",
+        "OC-009",
+        "OC-010",
+        "OC-011",
+        "OC-012",
+        "OC-013",
+        "OC-014",
+        "OC-015",
+        "OC-016",
+        "OC-017",
+        "OC-018",
+        "OC-019",
+        "OC-020",
+        "OC-021",
+        "OC-022",
+        "OC-023",
+        "OC-028",
+        "OC-029"
       ],
       "history": [
         {
@@ -1883,7 +1883,7 @@
     {
       "id": "CP-007",
       "supplier": "YEPEZ",
-      "supplierId": "PRV-570",
+      "supplierId": "PRV-002",
       "totalOwed": 580800,
       "paidAmount": 580800,
       "pendingAmount": 0,
@@ -1892,8 +1892,8 @@
       "dueDate": "2026-10-10",
       "status": "Pagado Total",
       "purchaseOrderIds": [
-        "OC-942280",
-        "OC-730572"
+        "OC-006",
+        "OC-031"
       ],
       "history": []
     }
@@ -19363,7 +19363,7 @@
   ],
   "assets": [
     {
-      "id": "ACT-18",
+      "id": "ACT-001",
       "name": "EQIPOS DE COMPUTOS",
       "category": "Equipamiento POS",
       "purchaseDate": "2026-10-03",
@@ -19372,7 +19372,7 @@
       "status": "Excelente"
     },
     {
-      "id": "ACT-81",
+      "id": "ACT-002",
       "name": "CAJA FUERTE",
       "category": "SEGURIDAD",
       "purchaseDate": "2026-09-17",
@@ -19397,8 +19397,8 @@
   },
   "cashShiftsHistory": [
     {
-      "id": "TRN-077396",
-      "shiftId": "TURNO-944",
+      "id": "TRN-001",
+      "shiftId": "TURNO-001",
       "status": "Cerrado",
       "openingCash": 8917000,
       "cashSales": 0,
@@ -19419,8 +19419,8 @@
       "closedTimestamp": 1791674077396
     },
     {
-      "id": "TRN-994127",
-      "shiftId": "TURNO-531",
+      "id": "TRN-002",
+      "shiftId": "TURNO-002",
       "status": "Cerrado",
       "openingCash": 8917000,
       "cashSales": 0,
@@ -19441,8 +19441,8 @@
       "closedTimestamp": 1791673994127
     },
     {
-      "id": "TRN-838136",
-      "shiftId": "TURNO-119",
+      "id": "TRN-003",
+      "shiftId": "TURNO-003",
       "status": "Cerrado",
       "openingCash": 8917000,
       "cashSales": 0,
@@ -19463,8 +19463,8 @@
       "closedTimestamp": 1791673838136
     },
     {
-      "id": "TRN-523743",
-      "shiftId": "TURNO-284",
+      "id": "TRN-004",
+      "shiftId": "TURNO-004",
       "status": "Cerrado",
       "openingCash": 422000,
       "cashSales": 2347680,
@@ -19485,8 +19485,8 @@
       "closedTimestamp": 1791673523743
     },
     {
-      "id": "TRN-353049",
-      "shiftId": "TURNO-746",
+      "id": "TRN-005",
+      "shiftId": "TURNO-005",
       "status": "Cerrado",
       "openingCash": 62000,
       "cashSales": 0,
@@ -19507,8 +19507,8 @@
       "closedTimestamp": 1791647353049
     },
     {
-      "id": "TRN-398771",
-      "shiftId": "TURNO-905",
+      "id": "TRN-006",
+      "shiftId": "TURNO-006",
       "status": "Cerrado",
       "openingCash": 1729000,
       "cashSales": 270000,
@@ -19529,8 +19529,8 @@
       "closedTimestamp": 1791588398771
     },
     {
-      "id": "TRN-624965",
-      "shiftId": "TURNO-740",
+      "id": "TRN-007",
+      "shiftId": "TURNO-007",
       "status": "Cerrado",
       "openingCash": 1126000,
       "cashSales": 883000,
@@ -19551,8 +19551,8 @@
       "closedTimestamp": 1791500624964
     },
     {
-      "id": "TRN-454152",
-      "shiftId": "TURNO-751",
+      "id": "TRN-008",
+      "shiftId": "TURNO-008",
       "status": "Cerrado",
       "openingCash": 918000,
       "cashSales": 830000,
@@ -19573,8 +19573,8 @@
       "closedTimestamp": 1791414454152
     },
     {
-      "id": "TRN-747775",
-      "shiftId": "TURNO-322",
+      "id": "TRN-009",
+      "shiftId": "TURNO-009",
       "status": "Cerrado",
       "openingCash": 815000,
       "cashSales": 168100,
@@ -19595,8 +19595,8 @@
       "closedTimestamp": 1791327747775
     },
     {
-      "id": "TRN-740707",
-      "shiftId": "TURNO-444",
+      "id": "TRN-010",
+      "shiftId": "TURNO-010",
       "status": "Cerrado",
       "openingCash": 1907000,
       "cashSales": 1000000,
@@ -19617,8 +19617,8 @@
       "closedTimestamp": 1791241740707
     },
     {
-      "id": "TRN-838668",
-      "shiftId": "TURNO-793",
+      "id": "TRN-011",
+      "shiftId": "TURNO-011",
       "status": "Cerrado",
       "openingCash": 828000,
       "cashSales": 2044000,
@@ -19639,7 +19639,7 @@
       "closedTimestamp": 1791079838668
     },
     {
-      "id": "TRN-540935",
+      "id": "TRN-012",
       "status": "Cerrado",
       "openingCash": 2966000,
       "cashSales": 2665020,
@@ -19655,10 +19655,11 @@
       "openedAt": "10:24 a.m.",
       "closedBy": "Carlos Garzon",
       "closedAt": "18:09",
-      "date": "2026-10-02"
+      "date": "2026-10-02",
+      "shiftId": "TURNO-012"
     },
     {
-      "id": "TRN-752262",
+      "id": "TRN-013",
       "status": "Cerrado",
       "openingCash": 1079000,
       "cashSales": 0,
@@ -19674,10 +19675,11 @@
       "openedAt": "12:01 p.m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:02 p.m.",
-      "date": "2026-10-01"
+      "date": "2026-10-01",
+      "shiftId": "TURNO-013"
     },
     {
-      "id": "TRN-329839",
+      "id": "TRN-014",
       "status": "Cerrado",
       "openingCash": 3594000,
       "cashSales": 849799,
@@ -19693,10 +19695,11 @@
       "openedAt": "10:08 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:18 p. m.",
-      "date": "2026-09-30"
+      "date": "2026-09-30",
+      "shiftId": "TURNO-014"
     },
     {
-      "id": "TRN-759184",
+      "id": "TRN-015",
       "status": "Cerrado",
       "openingCash": 2488400,
       "cashSales": 543780,
@@ -19712,10 +19715,11 @@
       "openedAt": "12:32 p. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "05:59 p. m.",
-      "date": "2026-09-29"
+      "date": "2026-09-29",
+      "shiftId": "TURNO-015"
     },
     {
-      "id": "TRN-466266",
+      "id": "TRN-016",
       "status": "Cerrado",
       "openingCash": 436000,
       "cashSales": 1848400,
@@ -19731,10 +19735,11 @@
       "openedAt": "11:01 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:01 p.m.",
-      "date": "2026-09-28"
+      "date": "2026-09-28",
+      "shiftId": "TURNO-016"
     },
     {
-      "id": "TRN-957984",
+      "id": "TRN-017",
       "status": "Cerrado",
       "openingCash": 1175600,
       "cashSales": 260000,
@@ -19750,10 +19755,11 @@
       "openedAt": "09:53 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "05:32 p. m.",
-      "date": "2026-09-26"
+      "date": "2026-09-26",
+      "shiftId": "TURNO-017"
     },
     {
-      "id": "TRN-368389",
+      "id": "TRN-018",
       "status": "Cerrado",
       "openingCash": 500000,
       "cashSales": 0,
@@ -19769,10 +19775,11 @@
       "openedAt": "09:52 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "09:52 a. m.",
-      "date": "2026-09-26"
+      "date": "2026-09-26",
+      "shiftId": "TURNO-018"
     },
     {
-      "id": "TRN-223532",
+      "id": "TRN-019",
       "status": "Cerrado",
       "openingCash": 526000,
       "cashSales": 150000,
@@ -19788,10 +19795,11 @@
       "openedAt": "09:49 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:00 p. m.",
-      "date": "2026-09-25"
+      "date": "2026-09-25",
+      "shiftId": "TURNO-019"
     },
     {
-      "id": "TRN-892947",
+      "id": "TRN-020",
       "status": "Cerrado",
       "openingCash": 1826000,
       "cashSales": 0,
@@ -19807,10 +19815,11 @@
       "openedAt": "10:00 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:01 p. m.",
-      "date": "2026-09-24"
+      "date": "2026-09-24",
+      "shiftId": "TURNO-020"
     },
     {
-      "id": "TRN-294901",
+      "id": "TRN-021",
       "status": "Cerrado",
       "openingCash": 5926000,
       "cashSales": 0,
@@ -19826,10 +19835,11 @@
       "openedAt": "12:00 p. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "05:58 p. m.",
-      "date": "2026-09-23"
+      "date": "2026-09-23",
+      "shiftId": "TURNO-021"
     },
     {
-      "id": "TRN-680854",
+      "id": "TRN-022",
       "status": "Cerrado",
       "openingCash": 7166000,
       "cashSales": 0,
@@ -19843,10 +19853,11 @@
       "openedAt": "10:51 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:11 p. m.",
-      "date": "2026-09-22"
+      "date": "2026-09-22",
+      "shiftId": "TURNO-022"
     },
     {
-      "id": "TRN-245858",
+      "id": "TRN-023",
       "status": "Cerrado",
       "openingCash": 4166000,
       "cashSales": 0,
@@ -19860,10 +19871,11 @@
       "openedAt": "10:45 a. m.",
       "closedBy": "Carlos Garzon",
       "closedAt": "10:50",
-      "date": "2026-09-22"
+      "date": "2026-09-22",
+      "shiftId": "TURNO-023"
     },
     {
-      "id": "TRN-273578",
+      "id": "TRN-024",
       "status": "Cerrado",
       "openingCash": 7114000,
       "cashSales": 0,
@@ -19875,10 +19887,11 @@
       "openedAt": "12:10",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "05:54 p. m.",
-      "date": "2026-09-21"
+      "date": "2026-09-21",
+      "shiftId": "TURNO-024"
     },
     {
-      "id": "TRN-634163",
+      "id": "TRN-025",
       "status": "Cerrado",
       "openingCash": 500000,
       "cashSales": 1349500,
@@ -19890,10 +19903,11 @@
       "openedAt": "18:19",
       "closedBy": "Carlos Garzon",
       "closedAt": "12:10",
-      "date": "2026-09-21"
+      "date": "2026-09-21",
+      "shiftId": "TURNO-025"
     },
     {
-      "id": "TRN-852689",
+      "id": "TRN-026",
       "status": "Cerrado",
       "openingCash": 500000,
       "cashSales": 0,
@@ -19905,10 +19919,11 @@
       "openedAt": "18:14",
       "closedBy": "Carlos Garzon",
       "closedAt": "18:17",
-      "date": "2026-09-19"
+      "date": "2026-09-19",
+      "shiftId": "TURNO-026"
     },
     {
-      "id": "TRN-939541",
+      "id": "TRN-027",
       "status": "Cerrado",
       "openingCash": 3884200,
       "cashSales": 1349499.64,
@@ -19920,10 +19935,11 @@
       "openedAt": "10:21 a. m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "05:45 p. m.",
-      "date": "2026-09-19"
+      "date": "2026-09-19",
+      "shiftId": "TURNO-027"
     },
     {
-      "id": "TRN-391170",
+      "id": "TRN-028",
       "status": "Cerrado",
       "openingCash": 2248000,
       "cashSales": 4435196.57,
@@ -19935,10 +19951,11 @@
       "openedAt": "10:27 a. m.",
       "closedBy": "Carlos Garzon",
       "closedAt": "20:46",
-      "date": "2026-09-19"
+      "date": "2026-09-19",
+      "shiftId": "TURNO-028"
     },
     {
-      "id": "TRN-256034",
+      "id": "TRN-029",
       "status": "Cerrado",
       "openingCash": 2008000,
       "cashSales": 2239499.5,
@@ -19950,12 +19967,13 @@
       "openedAt": "10:15 a.m.",
       "closedBy": "ZHARICK CAROLINA",
       "closedAt": "06:04 p. m.",
-      "date": "2026-09-17"
+      "date": "2026-09-17",
+      "shiftId": "TURNO-029"
     }
   ],
   "abonosVentas": [
     {
-      "id": "AB-V962153",
+      "id": "AB-V-001",
       "date": "2026-10-10 16:32",
       "customer": "carlos garzon",
       "invoiceId": "TX-62153",
@@ -19964,7 +19982,7 @@
       "cashier": "ZHARICK CAROLINA"
     },
     {
-      "id": "AB-V909761",
+      "id": "AB-V-002",
       "date": "2026-10-10 16:31",
       "customer": "Milton Garzón",
       "invoiceId": "TX-09761",
@@ -19973,7 +19991,7 @@
       "cashier": "ZHARICK CAROLINA"
     },
     {
-      "id": "AB-V040432",
+      "id": "AB-V-003",
       "date": "2026-10-05 15:27",
       "customer": "emerson zuluaga",
       "invoiceId": "TX-40432",
@@ -19982,7 +20000,7 @@
       "cashier": "Carlos Garzon"
     },
     {
-      "id": "AB-V832345",
+      "id": "AB-V-004",
       "date": "2026-10-03 15:53",
       "customer": "Milton Garzón",
       "invoiceId": "TX-32345",
@@ -19991,7 +20009,7 @@
       "cashier": "Carlos Garzon"
     },
     {
-      "id": "AB-V821495",
+      "id": "AB-V-005",
       "date": "2026-10-02 22:23",
       "customer": "zharick",
       "invoiceId": "TX-21495",
@@ -20002,7 +20020,7 @@
   ],
   "abonosCompras": [
     {
-      "id": "AB-C024733",
+      "id": "AB-C-001",
       "date": "2026-10-10",
       "supplier": "yepez",
       "poId": "CP-121",
@@ -20015,7 +20033,7 @@
       "time": "04:00 p.m."
     },
     {
-      "id": "AB-C974523",
+      "id": "AB-C-002",
       "date": "2026-10-10",
       "supplier": "carlos andres garzon",
       "poId": "CP-010",
@@ -20028,7 +20046,7 @@
       "time": "04:00 p.m."
     },
     {
-      "id": "AB-C937915",
+      "id": "AB-C-003",
       "date": "2026-10-10",
       "supplier": "carlos andres garzon",
       "poId": "CP-010",
@@ -20041,7 +20059,7 @@
       "time": "04:00 p.m."
     },
     {
-      "id": "AB-C634354",
+      "id": "AB-C-004",
       "date": "2026-10-09",
       "supplier": "DH HERNANDEZ JOYEROS",
       "poId": "CP-003",
@@ -20051,7 +20069,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C616126",
+      "id": "AB-C-005",
       "date": "2026-10-08",
       "supplier": "carlos andres garzon",
       "poId": "CP-010",
@@ -20061,7 +20079,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C232225",
+      "id": "AB-C-006",
       "date": "2026-10-07",
       "supplier": "carlos andres garzon",
       "poId": "CP-001",
@@ -20071,7 +20089,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C210848",
+      "id": "AB-C-007",
       "date": "2026-10-07",
       "supplier": "JUAN DAVID",
       "poId": "CP-002",
@@ -20081,7 +20099,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C114748",
+      "id": "AB-C-008",
       "date": "2026-10-05",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20091,7 +20109,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C062340",
+      "id": "AB-C-009",
       "date": "2026-10-05",
       "supplier": "carlos andres garzon",
       "poId": "CP-001",
@@ -20101,7 +20119,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C848601",
+      "id": "AB-C-010",
       "date": "2026-10-02",
       "supplier": "DH HERNANDEZ JOYEROS",
       "poId": "CP-003",
@@ -20111,7 +20129,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C329385",
+      "id": "AB-C-011",
       "date": "2026-10-02",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20121,7 +20139,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C274531",
+      "id": "AB-C-012",
       "date": "2026-10-02",
       "supplier": "carlos andres garzon",
       "poId": "OC-944444",
@@ -20131,7 +20149,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C637925",
+      "id": "AB-C-013",
       "date": "2026-09-30",
       "supplier": "DH HERNANDEZ JOYEROS",
       "poId": "CP-003",
@@ -20141,7 +20159,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C784965",
+      "id": "AB-C-014",
       "date": "2026-09-29",
       "supplier": "carlos andres garzon",
       "poId": "CP-773",
@@ -20151,7 +20169,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C917235",
+      "id": "AB-C-015",
       "date": "2026-09-29",
       "supplier": "carlos andres garzon",
       "poId": "OC-944444",
@@ -20161,7 +20179,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C416240",
+      "id": "AB-C-016",
       "date": "2026-09-28",
       "supplier": "carlos andres garzon",
       "poId": "CP-773",
@@ -20171,7 +20189,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C275593",
+      "id": "AB-C-017",
       "date": "2026-09-26",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20181,7 +20199,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C603992",
+      "id": "AB-C-018",
       "date": "2026-09-24",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20191,7 +20209,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C695517",
+      "id": "AB-C-019",
       "date": "2026-09-23",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20201,7 +20219,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C675686",
+      "id": "AB-C-020",
       "date": "2026-09-23",
       "supplier": "carlos andres garzon",
       "poId": "CP-773",
@@ -20211,7 +20229,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C309433",
+      "id": "AB-C-021",
       "date": "2026-09-22",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20221,7 +20239,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C183753",
+      "id": "AB-C-022",
       "date": "2026-09-21",
       "supplier": "DH HERNANDEZ JOYEROS",
       "poId": "CP-003",
@@ -20231,7 +20249,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C528733",
+      "id": "AB-C-023",
       "date": "2026-09-19",
       "supplier": "carlos andres garzon",
       "poId": "CP-773",
@@ -20241,7 +20259,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C012319",
+      "id": "AB-C-024",
       "date": "2026-09-18",
       "supplier": "carlos andres garzon",
       "poId": "CP-773",
@@ -20251,7 +20269,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C039527",
+      "id": "AB-C-025",
       "date": "2026-09-18",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "CP-002",
@@ -20261,7 +20279,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C586680",
+      "id": "AB-C-026",
       "date": "2026-09-18",
       "supplier": "carlos andres garzon",
       "poId": "OC-86680",
@@ -20270,7 +20288,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C564978",
+      "id": "AB-C-027",
       "date": "2026-09-18",
       "supplier": "Calia joyería",
       "poId": "OC-64978",
@@ -20279,7 +20297,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C513773",
+      "id": "AB-C-028",
       "date": "2026-09-18",
       "supplier": "joyeria santa isabel",
       "poId": "OC-13773",
@@ -20288,7 +20306,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C600191",
+      "id": "AB-C-029",
       "date": "2026-09-18",
       "supplier": "carlos andres garzon",
       "poId": "OC-00191",
@@ -20297,7 +20315,7 @@
       "status": "Confirmado"
     },
     {
-      "id": "AB-C963941",
+      "id": "AB-C-030",
       "date": "2026-09-17",
       "supplier": "ARISTIZABAL JOYERO",
       "poId": "OC-63941",
@@ -20350,7 +20368,7 @@
   },
   "recentTransactions": [
     {
-      "id": "TX-96307",
+      "id": "TX-001",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20382,7 +20400,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-90263",
+      "id": "TX-002",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20571,7 +20589,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-89601",
+      "id": "TX-003",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20640,7 +20658,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93661",
+      "id": "TX-004",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20685,7 +20703,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-91246",
+      "id": "TX-005",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20717,7 +20735,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94529",
+      "id": "TX-006",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20750,7 +20768,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96572",
+      "id": "TX-007",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20783,7 +20801,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97126",
+      "id": "TX-008",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20815,7 +20833,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-92308",
+      "id": "TX-009",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20860,7 +20878,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97469",
+      "id": "TX-010",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20892,7 +20910,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-98001",
+      "id": "TX-011",
       "customer": "Joyería santa isabel",
       "customerDoc": "123",
       "customerDocType": "CC",
@@ -20924,7 +20942,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95488",
+      "id": "TX-012",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20956,7 +20974,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96880",
+      "id": "TX-013",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -20989,7 +21007,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94532",
+      "id": "TX-014",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21021,7 +21039,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97948",
+      "id": "TX-015",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21053,7 +21071,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96804",
+      "id": "TX-016",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21085,7 +21103,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-98583",
+      "id": "TX-017",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21117,7 +21135,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-89055",
+      "id": "TX-018",
       "customer": "Joyería santa isabel",
       "customerDoc": "123",
       "customerDocType": "CC",
@@ -21149,7 +21167,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-89393",
+      "id": "TX-019",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21194,7 +21212,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97243",
+      "id": "TX-020",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21227,7 +21245,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95028",
+      "id": "TX-021",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21259,7 +21277,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94870",
+      "id": "TX-022",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21291,7 +21309,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95595",
+      "id": "TX-023",
       "customer": "zharick",
       "customerDoc": "11111",
       "customerDocType": "CC",
@@ -21323,7 +21341,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-90605",
+      "id": "TX-024",
       "customer": "Milton Garzón",
       "customerDoc": "2522",
       "customerDocType": "CC",
@@ -21355,7 +21373,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96842",
+      "id": "TX-025",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21387,7 +21405,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-91647",
+      "id": "TX-026",
       "customer": "emerson zuluaga",
       "customerDoc": "1234456",
       "customerDocType": "CC",
@@ -21431,7 +21449,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-98872",
+      "id": "TX-027",
       "customer": "Juliana Meneses",
       "customerDoc": "123456",
       "customerDocType": "CC",
@@ -21463,7 +21481,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-98654",
+      "id": "TX-028",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21507,7 +21525,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-91231",
+      "id": "TX-029",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21551,7 +21569,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-98913",
+      "id": "TX-030",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21596,7 +21614,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95630",
+      "id": "TX-031",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21628,7 +21646,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97219",
+      "id": "TX-032",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21660,7 +21678,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95602",
+      "id": "TX-033",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21692,7 +21710,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-98291",
+      "id": "TX-034",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21725,7 +21743,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97232",
+      "id": "TX-035",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21757,7 +21775,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94001",
+      "id": "TX-036",
       "customer": "carlos garzon",
       "customerDoc": "1143339747",
       "customerDocType": "CC",
@@ -21789,7 +21807,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93174",
+      "id": "TX-037",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21833,7 +21851,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93798",
+      "id": "TX-038",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21866,7 +21884,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-92986",
+      "id": "TX-039",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21910,7 +21928,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93253",
+      "id": "TX-040",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21943,7 +21961,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-90333",
+      "id": "TX-041",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -21976,7 +21994,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93592",
+      "id": "TX-042",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22008,7 +22026,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93298",
+      "id": "TX-043",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22040,7 +22058,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94406",
+      "id": "TX-044",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22084,7 +22102,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96815",
+      "id": "TX-045",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22116,7 +22134,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97522",
+      "id": "TX-046",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22148,7 +22166,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93870",
+      "id": "TX-047",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22180,7 +22198,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96312",
+      "id": "TX-048",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22212,7 +22230,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-91578",
+      "id": "TX-049",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22244,7 +22262,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93522",
+      "id": "TX-050",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22288,7 +22306,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96651",
+      "id": "TX-051",
       "customer": "carlos garzon",
       "customerDoc": "1143339747",
       "customerDocType": "CC",
@@ -22332,7 +22350,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94940",
+      "id": "TX-052",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22376,7 +22394,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96101",
+      "id": "TX-053",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22408,7 +22426,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-89116",
+      "id": "TX-054",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22446,7 +22464,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96390",
+      "id": "TX-055",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22478,7 +22496,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-90996",
+      "id": "TX-056",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22510,7 +22528,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95743",
+      "id": "TX-057",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22542,7 +22560,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-90753",
+      "id": "TX-058",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22571,7 +22589,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-94547",
+      "id": "TX-059",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22600,7 +22618,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-91115",
+      "id": "TX-060",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22629,7 +22647,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-89752",
+      "id": "TX-061",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22667,7 +22685,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93921",
+      "id": "TX-062",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22696,7 +22714,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-91999",
+      "id": "TX-063",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22725,7 +22743,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93294",
+      "id": "TX-064",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22754,7 +22772,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-90965",
+      "id": "TX-065",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22801,7 +22819,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97043",
+      "id": "TX-066",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22830,7 +22848,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-96351",
+      "id": "TX-067",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22859,7 +22877,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-97565",
+      "id": "TX-068",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22888,7 +22906,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-95544",
+      "id": "TX-069",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22917,7 +22935,7 @@
       "status": "completed"
     },
     {
-      "id": "TX-93972",
+      "id": "TX-070",
       "customer": "Cliente Mostrador",
       "customerDoc": "",
       "customerDocType": "CC",
@@ -22963,6 +22981,6 @@
       0
     ]
   },
-  "updatedAt": "2026-10-20T19:34:05.268Z",
+  "updatedAt": "2026-10-22T02:31:00.366Z",
   "sales": []
 }

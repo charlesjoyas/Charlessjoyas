@@ -78,6 +78,24 @@ class NexusApp {
     return candidate;
   }
 
+  generateSequentialId(prefix, collection, idField = 'id', digits = 3) {
+    if (!Array.isArray(collection) || collection.length === 0) {
+      return `${prefix}-${String(1).padStart(digits, '0')}`;
+    }
+    let maxNum = 0;
+    const regex = new RegExp(`^${prefix}-([0-9]+)`, 'i');
+    collection.forEach(item => {
+      if (!item) return;
+      const val = String(item[idField] || '');
+      const match = val.match(regex);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    return `${prefix}-${String(maxNum + 1).padStart(digits, '0')}`;
+  }
+
   // Cached Intl.NumberFormat instances — created once, reused on every call
   // Avoids creating a new formatter object on each of the ~183 formatCurrency calls per render.
   _getIntlFmt(minDec) {
@@ -2233,7 +2251,7 @@ class NexusApp {
         }
 
         const newCust = {
-          id: this.generateUniqueId('CLI', this.data.customers),
+          id: this.generateSequentialId('CLI', this.data.customers),
           docType,
           document: documentVal,
           name,
@@ -2417,7 +2435,7 @@ class NexusApp {
         }
 
         const newSupp = {
-          id: this.generateUniqueId('PRV', this.data.suppliers),
+          id: this.generateSequentialId('PRV', this.data.suppliers),
           docType,
           nit,
           name,
@@ -2568,7 +2586,7 @@ class NexusApp {
         });
 
         const newPrf = {
-          id: this.generateUniqueId('PRF', this.data.perfiles),
+          id: this.generateSequentialId('PRF', this.data.perfiles),
           name,
           permissions: desc || `Acceso a ${allowedModules.length} módulo(s)`,
           usersCount: assignedUserIds.length,
@@ -2653,7 +2671,7 @@ class NexusApp {
         const fee = document.getElementById('pm-fee-input').value;
 
         const newPm = {
-          id: this.generateUniqueId('PM', this.data.paymentMethods),
+          id: this.generateSequentialId('PM', this.data.paymentMethods),
           name,
           icon: "card",
           fee: fee.includes('%') ? fee : `${fee}%`,
@@ -2709,7 +2727,7 @@ class NexusApp {
         const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
         const now = new Date();
         const newExp = {
-          id: this.generateUniqueId('EXP', this.data.expenses),
+          id: this.generateSequentialId('EXP', this.data.expenses),
           date: now.toISOString().slice(0, 10),
           time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           timestamp: now.getTime(),
@@ -2781,7 +2799,7 @@ class NexusApp {
         const price = this.parseCleanNumber(document.getElementById('srv-price-input')?.value);
 
         const newSrv = {
-          id: this.generateUniqueId('SRV', this.data.services),
+          id: this.generateSequentialId('SRV', this.data.services),
           name, category: cat, price, status: "Active"
         };
         this.data.services.unshift(newSrv);
@@ -2956,7 +2974,7 @@ class NexusApp {
         const cost = this.parseCleanNumber(document.getElementById('ast-cost-input')?.value);
 
         const newAst = {
-          id: this.generateUniqueId('ACT', this.data.assets),
+          id: this.generateSequentialId('ACT', this.data.assets),
           name, category: cat,
           purchaseDate: new Date().toISOString().slice(0, 10),
           costValue: cost, currentVal: cost, status: "Excelente"
@@ -3127,7 +3145,7 @@ class NexusApp {
 
           const now = new Date();
           const newPO = {
-            id: this.generateUniqueId('OC', this.data.purchases),
+            id: this.generateSequentialId('OC', this.data.purchases),
             supplier: supp,
             productId: targetProd.id,
             productName: targetProd.name,
@@ -5668,7 +5686,7 @@ class NexusApp {
       if (!cred) {
         if (cust && cust.creditBalance > 0) {
           cred = {
-            id: this.generateUniqueId('CC', this.data.customerCredits),
+            id: this.generateSequentialId('CC', this.data.customerCredits),
             customer: entityName,
             totalGranted: cust.creditBalance,
             currentBalance: cust.creditBalance,
@@ -5768,10 +5786,10 @@ class NexusApp {
 
       if (!this.data.abonosVentas) this.data.abonosVentas = [];
       this.data.abonosVentas.unshift({
-        id: this.generateUniqueId('AB-V', this.data.abonosVentas),
+        id: this.generateSequentialId('AB-V', this.data.abonosVentas),
         date: new Date().toISOString().slice(0, 16).replace('T', ' '),
         customer: cred.customer,
-        invoiceId: this.generateUniqueId('TX', this.data.recentTransactions || this.data.sales),
+        invoiceId: this.generateSequentialId('TX', this.data.recentTransactions || this.data.sales),
         amount: actualPay,
         method: method,
         cashier: this.data.store?.cashier || (this.currentUser ? this.currentUser.name : "Cajero")
@@ -5913,7 +5931,7 @@ class NexusApp {
 
       if (!this.data.abonosCompras) this.data.abonosCompras = [];
       this.data.abonosCompras.unshift({
-        id: this.generateUniqueId('AB-C', this.data.abonosCompras),
+        id: this.generateSequentialId('AB-C', this.data.abonosCompras),
         date: now.toISOString().slice(0, 10),
         time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         timestamp: now.getTime(),
@@ -9482,7 +9500,7 @@ class NexusApp {
     const now = new Date();
     if (!this.data.abonosCompras) this.data.abonosCompras = [];
     this.data.abonosCompras.unshift({
-      id: this.generateUniqueId('AB-C', this.data.abonosCompras),
+      id: this.generateSequentialId('AB-C', this.data.abonosCompras),
       date: now.toISOString().slice(0, 10),
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: now.getTime(),
@@ -11976,7 +11994,7 @@ class NexusApp {
     const now = new Date();
 
     this.data.cashShiftLog = {
-      shiftId: this.generateUniqueId('TURNO', this.data.cashShiftsHistory),
+      shiftId: this.generateSequentialId('TURNO', this.data.cashShiftsHistory, 'shiftId'),
       openingCash: openingCash,
       openingCard: openingCard,
       openingAccount: openingAccount,
@@ -12138,7 +12156,7 @@ class NexusApp {
     }
 
     const closedRecord = {
-      id: this.generateUniqueId('TRN', this.data.cashShiftsHistory),
+      id: this.generateSequentialId('TRN', this.data.cashShiftsHistory),
       shiftId: this.data.cashShiftLog?.shiftId || '',
       status: "Cerrado",
       openingCash: totals.openingCash,
@@ -25979,7 +25997,7 @@ class NexusApp {
           existing.status = 'Al Día';
         } else {
           this.data.customerCredits.unshift({
-            id: this.generateUniqueId('CC', this.data.customerCredits),
+            id: this.generateSequentialId('CC', this.data.customerCredits),
             customer: cust.name,
             totalGranted: grandTotal,
             currentBalance: grandTotal,
@@ -25999,7 +26017,7 @@ class NexusApp {
       if (cust && separePending > 0) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + separePending) * 100) / 100;
         this.data.customerCredits.unshift({
-          id: this.generateUniqueId('SEP', this.data.customerCredits),
+          id: this.generateSequentialId('SEP', this.data.customerCredits),
           customer: cust.name,
           totalGranted: grandTotal,
           currentBalance: separePending,
