@@ -10338,7 +10338,7 @@ class NexusApp {
 </Workbook>`;
 
     const dateFileStr = new Date().toISOString().split('T')[0];
-    this._downloadExcelWorkbook(xml, `Inventario_Charles_Joyas_${dateFileStr}`);
+    this._downloadExcelWorkbook(xml, 'Inventario_Charles_Joyas');
     this.showToast(`Inventario exportado exitosamente a Excel (.xls) con separadores de miles (${prodsToExport.length} productos)`, 'success');
   }
 
@@ -15396,7 +15396,12 @@ class NexusApp {
    <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
    <NumberFormat ss:Format="$#,##0"/>
   </Style>
-  <Style ss:ID="CellGrams">
+    <Style ss:ID="CellNumber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
+   <NumberFormat ss:Format="#,##0"/>
+  </Style>
+<Style ss:ID="CellGrams">
    <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
    <Font ss:Bold="1" ss:Color="#D97706"/>
    <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders>
