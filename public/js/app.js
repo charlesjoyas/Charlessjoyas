@@ -157,6 +157,22 @@ class NexusApp {
     }
   }
 
+  formatNumberWithDots(val, decimals = 0, includeCurrencySymbol = false) {
+    if (val === null || val === undefined || val === '') return '0';
+    const num = Number(val);
+    if (isNaN(num)) return '0';
+    const isNegative = num < 0;
+    const abs = Math.abs(num);
+    const fixed = abs.toFixed(decimals);
+    const parts = fixed.split('.');
+    const intDots = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    let res = (isNegative ? '-' : '') + intDots;
+    if (decimals > 0 && parts[1]) {
+      res += ',' + parts[1];
+    }
+    return includeCurrencySymbol ? `$ ${res}` : res;
+  }
+
   parseCleanNumber(val) {
     if (val === null || val === undefined) return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -10090,13 +10106,13 @@ class NexusApp {
         p.measureType || 'Pesaje',
         unit,
         p.supplier || 'ANÓNIMO',
-        unitPieceCost,
-        priceNum,
-        stockNum,
+        this.formatNumberWithDots(unitPieceCost, 0),
+        priceNum > 0 ? this.formatNumberWithDots(priceNum, 0) : '0',
+        (isPesaje || pWeight > 0) ? this.formatNumberWithDots(stockNum, 2) : this.formatNumberWithDots(stockNum, 0),
         estadoIndicator,
         estadoCatalogo,
-        totalCostVal,
-        totalPriceVal
+        this.formatNumberWithDots(totalCostVal, 0),
+        this.formatNumberWithDots(totalPriceVal, 0)
       ];
     });
 
@@ -10134,7 +10150,196 @@ class NexusApp {
     }
 
     const filterMsg = currentFilter === 'in_stock' ? 'con stock disponible' : (currentFilter === 'out_of_stock' ? 'agotados' : 'completo');
-    this.showToast(`Inventario (${filterMsg}) exportado en CSV (${prodsToExport.length} artículos)`, 'success');
+    this.showToast(`Inventario (${filterMsg}) exportado en CSV con separadores de miles (${prodsToExport.length} productos)`, 'success');
+  }
+
+  exportInventoryExcel() {
+    const allProds = (this.data.products || []).filter(Boolean);
+    if (allProds.length === 0) {
+      this.showToast('No hay productos en el inventario para exportar', 'warning');
+      return;
+    }
+
+    const currentFilter = this.inventoryStockFilter || 'all';
+    const searchVal = (document.getElementById('inventory-search')?.value || '').trim();
+
+    const parseNum = (v) => {
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      const parsed = parseFloat(String(v !== undefined && v !== null ? v : 0).replace(',', '.'));
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    let prodsToExport = allProds.filter(p => this.matchesProductSearch(p, searchVal));
+
+    if (currentFilter === 'in_stock') {
+      prodsToExport = prodsToExport.filter(p => parseNum(p.stock) > 0 && p.status !== 'out_of_stock');
+    } else if (currentFilter === 'out_of_stock') {
+      prodsToExport = prodsToExport.filter(p => parseNum(p.stock) <= 0 || p.status === 'out_of_stock');
+    }
+
+    if (prodsToExport.length === 0) {
+      this.showToast('No hay productos que coincidan con el filtro actual para exportar', 'warning');
+      return;
+    }
+
+    const escapeXml = (str) => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const now = new Date();
+    const dateFormatted = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    let totalCosto = 0;
+    let totalVenta = 0;
+    let totalGramos = 0;
+    let totalUnidades = 0;
+
+    let rowsXml = '';
+    prodsToExport.forEach((p) => {
+      const stockNum = parseNum(p.stock);
+      const isAgotado = stockNum <= 0 || p.status === 'out_of_stock';
+      const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
+      const unit = isPesaje ? (p.weightUnit || 'g') : 'u.';
+      const costNum = parseNum(p.cost);
+      const priceNum = parseNum(p.price);
+      const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
+      const unitPieceCost = (!isPesaje && pWeight > 0) ? Math.round(pWeight * costNum) : costNum;
+      const totalCostVal = this.getProductTotalCost(p);
+      const totalPriceVal = Math.round(stockNum * (priceNum > 0 ? priceNum : unitPieceCost) * 100) / 100;
+
+      totalCosto += totalCostVal;
+      totalVenta += totalPriceVal;
+      if (isPesaje) {
+        totalGramos += stockNum;
+      } else {
+        totalUnidades += stockNum;
+        if (pWeight > 0) totalGramos += (stockNum * pWeight);
+      }
+
+      const statusBadge = isAgotado ? 'BadgeRose' : 'BadgeGreen';
+      const statusText = isAgotado ? 'AGOTADO' : 'EN STOCK';
+
+      rowsXml += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${escapeXml(p.sku || p.id || 'S/C')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.barcode || 'S/B')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.id || '')}</Data></Cell>
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.name || '')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(p.categoryName || p.category || 'General')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.measureType || 'Pesaje')}</Data></Cell>
+        <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${pWeight}</Data></Cell>
+        <Cell ss:StyleID="${(isPesaje || pWeight > 0) ? 'CellGrams' : 'CellNumber'}"><Data ss:Type="Number">${stockNum}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(unit)}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(p.supplier || 'ANÓNIMO')}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${unitPieceCost}</Data></Cell>
+        <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${priceNum}</Data></Cell>
+        <Cell ss:StyleID="CellCurrencyBold"><Data ss:Type="Number">${totalCostVal}</Data></Cell>
+        <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${totalPriceVal}</Data></Cell>
+        <Cell ss:StyleID="${statusBadge}"><Data ss:Type="String">${statusText}</Data></Cell>
+      </Row>`;
+    });
+
+    const filterText = currentFilter === 'in_stock' ? 'Solo en Stock' : (currentFilter === 'out_of_stock' ? 'Solo Agotados' : 'Catálogo Completo');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  ${this._getExcelCommonStyles()}
+ </Styles>
+ <Worksheet ss:Name="Inventario &amp; Catálogo">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="80"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="200"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="60"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="90"/>
+
+   <Row ss:Height="28">
+    <Cell ss:MergeAcross="14" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — CATÁLOGO DE PRODUCTOS E INVENTARIO VALORIZADO</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="14" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Metales Preciosos: Oro 18K, 14K, Plata 925</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="14" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(dateFormatted)} | Generado por: ${escapeXml(this.currentUser?.name || 'Administrador')} | Filtro: ${filterText} | Total Ítems: ${prodsToExport.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="10"></Row>
+
+   <!-- KPI Cards -->
+   <Row ss:Height="18">
+    <Cell ss:MergeAcross="3" ss:StyleID="KpiTitle"><Data ss:Type="String">VALORIZACIÓN TOTAL COSTO</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="KpiTitle"><Data ss:Type="String">VALORIZACIÓN TOTAL VENTA</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="KpiTitle"><Data ss:Type="String">GRAMAJE TOTAL EN STOCK</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiTitle"><Data ss:Type="String">TOTAL PRODUCTOS</Data></Cell>
+   </Row>
+   <Row ss:Height="26">
+    <Cell ss:MergeAcross="3" ss:StyleID="KpiVal"><Data ss:Type="Number">${Math.round(totalCosto)}</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="KpiValEmerald"><Data ss:Type="Number">${Math.round(totalVenta)}</Data></Cell>
+    <Cell ss:MergeAcross="3" ss:StyleID="KpiValAmber"><Data ss:Type="Number">${Math.round(totalGramos * 100) / 100}</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="KpiVal"><Data ss:Type="Number">${prodsToExport.length}</Data></Cell>
+   </Row>
+   <Row ss:Height="15"></Row>
+
+   <!-- Column Headers -->
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Código (SKU)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Código Barras</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">ID Sistema</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Producto / Joya</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Categoría</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Medida</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Peso/u (g)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Stock Disp.</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Unidad</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Proveedor</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Costo Unit. (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Precio Venta (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Total Costo (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Total Venta (COP)</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Estado Stock</Data></Cell>
+   </Row>
+
+   ${rowsXml}
+
+   <!-- Total Row -->
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="6" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES CONSOLIDADOS (${prodsToExport.length} ítems)</Data></Cell>
+    <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalGramos * 100) / 100}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalCosto)}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalVenta)}</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const dateFileStr = new Date().toISOString().split('T')[0];
+    this._downloadExcelWorkbook(xml, `Inventario_Charles_Joyas_${dateFileStr}`);
+    this.showToast(`Inventario exportado exitosamente a Excel (.xls) con separadores de miles (${prodsToExport.length} productos)`, 'success');
   }
 
   renderInventoryTable() {
@@ -23496,13 +23701,13 @@ class NexusApp {
       
       let stockText = '';
       if (isPesaje) {
-        stockText = `${Math.round(stock * 100) / 100}g`;
+        stockText = `${this.formatNumberWithDots(stock, 2)} g`;
       } else {
         const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || p.unitWeight || 0)).replace(',', '.')) || 0;
         if (pWeight > 0) {
-          stockText = `${Math.round(stock * pWeight * 100) / 100}g`;
+          stockText = `${this.formatNumberWithDots(stock * pWeight, 2)} g`;
         } else {
-          stockText = `${stock} u.`;
+          stockText = `${this.formatNumberWithDots(stock, 0)} u.`;
         }
       }
 
@@ -23565,7 +23770,7 @@ class NexusApp {
       .map(cat => {
         const totGrams = Math.round((cat.totalGrams > 0 ? cat.totalGrams : cat.availableGrams) * 100) / 100;
         const avgCost = cat.totalGrams > 0 ? Math.round(cat.totalCostVal / cat.totalGrams) : cat.baseCost;
-        const stockTotalText = `${totGrams}g`;
+        const stockTotalText = `${this.formatNumberWithDots(totGrams, 2)} g`;
 
         return `
    <Row ss:Height="21">
