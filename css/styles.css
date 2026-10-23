@@ -3517,6 +3517,44 @@ html, body {
   color: var(--text-subtle);
 }
 
+.radar-sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.85rem;
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition-fast);
+}
+
+.radar-sort-wrap:focus-within {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+}
+
+.radar-sort-wrap svg {
+  color: var(--text-subtle);
+  flex-shrink: 0;
+}
+
+.radar-sort-wrap select {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding-right: 1.5rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+  background-size: 0.95rem;
+}
+
 .radar-btn-excel {
   display: inline-flex;
   align-items: center;
@@ -3621,6 +3659,9 @@ html, body {
     grid-template-columns: 1fr;
   }
   .radar-search-wrap {
+    width: 100%;
+  }
+  .radar-sort-wrap {
     width: 100%;
   }
   .radar-actions-wrap {
@@ -3793,6 +3834,20 @@ html, body {
 [data-theme="dark"] .radar-search-wrap {
   background: var(--bg-surface);
   border-color: var(--border-color);
+}
+
+[data-theme="dark"] .radar-sort-wrap {
+  background: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .radar-sort-wrap select {
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .radar-sort-wrap select option {
+  background-color: #0f172a;
+  color: #f8fafc;
 }
 
 [data-theme="dark"] .radar-filter-pill {

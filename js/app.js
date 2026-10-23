@@ -23535,6 +23535,56 @@ class NexusApp {
     this.renderRadarStock();
   }
 
+  sortRadarStock(order) {
+    this.radarSortOrder = order || 'stock_asc';
+    try {
+      localStorage.setItem('nexus_radar_sort', this.radarSortOrder);
+    } catch (_) {}
+    this.renderRadarStock();
+  }
+
+  sortRadarMetrics(metrics) {
+    if (!Array.isArray(metrics)) return [];
+    const list = [...metrics];
+    if (!this.radarSortOrder) {
+      try {
+        this.radarSortOrder = localStorage.getItem('nexus_radar_sort') || 'stock_asc';
+      } catch (_) {
+        this.radarSortOrder = 'stock_asc';
+      }
+    }
+    const order = this.radarSortOrder;
+
+    switch (order) {
+      case 'stock_asc':
+        return list.sort((a, b) => {
+          const diff = (Number(a.stock) || 0) - (Number(b.stock) || 0);
+          return diff !== 0 ? diff : String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es');
+        });
+      case 'stock_desc':
+        return list.sort((a, b) => {
+          const diff = (Number(b.stock) || 0) - (Number(a.stock) || 0);
+          return diff !== 0 ? diff : String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es');
+        });
+      case 'dias_asc':
+        return list.sort((a, b) => {
+          const diff = (Number(a.diasRestantes) || 0) - (Number(b.diasRestantes) || 0);
+          return diff !== 0 ? diff : (Number(a.stock) || 0) - (Number(b.stock) || 0);
+        });
+      case 'dias_desc':
+        return list.sort((a, b) => {
+          const diff = (Number(b.diasRestantes) || 0) - (Number(a.diasRestantes) || 0);
+          return diff !== 0 ? diff : (Number(a.stock) || 0) - (Number(b.stock) || 0);
+        });
+      case 'nombre_asc':
+        return list.sort((a, b) => String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es'));
+      case 'nombre_desc':
+        return list.sort((a, b) => String(b.product?.name || '').localeCompare(String(a.product?.name || ''), 'es'));
+      default:
+        return list;
+    }
+  }
+
   searchRadarStock(query) {
     if (this._radarSearchTimeout) clearTimeout(this._radarSearchTimeout);
     this._radarSearchTimeout = setTimeout(() => {
@@ -23549,6 +23599,18 @@ class NexusApp {
 
     if (!this.currentRadarFilter) this.currentRadarFilter = 'todos';
     if (this.radarSearchTerm === undefined) this.radarSearchTerm = '';
+    if (!this.radarSortOrder) {
+      try {
+        this.radarSortOrder = localStorage.getItem('nexus_radar_sort') || 'stock_asc';
+      } catch (_) {
+        this.radarSortOrder = 'stock_asc';
+      }
+    }
+
+    const elSort = document.getElementById('radar-stock-sort');
+    if (elSort) {
+      elSort.value = this.radarSortOrder;
+    }
 
     const allMetrics = (this.data.products || []).filter(Boolean).map(p => this.calculateProductRadarMetrics(p)).filter(Boolean);
 
@@ -23589,6 +23651,8 @@ class NexusApp {
     if (this.radarSearchTerm) {
       filtered = filtered.filter(m => this.matchesProductSearch(m.product, this.radarSearchTerm));
     }
+
+    filtered = this.sortRadarMetrics(filtered);
 
     if (filtered.length === 0) {
       container.innerHTML = `
@@ -23677,6 +23741,8 @@ class NexusApp {
     if (this.radarSearchTerm) {
       metricsToExport = metricsToExport.filter(m => this.matchesProductSearch(m.product, this.radarSearchTerm));
     }
+
+    metricsToExport = this.sortRadarMetrics(metricsToExport);
 
     if (metricsToExport.length === 0) {
       this.showToast('No hay productos para exportar en este filtro', 'warning');
