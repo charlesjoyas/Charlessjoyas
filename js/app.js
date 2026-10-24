@@ -8975,11 +8975,33 @@ class NexusApp {
 
     items.forEach(item => {
       const soldQty = Number(item.qty || item.quantity) || 1;
-      let prod = (this.data.products || []).find(p => 
-        (item.id && p.id === item.id) || 
-        (item.sku && p.sku && String(p.sku).trim() === String(item.sku).trim()) ||
-        (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
-      );
+      
+      // Búsqueda jerárquica estricta para evitar colisiones entre productos con el mismo nombre:
+      // 1. Prioridad Máxima: Coincidencia EXACTA por ID único
+      let prod = null;
+      if (item.id) {
+        prod = (this.data.products || []).find(p => p && p.id === item.id);
+      }
+      // 2. Segunda Prioridad: Coincidencia EXACTA por Código / SKU
+      if (!prod && item.sku) {
+        const itemSku = String(item.sku).trim().toLowerCase();
+        prod = (this.data.products || []).find(p => p && p.sku && String(p.sku).trim().toLowerCase() === itemSku);
+      }
+      // 3. Fallback de emergencia si el registro carecía de ID y SKU: Coincidencia por Nombre + Categoría
+      if (!prod && item.name) {
+        const itemName = String(item.name).trim().toLowerCase();
+        const itemCat = String(item.category || item.categoryName || '').trim().toLowerCase();
+        if (itemCat) {
+          prod = (this.data.products || []).find(p => {
+            if (!p || !p.name) return false;
+            const pCat = String(p.category || p.categoryName || '').trim().toLowerCase();
+            return String(p.name).trim().toLowerCase() === itemName && pCat === itemCat;
+          });
+        }
+        if (!prod) {
+          prod = (this.data.products || []).find(p => p && p.name && String(p.name).trim().toLowerCase() === itemName);
+        }
+      }
 
       if (prod) {
         const isPesaje = (prod.measureType || 'Pesaje') === 'Pesaje';
@@ -8992,27 +9014,51 @@ class NexusApp {
         prod.status = prod.stock > minStock ? 'active' : (prod.stock > 0 ? 'low_stock' : 'out_of_stock');
         prod.sold30d = Math.max(0, (Number(prod.sold30d) || 0) - unitsToAdd);
 
-        restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id})`);
+        // Descontar venta de monthlySales si estaba registrada
+        if (prod.monthlySales) {
+          let saleMonthKey, saleDay;
+          if (tx.date && typeof tx.date === 'string' && tx.date.includes('/')) {
+            const parts = tx.date.split('/');
+            if (parts.length === 3) {
+              saleDay = parseInt(parts[0], 10);
+              saleMonthKey = `${parts[2]}-${String(parts[1]).padStart(2, '0')}`;
+            }
+          }
+          if (!saleMonthKey) {
+            const now = new Date();
+            saleDay = now.getDate();
+            saleMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+          }
+          if (prod.monthlySales[saleMonthKey] && prod.monthlySales[saleMonthKey][saleDay]) {
+            prod.monthlySales[saleMonthKey][saleDay] = Math.max(0, (Number(prod.monthlySales[saleMonthKey][saleDay]) || 0) - unitsToAdd);
+          }
+        }
+
+        restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id}, +${unitsToAdd} ${isPesaje ? 'g' : 'u.'})`);
       } else {
         // Si el producto fue borrado, recrearlo en el inventario con su código y datos originales
+        const isPesajeItem = (item.measureType || 'Pesaje') === 'Pesaje';
+        const pWeightItem = Number(item.pieceWeight) || 0;
+        const unitsToAddItem = (!isPesajeItem && pWeightItem > 0) ? (Math.round((soldQty / pWeightItem) * 100) / 100) : soldQty;
+
         const restoredProd = {
           id: item.id || this.generateUniqueId('PRD', this.data.products),
           sku: item.sku || '',
           name: item.name || 'Joya Reintegrada',
           measureType: item.measureType || 'Pesaje',
-          pieceWeight: Number(item.pieceWeight) || 0,
-          weight: Number(item.pieceWeight) || 0,
+          pieceWeight: pWeightItem,
+          weight: pWeightItem,
           category: item.category || 'general',
           categoryName: item.categoryName || 'GENERAL',
           price: Number(item.price) || 0,
-          stock: soldQty,
+          stock: unitsToAddItem,
           minStock: 1,
           status: 'active',
           sold30d: 0
         };
         if (!Array.isArray(this.data.products)) this.data.products = [];
         this.data.products.push(restoredProd);
-        restoredNames.push(`${restoredProd.name} (SKU: ${restoredProd.sku || restoredProd.id})`);
+        restoredNames.push(`${restoredProd.name} (SKU: ${restoredProd.sku || restoredProd.id}, +${unitsToAddItem} ${isPesajeItem ? 'g' : 'u.'})`);
       }
     });
 
