@@ -4,8 +4,8 @@ class NexusApp {
   constructor() {
     this.data = INITIAL_DATA;
     this.cart = [];
-    this.currentParentView = 'dashboard';
-    this.currentSubView = 'inicio';
+    this.currentParentView = null;
+    this.currentSubView = null;
     this.selectedCategory = 'all';
     this.selectedPayMethod = 'cash';
     this.currentMixedCombo = 'cash_transfer';
@@ -413,6 +413,8 @@ class NexusApp {
               this.consultarTendencia(qParam);
             }
           }
+        } else if (this.currentUser) {
+          this.ensurePermittedView();
         }
       } catch (err) {
         console.error('[NexusApp] Startup error:', err);
@@ -1168,11 +1170,17 @@ class NexusApp {
                 this.showToast('Tu cuenta ha sido desactivada por el Administrador.', 'danger');
                 return;
               }
-              // Refresh user role in current session if updated
-              if (myAccount && myAccount.role !== this.currentUser.role) {
-                this.currentUser.role = myAccount.role;
-                localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-                this.updateUIForRole();
+              // Refresh user role & permissions in current session if updated
+              if (myAccount) {
+                const permsChanged = JSON.stringify(myAccount.customPermissions || null) !== JSON.stringify(this.currentUser.customPermissions || null);
+                const roleChanged = myAccount.role !== this.currentUser.role;
+                if (roleChanged || permsChanged) {
+                  this.currentUser.role = myAccount.role;
+                  this.currentUser.customPermissions = myAccount.customPermissions;
+                  localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
+                  this.updateUIForRole();
+                  this.ensurePermittedView();
+                }
               }
             }
 
@@ -1364,6 +1372,7 @@ class NexusApp {
           this.updateUIForRole();
           this.renderCashStatusIndicator();
           this.attachGlobalNumberMasks();
+          this.ensurePermittedView();
           return;
         }
         const user = this.data.users.find(u => u.email?.toLowerCase() === parsed.email?.toLowerCase() || u.id === parsed.id);
@@ -1388,6 +1397,7 @@ class NexusApp {
           this.updateUIForRole();
           this.renderCashStatusIndicator();
           this.attachGlobalNumberMasks();
+          this.ensurePermittedView();
           return;
         }
       } catch(e) {}
@@ -1522,11 +1532,11 @@ class NexusApp {
     await this.syncRemoteDataIfChanged();
     this.syncAllModules();
 
-    const isCajero = user.role?.toLowerCase().includes('cajero');
-    if (isCajero) {
-      this.switchView('pos');
+    const landing = this.getUserInitialView();
+    if (landing.sub) {
+      this.switchSubView(landing.parent, landing.sub);
     } else {
-      this.switchSubView('dashboard', 'inicio');
+      this.switchView(landing.parent);
     }
   }
 
@@ -1542,8 +1552,12 @@ class NexusApp {
 
   logout() {
     this.currentUser = null;
+    this.currentParentView = null;
+    this.currentSubView = null;
     localStorage.removeItem('nexus_pos_user');
     document.body.classList.add('not-authenticated');
+    document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
     const loginOverlay = document.getElementById('login-screen');
     if (loginOverlay) {
       loginOverlay.classList.add('active');
@@ -1846,9 +1860,15 @@ class NexusApp {
         if (allowed) {
           navItem.classList.remove('disabled');
           navItem.title = "";
+          navItem.style.display = '';
         } else {
           navItem.classList.add('disabled');
+          navItem.classList.remove('active');
           navItem.title = `Restringido para rol ${this.currentUser.role}`;
+          // Hide Dashboard completely from sidebar if user has no permission to it
+          if ((pView === 'dashboard' && (!sView || sView === 'inicio')) || sView === 'inicio') {
+            navItem.style.display = 'none';
+          }
         }
       }
     });
@@ -1866,6 +1886,89 @@ class NexusApp {
      -------------------------------------------------------------------------- */
   setupNavigation() {}
 
+  getUserInitialView() {
+    if (!this.currentUser) return { parent: 'pos', sub: null };
+
+    // 1. If user is permitted to see executive Dashboard, default to it
+    if (this.hasPermission('dashboard', 'inicio')) {
+      return { parent: 'dashboard', sub: 'inicio' };
+    }
+
+    // 2. If cashier or user has POS permission, POS is top priority
+    if (this.hasPermission('pos', null)) {
+      return { parent: 'pos', sub: null };
+    }
+
+    // 3. Check common core operational modules in order of business priority
+    const priorityCandidates = [
+      { parent: 'finance', sub: 'ventas' },
+      { parent: 'dashboard', sub: 'clientes' },
+      { parent: 'inventory', sub: 'productos' },
+      { parent: 'reports', sub: 'cuadre_caja' },
+      { parent: 'finance', sub: 'comprar' },
+      { parent: 'inventory', sub: 'categorias' },
+      { parent: 'inventory', sub: 'servicios' },
+      { parent: 'reports', sub: 'rep_general' },
+      { parent: 'reports', sub: 'rep_finanzas' }
+    ];
+
+    for (const cand of priorityCandidates) {
+      if (this.hasPermission(cand.parent, cand.sub)) {
+        return cand;
+      }
+    }
+
+    // 4. Any other allowed non-dashboard/inicio module
+    for (const mod of this.MODULES_LIST) {
+      if (mod.id === 'dashboard' || mod.id === 'inicio') continue;
+      const p = this.findParentView(mod.id);
+      if (this.hasPermission(p, mod.id)) {
+        return mod.id === 'pos' ? { parent: 'pos', sub: null } : { parent: p, sub: mod.id };
+      }
+    }
+
+    // Fallback if nothing matches
+    return { parent: 'pos', sub: null };
+  }
+
+  ensurePermittedView() {
+    if (!this.currentUser || this._isRedirecting) return;
+    this._isRedirecting = true;
+    try {
+      const canAccessDashboard = this.hasPermission('dashboard', 'inicio');
+
+      // Check if current DOM active container or current state is dashboard/inicio
+      const activeViewEl = document.querySelector('.view-container.active');
+      const isDashboardDOMActive = !activeViewEl || activeViewEl.id === 'view-dashboard';
+
+      const currentIsAllowed = this.currentParentView && 
+        (this.currentSubView ? this.hasPermission(this.currentParentView, this.currentSubView) : this.hasPermission(this.currentParentView, null));
+
+      if ((!canAccessDashboard && (isDashboardDOMActive || (this.currentParentView === 'dashboard' && (!this.currentSubView || this.currentSubView === 'inicio')))) || !currentIsAllowed) {
+        document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
+
+        const landing = this.getUserInitialView();
+        if (landing.sub) {
+          this.switchSubView(landing.parent, landing.sub);
+        } else {
+          this.switchView(landing.parent);
+        }
+      }
+    } finally {
+      this._isRedirecting = false;
+    }
+  }
+
+  navigateHome() {
+    const landing = this.getUserInitialView();
+    if (landing.sub) {
+      this.switchSubView(landing.parent, landing.sub);
+    } else {
+      this.switchView(landing.parent);
+    }
+  }
+
   switchView(parentViewId) {
     this.toggleMobileSidebar(false);
     if (!this.currentUser) {
@@ -1874,6 +1977,7 @@ class NexusApp {
     }
     if (!this.hasPermission(parentViewId, null)) {
       this.showToast(`Acceso Restringido: Tu rol de ${this.currentUser.role} no tiene acceso a este módulo.`, 'warning');
+      this.ensurePermittedView();
       return;
     }
 
@@ -1881,7 +1985,12 @@ class NexusApp {
     if (contentBody) contentBody.scrollTop = 0;
 
     this.currentParentView = parentViewId;
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    this.currentSubView = null;
+    document.querySelectorAll('.nav-item').forEach(navItem => {
+      const itemOnClick = navItem.getAttribute('onclick') || '';
+      const isMatch = itemOnClick.includes(`switchView('${parentViewId}')`);
+      navItem.classList.toggle('active', isMatch);
+    });
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
     
     const target = document.getElementById(`view-${parentViewId}`);
@@ -1923,6 +2032,7 @@ class NexusApp {
     }
     if (!this.hasPermission(parentViewId, subViewId)) {
       this.showToast(`Acceso Restringido: Tu rol de ${this.currentUser.role} no tiene acceso a esta sección.`, 'warning');
+      this.ensurePermittedView();
       return;
     }
 
@@ -2214,6 +2324,7 @@ class NexusApp {
             this.currentUser = u;
             localStorage.setItem('nexus_pos_user', JSON.stringify(u));
             this.updateUIForRole();
+            this.ensurePermittedView();
           }
 
           this.closeModal('edit-user-modal');
