@@ -551,6 +551,7 @@ class NexusApp {
     }
 
     if (this.data.products && Array.isArray(this.data.products)) {
+      const seenProdIds = new Set();
       this.data.products.forEach(p => {
         if (!p.measureType) p.measureType = 'Pesaje';
         if (!p.supplier) p.supplier = 'Joyeros Italianos S.A.S.';
@@ -560,6 +561,18 @@ class NexusApp {
           p.category = 'oro18k';
           p.categoryName = 'Oro 18K Italiano & Ley';
         }
+
+        // Deduplication & unique ID guarantee
+        if (!p.id || seenProdIds.has(p.id)) {
+          const safeSku = p.sku ? String(p.sku).trim().padStart(4, '0') : '';
+          let candidate = safeSku ? `PRD-CJ-${safeSku}` : this.generateUniqueId('PRD-CJ', this.data.products);
+          if (seenProdIds.has(candidate)) {
+            candidate = this.generateUniqueId('PRD-CJ', this.data.products);
+          }
+          console.warn(`[Nexus Data Sanitizer] Resolviendo ID duplicado para SKU ${p.sku}: ${p.id} -> ${candidate}`);
+          p.id = candidate;
+        }
+        seenProdIds.add(p.id);
       });
       // NOTE: Empty array is valid for clean production data
     } else {
@@ -3585,7 +3598,10 @@ class NexusApp {
           return;
         }
         const id = document.getElementById('edit-prod-id').value;
-        const p = this.data.products.find(prod => String(prod.id) === String(id));
+        const origSku = document.getElementById('edit-prod-orig-sku')?.value?.trim();
+        const p = (origSku && id && this.data.products.find(prod => String(prod.id) === String(id) && String(prod.sku).trim() === origSku))
+          || (origSku && this.data.products.find(prod => String(prod.sku).trim() === origSku))
+          || this.data.products.find(prod => String(prod.id) === String(id));
         if (p) {
           const oldProdCost = this.getProductTotalCost(p);
           const oldProdGrams = this.getGramsFromProduct(p);
@@ -4601,15 +4617,19 @@ class NexusApp {
     this.openModal('product-modal');
   }
 
-  openEditProductModal(id) {
+  openEditProductModal(id, sku = null) {
     if (!this.canPerformAction('edit', 'product')) {
       this.showToast('Acceso Restringido: Tu rol no tiene permisos para editar productos del catálogo.', 'warning');
       return;
     }
-    const p = this.data.products.find(item => item.id === id);
+    const p = (sku && id && this.data.products.find(item => item.id === id && String(item.sku).trim() === String(sku).trim()))
+      || (sku && this.data.products.find(item => String(item.sku).trim() === String(sku).trim()))
+      || this.data.products.find(item => item.id === id);
     if (!p) return;
 
     document.getElementById('edit-prod-id').value = p.id;
+    const origSkuInput = document.getElementById('edit-prod-orig-sku');
+    if (origSkuInput) origSkuInput.value = p.sku || '';
     document.getElementById('edit-prod-sku').value = p.sku || '001';
     document.getElementById('edit-prod-name').value = p.name;
     document.getElementById('edit-prod-cost').value = p.cost !== undefined ? this.formatNumberWithCommas(p.cost) : '';
@@ -11701,8 +11721,8 @@ class NexusApp {
 
       const rowClass = isAgotado ? 'inv-row-out-of-stock' : 'inv-row-in-stock';
 
-      const editBtn = canEditProd ? `<button class="btn-action-edit" onclick="app.openEditProductModal('${this.escapeHtml(p.id)}')">Editar</button>` : '';
-      const deleteBtn = canDeleteProd ? `<button class="btn-action-delete" onclick="app.deleteProduct('${this.escapeHtml(p.id)}')">Eliminar</button>` : '';
+      const editBtn = canEditProd ? `<button class="btn-action-edit" onclick="app.openEditProductModal('${this.escapeHtml(p.id)}', '${this.escapeHtml(p.sku || '')}')">Editar</button>` : '';
+      const deleteBtn = canDeleteProd ? `<button class="btn-action-delete" onclick="app.deleteProduct('${this.escapeHtml(p.id)}', '${this.escapeHtml(p.sku || '')}')">Eliminar</button>` : '';
       const actions = `${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>`;
 
@@ -11733,16 +11753,21 @@ class NexusApp {
     }).join('');
   }
 
-  async deleteProduct(id) {
+  async deleteProduct(id, sku = null) {
     if (!this.canPerformAction('delete', 'product')) {
       this.showToast('Acceso Restringido: Tu rol no tiene permisos para eliminar productos del catálogo.', 'warning');
       return;
     }
-    const p = this.data.products.find(item => item.id === id);
+    const p = (sku && id && this.data.products.find(item => item.id === id && String(item.sku).trim() === String(sku).trim()))
+      || (sku && this.data.products.find(item => String(item.sku).trim() === String(sku).trim()))
+      || this.data.products.find(item => item.id === id);
     if (!p) return;
     if (!confirm(`¿Está seguro de eliminar el producto "${p.name}"? Esta acción no se puede deshacer.`)) return;
 
-    this.data.products = this.data.products.filter(item => item.id !== id);
+    const prodIdx = this.data.products.findIndex(item => item === p || (sku ? (item.id === id && String(item.sku).trim() === String(sku).trim()) : item.id === id));
+    if (prodIdx !== -1) {
+      this.data.products.splice(prodIdx, 1);
+    }
     this.syncAllCategoryGrams();
     this.cart = this.cart.filter(item => item.product.id !== id);
     this.renderCart();
