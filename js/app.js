@@ -12210,6 +12210,11 @@ class NexusApp {
     // 3. Compras de Mercancía (Efectivo & Bancos)
     (this.data.purchases || []).forEach(po => {
       if (matchesShift(po.date, po.time, po.shiftId, po.timestamp, po.closedShiftId)) {
+        // Solo registrar salidas de compras efectivamente pagadas (Contado, Tarjeta o Transferencia).
+        // Las compras a crédito impagas (Pendientes) no representan una salida de dinero en este turno.
+        const isPaid = po.paymentStatus === 'Pagado Total' || (!po.paymentStatus && !String(po.paymentMethod || '').toLowerCase().includes('crédito'));
+        if (!isPaid) return;
+
         const pom = (po.paymentMethod || '').toLowerCase();
         const poAcc = (po.targetAccount || '').toLowerCase();
         const isPoEfectivo = pom.includes('efectivo') || poAcc.includes('efectivo') || poAcc.includes('caja');
