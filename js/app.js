@@ -12119,14 +12119,16 @@ class NexusApp {
     const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
 
     // Helper: coincidencia estricta y segura con el turno activo
-    const matchesShift = (dateStr, timeStr, itemShiftId, itemTimestamp = 0, closedShiftId = null) => {
-      // 1. Si el egreso tiene un shiftId explícito asignado:
+    const matchesShift = (dateStr, timeStr, itemShiftId, itemTimestamp = 0, closedShiftId = null, exclude = false) => {
+      // 0. Si está explícitamente excluido del cuadre de caja:
+      if (exclude) return false;
+      // 1. Si ya pertenece a un turno cerrado o está marcado como cerrado/excluido:
+      if (closedShiftId || (itemShiftId && closedShiftIds.has(itemShiftId)) || itemShiftId === 'EXCLUIDO') {
+        return false;
+      }
+      // 2. Si el egreso tiene un shiftId explícito asignado:
       if (itemShiftId) {
         return !!(shiftId && itemShiftId === shiftId);
-      }
-      // 2. Si ya pertenece a un turno cerrado o está marcado como cerrado en otro turno:
-      if (closedShiftId || (itemShiftId && closedShiftIds.has(itemShiftId))) {
-        return false;
       }
       // 3. Validación de fecha
       if (!dateStr) return false;
@@ -12151,7 +12153,8 @@ class NexusApp {
 
     // 1. Gastos Operativos (Efectivo & Bancarios)
     (this.data.expenses || []).forEach(e => {
-      if (matchesShift(e.date, e.time, e.shiftId, e.timestamp, e.closedShiftId)) {
+      if (e.excludeFromCashShift) return;
+      if (matchesShift(e.date, e.time, e.shiftId, e.timestamp, e.closedShiftId, e.excludeFromCashShift)) {
         const m = (e.method || '').toLowerCase();
         const acc = (e.targetAccount || '').toLowerCase();
         const isExplicitCash = m.includes('efectivo') || acc.includes('efectivo') || acc.includes('caja');
@@ -12180,7 +12183,8 @@ class NexusApp {
 
     // 2. Abonos / Pagos a Proveedores (Efectivo & Bancos)
     (this.data.abonosCompras || []).forEach(a => {
-      if (matchesShift(a.date, a.time, a.shiftId, a.timestamp, a.closedShiftId)) {
+      if (a.excludeFromCashShift) return;
+      if (matchesShift(a.date, a.time, a.shiftId, a.timestamp, a.closedShiftId, a.excludeFromCashShift)) {
         const am = (a.method || '').toLowerCase();
         const aAcc = (a.targetAccount || '').toLowerCase();
         const isAEfectivo = am.includes('efectivo') || aAcc.includes('efectivo') || aAcc.includes('caja');
@@ -12209,7 +12213,10 @@ class NexusApp {
 
     // 3. Compras de Mercancía (Efectivo & Bancos)
     (this.data.purchases || []).forEach(po => {
-      if (matchesShift(po.date, po.time, po.shiftId, po.timestamp, po.closedShiftId)) {
+      if (po.excludeFromCashShift) return;
+      // Excluir compras específicas que el cliente solicitó remover únicamente del cuadre de caja
+      if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return;
+      if (matchesShift(po.date, po.time, po.shiftId, po.timestamp, po.closedShiftId, po.excludeFromCashShift)) {
         // Solo registrar salidas de compras efectivamente pagadas (Contado, Tarjeta o Transferencia).
         // Las compras a crédito impagas (Pendientes) no representan una salida de dinero en este turno.
         const isPaid = po.paymentStatus === 'Pagado Total' || (!po.paymentStatus && !String(po.paymentMethod || '').toLowerCase().includes('crédito'));
