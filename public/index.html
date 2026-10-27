@@ -2758,6 +2758,15 @@
             </select>
           </div>
 
+          <!-- Cuenta Bancaria Destino para Abonos a Proveedor / Bancarios -->
+          <div id="abono-account-group" style="display:none; margin-bottom:1.25rem;">
+            <label style="font-size:0.8rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Cuenta Bancaria de Salida *</label>
+            <select id="abono-account-select" class="form-select" style="width:100%; font-size:0.88rem; font-weight:600;">
+              <!-- Opciones dinámicas de cuentas bancarias -->
+            </select>
+            <small style="font-size:0.72rem; color:var(--text-muted); margin-top:3px; display:block;">El pago saldrá de esta cuenta bancaria en el arqueo y NO afectará el efectivo físico en gaveta.</small>
+          </div>
+
           <!-- CAJA INFORMATIVA: DESCUENTO DE CAJA (PARA PROVEEDORES) -->
           <div id="abono-cash-preview-box" style="display:none; background:rgba(16, 185, 129, 0.08); border:1px solid rgba(16, 185, 129, 0.25); padding:0.85rem 1rem; border-radius:var(--radius-md); margin-bottom:1.25rem;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
@@ -4425,15 +4434,24 @@
           </div>
 
           <!-- Método de Pago (solo si está Pagado) -->
-          <div class="form-group" id="po-payment-method-group" style="margin-bottom:0;">
+          <div class="form-group" id="po-payment-method-group" style="margin-bottom:0.75rem;">
             <label class="form-label" for="po-payment-method" style="font-size:0.82rem; font-weight:600; color:var(--text-main); margin-bottom:4px;">Método de pago</label>
-            <select id="po-payment-method" class="form-select" style="font-size:0.85rem; padding:7px 10px; font-weight:600;">
-              <option value="Efectivo" selected>💵 Efectivo</option>
-              <option value="Transferencia Bancaria">🏦 Transferencia Bancaria</option>
-              <option value="Bancolombia / Nequi">📱 Bancolombia / Nequi</option>
+            <select id="po-payment-method" class="form-select" onchange="app.onPurchaseMethodChange()" style="font-size:0.85rem; padding:7px 10px; font-weight:600;">
+              <option value="Efectivo" selected>💵 Efectivo (Caja Mostrador)</option>
               <option value="Tarjeta Débito">💳 Tarjeta Débito</option>
               <option value="Tarjeta Crédito">💳 Tarjeta Crédito</option>
+              <option value="Transferencia Bancaria">🏦 Transferencia Bancaria</option>
+              <option value="Bancolombia / Nequi">📱 Bancolombia / Nequi</option>
             </select>
+          </div>
+
+          <!-- Cuenta Bancaria Destino (solo para Pagos Bancarios / Tarjetas) -->
+          <div class="form-group" id="po-account-group" style="display:none; margin-bottom:0;">
+            <label class="form-label" for="po-account-select" style="font-size:0.82rem; font-weight:600; color:var(--text-main); margin-bottom:4px;">Cuenta bancaria de salida</label>
+            <select id="po-account-select" class="form-select" style="font-size:0.85rem; padding:7px 10px; font-weight:600;">
+              <!-- Opciones dinámicas de cuentas bancarias -->
+            </select>
+            <small style="font-size:0.72rem; color:var(--text-muted); margin-top:3px; display:block;">El egreso se debitará de esta cuenta bancaria en el arqueo y NO afectará el efectivo físico de caja.</small>
           </div>
         </div>
         <div class="modal-footer">
@@ -5232,6 +5250,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=91" defer></script>
+  <script src="js/app.js?v=92" defer></script>
 </body>
 </html>

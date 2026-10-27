@@ -3309,9 +3309,12 @@ class NexusApp {
           // 3. Registrar Orden de Compra completa
           const paymentStatus = document.getElementById('po-payment-status')?.value || 'Pagado Total';
           const isPaid = paymentStatus === 'Pagado Total';
-          const paymentMethod = isPaid 
-            ? (document.getElementById('po-payment-method')?.value || 'Efectivo')
-            : 'Crédito Proveedor';
+          const rawMethod = isPaid ? (document.getElementById('po-payment-method')?.value || 'Efectivo') : 'Crédito Proveedor';
+          const isCash = isPaid && rawMethod.toLowerCase().includes('efectivo');
+          const isBank = isPaid && !isCash;
+          const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
+          const selectedAccount = isBank ? (document.getElementById('po-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS') : (isCash ? 'Caja Mostrador (Efectivo)' : null);
+          const paymentMethod = isPaid ? (isBank ? `${rawMethod} (${selectedAccount})` : 'Efectivo') : 'Crédito Proveedor';
 
           const now = new Date();
           const newPO = {
@@ -3336,6 +3339,7 @@ class NexusApp {
             status: "Recibido",
             paymentStatus: paymentStatus,
             paymentMethod: paymentMethod,
+            targetAccount: selectedAccount,
             paidAmount: isPaid ? totalCost : 0
           };
           if (!this.data.purchases || !Array.isArray(this.data.purchases)) {
@@ -3410,8 +3414,8 @@ class NexusApp {
             if (suppObj) {
               suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + totalCost) * 100) / 100;
             }
-          } else if (paymentMethod && paymentMethod.toLowerCase().includes('efectivo')) {
-            // Descontar de gaveta de caja solo si el monto es viable frente al efectivo disponible
+          } else if (isPaid && isCash) {
+            // Descontar de gaveta de caja ÚNICAMENTE si fue pagado de contado en Efectivo
             const currentDrawerCash = Number(this.data.cashShiftLog?.expectedCashInDrawer) || 0;
             if (totalCost <= currentDrawerCash && currentDrawerCash > 0) {
               if (!this.data.cashShiftLog) {
@@ -3737,12 +3741,50 @@ class NexusApp {
   onPurchasePaymentStatusChange() {
     const statusSelect = document.getElementById('po-payment-status');
     const methodGroup = document.getElementById('po-payment-method-group');
-    if (!statusSelect || !methodGroup) return;
+    const accountGroup = document.getElementById('po-account-group');
+    if (!statusSelect) return;
 
     if (statusSelect.value === 'Pagado Total') {
-      methodGroup.style.display = 'block';
+      if (methodGroup) methodGroup.style.display = 'block';
+      this.onPurchaseMethodChange();
     } else {
-      methodGroup.style.display = 'none';
+      if (methodGroup) methodGroup.style.display = 'none';
+      if (accountGroup) accountGroup.style.display = 'none';
+    }
+  }
+
+  onPurchaseMethodChange() {
+    const statusSelect = document.getElementById('po-payment-status');
+    const methodSelect = document.getElementById('po-payment-method');
+    const accountGroup = document.getElementById('po-account-group');
+    if (!methodSelect || !accountGroup) return;
+
+    const isPaid = !statusSelect || statusSelect.value === 'Pagado Total';
+    if (!isPaid) {
+      accountGroup.style.display = 'none';
+      return;
+    }
+
+    const val = (methodSelect.value || '').toLowerCase();
+    const isBank = val.includes('tarjeta') || val.includes('transfer') || val.includes('banco') || val.includes('nequi');
+    if (isBank) {
+      this.populatePurchaseAccountSelect();
+      accountGroup.style.display = 'block';
+    } else {
+      accountGroup.style.display = 'none';
+    }
+  }
+
+  populatePurchaseAccountSelect() {
+    const accountSelect = document.getElementById('po-account-select');
+    if (!accountSelect) return;
+    const accounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
+    accountSelect.innerHTML = accounts.map(acc => `<option value="${this.escapeHtml(acc)}">🏦 ${this.escapeHtml(acc)}</option>`).join('');
+    const shiftAccount = this.data.cashShiftLog?.openingAccount;
+    if (shiftAccount && accounts.includes(shiftAccount)) {
+      accountSelect.value = shiftAccount;
+    } else if (accounts.length > 0) {
+      accountSelect.value = accounts[0];
     }
   }
 
@@ -5835,7 +5877,26 @@ class NexusApp {
     const amountInput = document.getElementById('abono-amount-input');
     const methodSelect = document.getElementById('abono-method-select');
     const deductCheck = document.getElementById('abono-deduct-cash-check');
+    const accountGroup = document.getElementById('abono-account-group');
+    const accountSelect = document.getElementById('abono-account-select');
     const submitBtn = document.getElementById('abono-submit-btn');
+
+    const method = methodSelect?.value || 'Efectivo';
+    const isCash = method.toLowerCase().includes('efectivo');
+
+    if (accountGroup && accountSelect) {
+      if (!isCash) {
+        const accounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
+        accountSelect.innerHTML = accounts.map(acc => `<option value="${this.escapeHtml(acc)}">🏦 ${this.escapeHtml(acc)}</option>`).join('');
+        const shiftAccount = this.data.cashShiftLog?.openingAccount;
+        if (shiftAccount && accounts.includes(shiftAccount)) {
+          accountSelect.value = shiftAccount;
+        }
+        accountGroup.style.display = 'block';
+      } else {
+        accountGroup.style.display = 'none';
+      }
+    }
 
     if (type !== 'supplier') {
       if (cashPreviewBox) cashPreviewBox.style.display = 'none';
@@ -5847,14 +5908,12 @@ class NexusApp {
 
     const currentCash = Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0;
     const amountToPay = this.parseCleanNumber(amountInput?.value) || 0;
-    const method = methodSelect?.value || 'Efectivo';
-    const isCash = method.toLowerCase().includes('efectivo');
 
-    if (deductCheck && isCash) {
-      deductCheck.checked = true;
+    if (deductCheck) {
+      deductCheck.checked = isCash;
     }
 
-    const willDeduct = isCash || (deductCheck ? deductCheck.checked : false);
+    const willDeduct = isCash;
 
     if (currentValEl) {
       currentValEl.textContent = this.formatCurrency(currentCash);
@@ -5870,13 +5929,14 @@ class NexusApp {
           afterValEl.style.color = 'var(--emerald-text, #10B981)';
         }
       } else {
-        afterValEl.textContent = `${this.formatCurrency(currentCash)} (Sin descontar de caja)`;
-        afterValEl.style.color = 'var(--text-muted, #94A3B8)';
+        const chosenAcc = accountSelect?.value || 'Cuenta Bancaria';
+        afterValEl.textContent = `${this.formatCurrency(currentCash)} (Saldrá de ${chosenAcc} - No descuenta de gaveta física)`;
+        afterValEl.style.color = '#4338CA';
       }
     }
 
     if (submitBtn) {
-      submitBtn.textContent = willDeduct ? 'Confirmar Pago y Descontar de Caja' : 'Confirmar Pago a Proveedor';
+      submitBtn.textContent = willDeduct ? 'Confirmar Pago y Descontar de Caja' : 'Confirmar Pago Bancario a Proveedor';
     }
   }
 
@@ -6075,6 +6135,8 @@ class NexusApp {
       // Sync with cashier cash drawer: descontar del dinero en caja ÚNICAMENTE si fue pagado en Efectivo
       const isCash = method.toLowerCase().includes('efectivo');
       const shouldDeductFromCash = isCash;
+      const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
+      const selectedAccount = !isCash ? (document.getElementById('abono-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS') : 'Caja Mostrador (Efectivo)';
 
       if (shouldDeductFromCash) {
         if (!this.data.cashShiftLog) {
@@ -6123,7 +6185,8 @@ class NexusApp {
       cp.history.push({
         type: 'payment',
         amount: actualPay,
-        method: method,
+        method: shouldDeductFromCash ? `${method} (Caja)` : `${method} (${selectedAccount})`,
+        account: selectedAccount,
         date: `${new Date().toISOString().slice(0, 10)} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
       });
 
@@ -6141,7 +6204,8 @@ class NexusApp {
         supplier: cp.supplier,
         poId: cp.id || this.generateUniqueId('OC', this.data.purchases),
         amount: actualPay,
-        method: shouldDeductFromCash ? `${method} (Caja)` : method,
+        method: shouldDeductFromCash ? `${method} (Caja)` : `${method} (${selectedAccount})`,
+        targetAccount: selectedAccount,
         cashier: activeCashier,
         status: "Confirmado"
       });
@@ -6151,7 +6215,7 @@ class NexusApp {
       this.syncAllModules();
       this.renderCuadreCajaCard();
       this.renderCashStatusIndicator();
-      const deductMsg = shouldDeductFromCash ? ' y descontado de caja' : '';
+      const deductMsg = shouldDeductFromCash ? ' y descontado de gaveta física' : ` pagado desde ${selectedAccount}`;
       this.showToast(`Pago de ${this.formatCurrency(actualPay)} registrado a ${cp.supplier}${deductMsg}`, 'success');
     }
   }
