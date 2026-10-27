@@ -664,6 +664,12 @@ class NexusApp {
     if (!this.data.financialLedger || !Array.isArray(this.data.financialLedger)) {
       this.data.financialLedger = [];
     }
+    if (!this.data.accountInitialBalances || typeof this.data.accountInitialBalances !== 'object') {
+      this.data.accountInitialBalances = {};
+    }
+    if (!this.data.accountAdjustments || !Array.isArray(this.data.accountAdjustments)) {
+      this.data.accountAdjustments = [];
+    }
 
     // Sincronización de costo promedio ponderado y gramaje por categoría
     this.syncAllCategoryGrams();
@@ -2203,7 +2209,10 @@ class NexusApp {
     bindOpen('open-add-product-btn', 'product-modal', () => this.openAddProductModal());
     bindOpen('open-customer-modal-btn', 'customer-modal', () => this.openCustomerModal());
     bindOpen('open-supplier-modal-btn', 'supplier-modal', () => this.openSupplierModal());
-    bindOpen('open-expense-modal-btn', 'expense-modal');
+    const openExpBtn = document.getElementById('open-expense-modal-btn');
+    if (openExpBtn) {
+      openExpBtn.addEventListener('click', () => this.openAddExpenseModal());
+    }
     bindOpen('open-service-modal-btn', 'service-modal');
     bindOpen('open-category-modal-btn', 'category-modal', () => this.openAddCategoryModal());
     bindOpen('open-asset-modal-btn', 'asset-modal');
@@ -2804,22 +2813,34 @@ class NexusApp {
           this.showToast('Acceso Denegado: Solo el Super Admin puede configurar métodos de pago.', 'danger');
           return;
         }
-        const name = document.getElementById('pm-name-input').value;
-        const fee = document.getElementById('pm-fee-input').value;
+        const name = document.getElementById('pm-name-input').value.trim();
+        const fee = document.getElementById('pm-fee-input').value.trim() || '0%';
+        const isBankAccount = document.getElementById('pm-is-account-select')?.value !== 'false';
+        const initBalVal = this.parseCleanNumber(document.getElementById('pm-initial-balance-input')?.value) || 0;
 
         const newPm = {
           id: this.generateSequentialId('PM', this.data.paymentMethods),
           name,
-          icon: "card",
+          icon: isBankAccount ? "bank" : "card",
           fee: fee.includes('%') ? fee : `${fee}%`,
+          isBankAccount,
           active: true
         };
         this.data.paymentMethods.unshift(newPm);
+
+        if (isBankAccount) {
+          const accKey = this.resolveCanonicalAccountKey(name, true);
+          if (accKey) {
+            if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
+            this.data.accountInitialBalances[accKey] = initBalVal;
+          }
+        }
+
         await this.savePersistence();
-        this.renderPaymentMethodsTable();
+        this.syncAllModules();
         pmForm.reset();
         this.closeModal('paymethod-modal');
-        this.showToast(`Método de pago "${name}" configurado`, 'success');
+        this.showToast(`Cuenta / Método de pago "${name}" configurado`, 'success');
       });
     }
 
@@ -2835,14 +2856,26 @@ class NexusApp {
         const id = document.getElementById('edit-pm-id').value;
         const pm = this.data.paymentMethods.find(p => p.id === id);
         if (pm) {
-          pm.name = document.getElementById('edit-pm-name').value;
-          const feeVal = document.getElementById('edit-pm-fee').value;
+          pm.name = document.getElementById('edit-pm-name').value.trim();
+          const feeVal = document.getElementById('edit-pm-fee').value.trim() || '0%';
           pm.fee = feeVal.includes('%') ? feeVal : `${feeVal}%`;
+          const isAccEl = document.getElementById('edit-pm-is-account');
+          if (isAccEl) {
+            pm.isBankAccount = isAccEl.value === 'true';
+          }
+          const initBalInput = document.getElementById('edit-pm-initial-balance');
+          if (initBalInput && pm.isBankAccount !== false) {
+            const accKey = this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount);
+            if (accKey) {
+              if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
+              this.data.accountInitialBalances[accKey] = this.parseCleanNumber(initBalInput.value) || 0;
+            }
+          }
 
           await this.savePersistence();
-          this.renderPaymentMethodsTable();
+          this.syncAllModules();
           this.closeModal('edit-paymethod-modal');
-          this.showToast(`Forma de pago "${pm.name}" actualizada`, 'success');
+          this.showToast(`Cuenta / Forma de pago "${pm.name}" actualizada`, 'success');
         }
       });
     }
@@ -5377,6 +5410,18 @@ class NexusApp {
     document.getElementById('edit-pm-name').value = pm.name;
     document.getElementById('edit-pm-fee').value = pm.fee;
 
+    const accKey = this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount);
+    const isAccSelect = document.getElementById('edit-pm-is-account');
+    if (isAccSelect) {
+      isAccSelect.value = accKey ? 'true' : 'false';
+    }
+    const initBalInput = document.getElementById('edit-pm-initial-balance');
+    if (initBalInput) {
+      const currentInit = (accKey && this.data.accountInitialBalances && this.data.accountInitialBalances[accKey]) || 0;
+      initBalInput.value = this.formatNumberWithCommas(currentInit);
+    }
+
+    this.attachGlobalNumberMasks();
     this.openModal('edit-paymethod-modal');
   }
 
@@ -5392,14 +5437,15 @@ class NexusApp {
   }
 
   onExpenseMethodChange(prefix = 'exp') {
-    const methodSelect = document.getElementById(`${prefix}-method-select`) || document.getElementById(`${prefix}-method`);
-    const group = document.getElementById(`${prefix}-account-group`);
+    const normPrefix = (prefix === 'add' || prefix === 'exp') ? 'exp' : ((prefix === 'edit' || prefix === 'edit-exp') ? 'edit-exp' : prefix);
+    const methodSelect = document.getElementById(`${normPrefix}-method-select`) || document.getElementById(`${normPrefix}-method`);
+    const group = document.getElementById(`${normPrefix}-account-group`);
     if (!methodSelect || !group) return;
     const val = (methodSelect.value || '').toLowerCase();
     const isBank = val.includes('transfer') || val.includes('banco') || val.includes('cuenta') || val.includes('tarjeta');
     group.style.display = isBank ? 'block' : 'none';
     if (isBank) {
-      this.populateExpenseAccountSelect(prefix);
+      this.populateExpenseAccountSelect(normPrefix);
     }
   }
 
@@ -5425,12 +5471,14 @@ class NexusApp {
     document.getElementById('edit-exp-cat').value = exp.category;
     document.getElementById('edit-exp-amount').value = this.formatNumberWithCommas(exp.amount);
 
-    const isBank = (exp.method || '').toLowerCase().includes('transfer') || (exp.method || '').toLowerCase().includes('banco') || (exp.method || '').toLowerCase().includes('cuenta') || (exp.method || '').toLowerCase().includes('tarjeta') || !!exp.targetAccount;
+    const mLower = (exp.method || '').toLowerCase();
+    const isCard = mLower.includes('tarjeta');
+    const isBank = isCard || mLower.includes('transfer') || mLower.includes('banco') || mLower.includes('cuenta') || (!!exp.targetAccount && !String(exp.targetAccount).toLowerCase().includes('caja'));
     const targetAcc = exp.targetAccount || (exp.method && exp.method.includes('(') ? exp.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : '');
 
     const methodSelect = document.getElementById('edit-exp-method');
     if (methodSelect) {
-      methodSelect.value = isBank ? 'Transferencia Bancaria' : (exp.method || 'Efectivo');
+      methodSelect.value = isCard ? 'Tarjeta' : (isBank ? 'Transferencia' : 'Efectivo');
     }
     this.populateExpenseAccountSelect('edit-exp', targetAcc);
     const group = document.getElementById('edit-exp-account-group');
@@ -5886,10 +5934,13 @@ class NexusApp {
 
     if (accountGroup && accountSelect) {
       if (!isCash) {
+        const prevSelected = accountSelect.value;
         const accounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
         accountSelect.innerHTML = accounts.map(acc => `<option value="${this.escapeHtml(acc)}">🏦 ${this.escapeHtml(acc)}</option>`).join('');
         const shiftAccount = this.data.cashShiftLog?.openingAccount;
-        if (shiftAccount && accounts.includes(shiftAccount)) {
+        if (prevSelected && accounts.includes(prevSelected)) {
+          accountSelect.value = prevSelected;
+        } else if (shiftAccount && accounts.includes(shiftAccount)) {
           accountSelect.value = shiftAccount;
         }
         accountGroup.style.display = 'block';
@@ -6037,7 +6088,13 @@ class NexusApp {
       }
 
       // Sync with cashier cash drawer if paid in cash
-      if (method.toLowerCase().includes('efectivo')) {
+      const isCashCustAbono = method.toLowerCase().includes('efectivo');
+      const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
+      const selectedCustAccount = !isCashCustAbono
+        ? (document.getElementById('abono-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS')
+        : 'Caja Mostrador (Efectivo)';
+
+      if (isCashCustAbono) {
         if (!this.data.cashShiftLog) this.data.cashShiftLog = { openingCash: 500000, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 500000, status: 'Abierto' };
         this.data.cashShiftLog.cashSales = Math.round(((Number(this.data.cashShiftLog.cashSales) || 0) + actualPay) * 100) / 100;
         this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
@@ -6053,7 +6110,8 @@ class NexusApp {
         customer: cred.customer,
         invoiceId: this.generateSequentialId('TX', this.data.recentTransactions || this.data.sales),
         amount: actualPay,
-        method: method,
+        method: isCashCustAbono ? 'Efectivo' : `${method} (${selectedCustAccount})`,
+        targetAccount: selectedCustAccount,
         cashier: this.data.store?.cashier || (this.currentUser ? this.currentUser.name : "Cajero")
       });
 
@@ -8691,27 +8749,942 @@ class NexusApp {
     this.showToast(`Auditoría de Gastos Operativos (${expenses.length} egresos) exportada a Excel exitosamente`, 'success');
   }
 
+  resolveCanonicalAccountKey(rawName, forceAccount = false) {
+    if (!rawName) return null;
+    const s = String(rawName).trim().toLowerCase();
+    if (!s) return null;
+    if (s.includes('zharick') || s.includes('sharick')) return 'cuenta_sharick';
+    if (s.includes('carlos') && !s.includes('charles')) return 'cuenta_carlos';
+    if (s.includes('charles joyas')) return 'cuenta_charles_joyas';
+    if (s === 'efectivo' || s.includes('efectivo') || s.includes('caja mostrador') || s === 'caja') return 'efectivo_caja';
+    if (!forceAccount) {
+      if (
+        s.includes('separe') ||
+        s.includes('crédito') ||
+        s.includes('credito') ||
+        s === 'tarjeta débito/crédito' ||
+        s === 'tarjeta debito/credito' ||
+        s === 'tarjeta' ||
+        s === 'transferencia' ||
+        s === 'transferencia bancaria' ||
+        s.includes('bizum') ||
+        s.includes('pago mixto')
+      ) {
+        return null;
+      }
+      const looksLikeAccount =
+        s.includes('cuenta') ||
+        s.includes('cta') ||
+        s.includes('banco') ||
+        s.includes('bancaria') ||
+        s.includes('nequi') ||
+        s.includes('daviplata') ||
+        s.includes('bancolombia') ||
+        s.includes('ahorros') ||
+        s.includes('corriente') ||
+        s.includes('billetera') ||
+        s.includes('wallet');
+      if (!looksLikeAccount) return null;
+    }
+    return 'acc_' + s.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  }
+
+  extractAccountKeyFromMovement(targetAccount, methodStr) {
+    if (targetAccount) {
+      const k = this.resolveCanonicalAccountKey(targetAccount, true);
+      if (k && k !== 'acc_general' && k !== 'acc_cuenta_bancaria') return k;
+    }
+    if (methodStr) {
+      const m = String(methodStr).trim();
+      const parenMatch = m.match(/\(([^)]+)\)/);
+      if (parenMatch && parenMatch[1]) {
+        const inner = parenMatch[1].trim();
+        if (!inner.toLowerCase().includes('recargo')) {
+          const k = this.resolveCanonicalAccountKey(inner, true);
+          if (k && k !== 'acc_general' && k !== 'acc_cuenta_bancaria') return k;
+        }
+      }
+      const k2 = this.resolveCanonicalAccountKey(m, false);
+      if (k2) return k2;
+    }
+    return null;
+  }
+
+  getAccountsFinancialSummary() {
+    const accounts = {};
+    const initBalances = this.data.accountInitialBalances || {};
+
+    const ensureAccount = (key, defaultName, shortName, isCash = false, pmObj = null) => {
+      if (!key) return null;
+      if (!accounts[key]) {
+        accounts[key] = {
+          key,
+          name: defaultName,
+          shortName: shortName || defaultName,
+          pmId: pmObj ? pmObj.id : null,
+          fee: pmObj ? pmObj.fee : '0%',
+          isCash: !!isCash,
+          initialBalance: Math.round(Number(initBalances[key]) || 0),
+          incomes: 0,
+          incomesCount: 0,
+          expenses: 0,
+          expensesCount: 0,
+          adjustmentsNet: 0,
+          adjustmentsCount: 0,
+          balance: 0,
+          movements: []
+        };
+      } else if (pmObj && !accounts[key].pmId) {
+        accounts[key].pmId = pmObj.id;
+        accounts[key].fee = pmObj.fee || accounts[key].fee;
+      }
+      return accounts[key];
+    };
+
+    // 1. Inicializar cuentas principales del negocio
+    const pmList = this.data.paymentMethods || [];
+    const findPm = (key) => pmList.find(p => this.resolveCanonicalAccountKey(p.name, p.isBankAccount) === key);
+
+    ensureAccount('cuenta_sharick', 'Cuenta Sharick (CTA Zharick)', 'Cuenta Sharick', false, findPm('cuenta_sharick'));
+    ensureAccount('cuenta_carlos', 'Cuenta Bancaria Carlos', 'Cuenta Carlos', false, findPm('cuenta_carlos'));
+    ensureAccount('cuenta_charles_joyas', 'CUENTA CHARLES JOYAS SAS', 'CUENTA CHARLES JOYAS SAS', false, findPm('cuenta_charles_joyas'));
+    ensureAccount('efectivo_caja', 'Efectivo (Caja Mostrador)', 'Efectivo', true, findPm('efectivo_caja'));
+
+    // Agregar cualquier otra cuenta configurada en Formas de Pago
+    pmList.forEach(pm => {
+      const k = this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount);
+      if (k && !accounts[k]) {
+        ensureAccount(k, pm.name, pm.name, k === 'efectivo_caja', pm);
+      }
+    });
+
+    // Helper para registrar un movimiento en una cuenta
+    const addMovement = (key, mov) => {
+      if (!key) return;
+      if (!accounts[key]) {
+        ensureAccount(key, mov.rawAccountName || key, mov.rawAccountName || key, key === 'efectivo_caja');
+      }
+      const acc = accounts[key];
+      const amt = Math.round(Math.abs(Number(mov.amount) || 0));
+      if (amt <= 0 && !mov.allowZero) return;
+
+      if (mov.isAdjustment) {
+        const signed = mov.isIncome ? amt : -amt;
+        acc.adjustmentsNet += signed;
+        acc.adjustmentsCount += 1;
+      } else if (mov.isIncome) {
+        acc.incomes += amt;
+        acc.incomesCount += 1;
+      } else {
+        acc.expenses += amt;
+        acc.expensesCount += 1;
+      }
+
+      acc.movements.push({
+        id: mov.id || 'MOV',
+        date: mov.date || '',
+        time: mov.time || '',
+        timestamp: mov.timestamp || 0,
+        category: mov.category || 'Operación',
+        typeLabel: mov.typeLabel || (mov.isIncome ? 'Ingreso' : 'Egreso'),
+        isIncome: !!mov.isIncome,
+        isAdjustment: !!mov.isAdjustment,
+        adjustmentId: mov.adjustmentId || null,
+        concept: mov.concept || '',
+        party: mov.party || '—',
+        operator: mov.operator || 'Sistema',
+        amount: amt
+      });
+    };
+
+    // 2. Ventas POS (recentTransactions)
+    (this.data.recentTransactions || []).forEach(tx => {
+      if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return;
+      const txItemsDesc = Array.isArray(tx.items) && tx.items.length > 0
+        ? tx.items.map(i => i.name).slice(0, 2).join(', ')
+        : (tx.type || 'Venta POS Joyería');
+
+      if (Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
+        tx.mixedPayments.forEach((mp, idx) => {
+          const mLower = String(mp.method || '').toLowerCase();
+          if (mLower.includes('crédito') || mLower.includes('credito')) return;
+          const accKey = mLower.includes('efectivo')
+            ? 'efectivo_caja'
+            : this.extractAccountKeyFromMovement(mp.targetAccount || tx.targetAccount, mp.method);
+          if (accKey) {
+            addMovement(accKey, {
+              id: `${tx.id}-${idx + 1}`,
+              date: tx.date || '',
+              time: tx.time || '',
+              timestamp: tx.timestamp || 0,
+              category: 'Venta POS (Pago Mixto)',
+              typeLabel: `🛒 Venta POS (${mp.method || 'Mixto'})`,
+              isIncome: true,
+              concept: txItemsDesc,
+              party: tx.customer || 'Cliente Mostrador',
+              operator: tx.cashier || 'Cajero',
+              amount: mp.amount,
+              rawAccountName: mp.targetAccount || tx.targetAccount
+            });
+          }
+        });
+      } else {
+        const pmLower = String(tx.paymentMethod || '').toLowerCase();
+        if (pmLower.includes('crédito') || pmLower.includes('credito') || pmLower.includes('separe')) return;
+        const accKey = pmLower === 'efectivo' || pmLower.startsWith('efectivo')
+          ? 'efectivo_caja'
+          : this.extractAccountKeyFromMovement(tx.targetAccount, tx.paymentMethod);
+        if (accKey) {
+          addMovement(accKey, {
+            id: tx.id,
+            date: tx.date || '',
+            time: tx.time || '',
+            timestamp: tx.timestamp || 0,
+            category: 'Venta POS',
+            typeLabel: `🛒 ${tx.paymentMethod || 'Venta POS'}`,
+            isIncome: true,
+            concept: txItemsDesc,
+            party: tx.customer || 'Cliente Mostrador',
+            operator: tx.cashier || 'Cajero',
+            amount: tx.total,
+            rawAccountName: tx.targetAccount
+          });
+        }
+      }
+    });
+
+    // 3. Abonos de Cartera Clientes / Plan Separe (abonosVentas)
+    (this.data.abonosVentas || []).forEach(ab => {
+      if (!ab) return;
+      const mLower = String(ab.method || 'Efectivo').toLowerCase();
+      const accKey = mLower.includes('efectivo')
+        ? 'efectivo_caja'
+        : this.extractAccountKeyFromMovement(ab.targetAccount, ab.method);
+      if (accKey) {
+        addMovement(accKey, {
+          id: ab.id,
+          date: ab.date || '',
+          time: ab.time || '',
+          timestamp: ab.timestamp || 0,
+          category: 'Abono Cliente',
+          typeLabel: `💳 Abono Cartera (${ab.method || 'Efectivo'})`,
+          isIncome: true,
+          concept: `Abono a factura / crédito ${ab.invoiceId || ''}`.trim(),
+          party: ab.customer || 'Cliente',
+          operator: ab.cashier || 'Cajero',
+          amount: ab.amount,
+          rawAccountName: ab.targetAccount
+        });
+      }
+    });
+
+    // 4. Gastos Operativos / Egresos (expenses)
+    (this.data.expenses || []).forEach(exp => {
+      if (!exp) return;
+      const mLower = String(exp.method || 'Efectivo').toLowerCase();
+      const tLower = String(exp.targetAccount || '').toLowerCase();
+      const isCash = (!exp.isBank && mLower.includes('efectivo')) || tLower.includes('efectivo') || tLower.includes('caja');
+      const accKey = isCash
+        ? 'efectivo_caja'
+        : this.extractAccountKeyFromMovement(exp.targetAccount, exp.method);
+      if (accKey) {
+        addMovement(accKey, {
+          id: exp.id,
+          date: exp.date || '',
+          time: exp.time || '',
+          timestamp: exp.timestamp || 0,
+          category: 'Gasto Operativo',
+          typeLabel: `💸 Gasto (${exp.category || 'Operativo'})`,
+          isIncome: false,
+          concept: exp.description || exp.category || 'Egreso Operativo',
+          party: exp.category || 'Gasto Operativo',
+          operator: exp.cashier || exp.user || 'Administración',
+          amount: exp.amount,
+          rawAccountName: exp.targetAccount
+        });
+      }
+    });
+
+    // 5. Abonos / Pagos a Proveedores (abonosCompras)
+    (this.data.abonosCompras || []).forEach(ab => {
+      if (!ab) return;
+      const mLower = String(ab.method || 'Efectivo').toLowerCase();
+      const tLower = String(ab.targetAccount || '').toLowerCase();
+      const isCash = mLower.includes('efectivo') || tLower.includes('efectivo') || tLower.includes('caja');
+      const accKey = isCash
+        ? 'efectivo_caja'
+        : this.extractAccountKeyFromMovement(ab.targetAccount, ab.method);
+      if (accKey) {
+        addMovement(accKey, {
+          id: ab.id,
+          date: ab.date || '',
+          time: ab.time || '',
+          timestamp: ab.timestamp || 0,
+          category: 'Pago a Proveedor',
+          typeLabel: `🚚 Pago Proveedor (${ab.poId || 'Crédito'})`,
+          isIncome: false,
+          concept: `Abono a proveedor ${ab.supplier || ''}`.trim(),
+          party: ab.supplier || 'Proveedor',
+          operator: ab.cashier || 'Cajero',
+          amount: ab.amount,
+          rawAccountName: ab.targetAccount
+        });
+      }
+    });
+
+    // 6. Compras pagadas de contado (purchases)
+    (this.data.purchases || []).forEach(po => {
+      if (!po || po.excludeFromCashShift) return;
+      if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return;
+      const pmLower = String(po.paymentMethod || '').toLowerCase();
+      if (pmLower.includes('crédito') || pmLower.includes('credito') || po.paymentStatus !== 'Pagado Total') return;
+      const tLower = String(po.targetAccount || '').toLowerCase();
+      const isCash = pmLower.includes('efectivo') || tLower.includes('efectivo') || tLower.includes('caja');
+      const accKey = isCash
+        ? 'efectivo_caja'
+        : this.extractAccountKeyFromMovement(po.targetAccount, po.paymentMethod);
+      if (accKey) {
+        addMovement(accKey, {
+          id: po.id,
+          date: po.date || '',
+          time: po.time || '',
+          timestamp: po.timestamp || 0,
+          category: 'Compra de Contado',
+          typeLabel: `📦 Compra Mercancía (${po.productName || po.id})`,
+          isIncome: false,
+          concept: `${po.productName || 'Joyería'} (${po.totalGrams || po.quantity || 0}g)`,
+          party: po.supplier || 'Proveedor',
+          operator: po.cashier || 'Administración',
+          amount: po.paidAmount || po.total,
+          rawAccountName: po.targetAccount
+        });
+      }
+    });
+
+    // 7. Ajustes Manuales / Transferencias entre Cuentas (accountAdjustments)
+    (this.data.accountAdjustments || []).forEach(adj => {
+      if (!adj || !adj.accountKey) return;
+      addMovement(adj.accountKey, {
+        id: adj.id,
+        date: adj.date || '',
+        time: adj.time || '',
+        timestamp: adj.timestamp || 0,
+        category: adj.category || 'Ajuste Manual',
+        typeLabel: adj.typeLabel || (adj.isIncome ? '⚖️ Ajuste / Ingreso (+)' : '⚖️ Ajuste / Salida (-)'),
+        isIncome: !!adj.isIncome,
+        isAdjustment: true,
+        adjustmentId: adj.id,
+        concept: adj.concept || 'Ajuste manual de saldo de cuenta',
+        party: adj.party || 'Ajuste Interno',
+        operator: adj.operator || 'Administrador',
+        amount: adj.amount
+      });
+    });
+
+    // 8. Calcular saldo final disponible por cada cuenta
+    let activeShiftCash = null;
+    try {
+      if (this.calculateShiftTotals) {
+        const shiftTotals = this.calculateShiftTotals();
+        if (shiftTotals && typeof shiftTotals.expectedCashInDrawer === 'number') {
+          activeShiftCash = Math.round(shiftTotals.expectedCashInDrawer);
+        }
+      }
+    } catch (_) {}
+
+    Object.values(accounts).forEach(acc => {
+      if (acc.isCash && activeShiftCash !== null) {
+        // Para Efectivo en Caja, el saldo base operativo es el efectivo real esperado en gaveta del turno actual + ajustes manuales de efectivo
+        acc.shiftDrawerBalance = activeShiftCash;
+        acc.balance = Math.round(activeShiftCash + acc.adjustmentsNet);
+      } else {
+        acc.balance = Math.round(acc.initialBalance + acc.incomes - acc.expenses + acc.adjustmentsNet);
+      }
+      // Ordenar movimientos del más reciente al más antiguo
+      acc.movements.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    });
+
+    return accounts;
+  }
+
   renderPaymentMethodsTable() {
     const tbody = document.getElementById('paymethods-tbody');
-    if (!tbody) return;
+    const overviewEl = document.getElementById('accounts-balance-overview');
     const isSuperAdmin = this.currentUser?.role === 'Super Admin';
+    const canAdjust = isSuperAdmin || this.isAdminUser() || (this.currentUser?.role || '').toLowerCase().includes('gerente');
 
-    tbody.innerHTML = this.data.paymentMethods.map(pm => {
+    const accountsMap = this.getAccountsFinancialSummary();
+    const accountsList = Object.values(accountsMap);
+    const bankAccounts = accountsList.filter(a => !a.isCash);
+    const cashAccount = accountsMap['efectivo_caja'];
+
+    const totalBankBalance = bankAccounts.reduce((s, a) => s + a.balance, 0);
+    const totalCashBalance = cashAccount ? cashAccount.balance : 0;
+    const totalLiquidity = totalBankBalance + totalCashBalance;
+
+    if (overviewEl) {
+      const accountCardsHtml = accountsList.map(acc => {
+        const isPos = acc.balance >= 0;
+        const accentColor = acc.isCash ? '#059669' : '#4338CA';
+        const cardBorder = acc.isCash ? 'rgba(16, 185, 129, 0.35)' : 'rgba(99, 102, 241, 0.3)';
+        const badgeBg = acc.isCash ? 'rgba(16, 185, 129, 0.12)' : 'rgba(99, 102, 241, 0.12)';
+        const icon = acc.isCash ? '💵' : '🏦';
+        const totalOps = acc.movements.length;
+
+        const baseRowHtml = acc.isCash
+          ? `<div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:0.78rem;">
+               <span>Efectivo en Gaveta (Turno Actual):</span>
+               <b style="color:var(--text-main);">${this.formatCurrency(acc.shiftDrawerBalance ?? acc.balance)}</b>
+             </div>`
+          : `<div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:0.78rem;">
+               <span>Saldo Base Inicial:</span>
+               <b style="color:var(--text-main);">${this.formatCurrency(acc.initialBalance)}</b>
+             </div>`;
+
+        const adjRowHtml = acc.adjustmentsNet !== 0
+          ? `<div style="display:flex; justify-content:space-between; color:${acc.adjustmentsNet >= 0 ? '#0284C7' : 'var(--rose-text)'}; font-size:0.78rem;">
+               <span>(+/-) Ajustes / Transferencias (${acc.adjustmentsCount}):</span>
+               <b>${acc.adjustmentsNet >= 0 ? '+' : ''}${this.formatCurrency(acc.adjustmentsNet)}</b>
+             </div>`
+          : '';
+
+        return `
+          <div style="background:var(--bg-surface, var(--card-bg)); border:1.5px solid ${cardBorder}; border-radius:var(--radius-lg, 12px); padding:1.15rem; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 4px 14px rgba(15,23,42,0.04);">
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; margin-bottom:0.6rem;">
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                  <span style="font-size:1.35rem; background:${badgeBg}; width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; border-radius:10px;">${icon}</span>
+                  <div>
+                    <div style="font-weight:800; font-size:0.95rem; color:var(--text-main); line-height:1.2;">${this.escapeHtml(acc.name)}</div>
+                    <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">
+                      ${acc.pmId ? `Código: <b>${this.escapeHtml(acc.pmId)}</b> · ` : ''}${acc.isCash ? 'Bolsillo Físico Mostrador' : 'Cuenta Bancaria Registrada'}
+                    </div>
+                  </div>
+                </div>
+                ${acc.fee && acc.fee !== '0%' ? `<span class="badge" style="background:rgba(245,158,11,0.15); color:#B45309; font-size:0.7rem; font-weight:700;">Comisión ${this.escapeHtml(acc.fee)}</span>` : `<span class="badge badge-active" style="font-size:0.68rem;">Activa</span>`}
+              </div>
+
+              <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:8px; padding:0.75rem 0.9rem; margin-bottom:0.8rem;">
+                <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); font-weight:700;">Saldo Disponible en Cuenta</div>
+                <div style="font-family:var(--font-heading); font-size:1.55rem; font-weight:900; color:${isPos ? accentColor : 'var(--rose-text)'}; margin-top:2px;">
+                  ${this.formatCurrency(acc.balance)}
+                </div>
+              </div>
+
+              <div style="display:flex; flex-direction:column; gap:5px; padding:0 2px; margin-bottom:0.95rem;">
+                ${baseRowHtml}
+                <div style="display:flex; justify-content:space-between; color:var(--emerald-text); font-size:0.78rem;">
+                  <span>(+) Ingresos Históricos (${acc.incomesCount}):</span>
+                  <b>+${this.formatCurrency(acc.incomes)}</b>
+                </div>
+                <div style="display:flex; justify-content:space-between; color:${acc.expenses > 0 ? 'var(--rose-text)' : 'var(--text-muted)'}; font-size:0.78rem;">
+                  <span>(-) Egresos / Salidas (${acc.expensesCount}):</span>
+                  <b>-${this.formatCurrency(acc.expenses)}</b>
+                </div>
+                ${adjRowHtml}
+              </div>
+            </div>
+
+            <div style="display:flex; gap:0.5rem; padding-top:0.75rem; border-top:1px dashed var(--border-color);">
+              <button type="button" class="btn btn-secondary text-xs" onclick="app.openAccountMovementsModal('${this.escapeHtml(acc.key)}')" style="flex:1; justify-content:center; font-weight:700; padding:7px 10px; display:inline-flex; align-items:center; gap:4px;">
+                📋 Ver Extracto (${totalOps})
+              </button>
+              ${canAdjust ? `
+              <button type="button" class="btn btn-primary text-xs" onclick="app.openAccountAdjustmentModal('${this.escapeHtml(acc.key)}')" style="flex:1; justify-content:center; font-weight:700; padding:7px 10px; display:inline-flex; align-items:center; gap:4px;">
+                ⚖️ Ajustar Saldo
+              </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      overviewEl.innerHTML = `
+        <!-- KPI RESUMEN GLOBAL DE TESORERÍA Y CUENTAS -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.9rem; margin-bottom:1.15rem;">
+          <div style="background:linear-gradient(135deg, rgba(79, 70, 229, 0.1), rgba(14, 165, 233, 0.08)); border:1px solid rgba(79, 70, 229, 0.28); border-radius:var(--radius-md); padding:1rem 1.2rem;">
+            <div style="font-size:0.76rem; font-weight:700; text-transform:uppercase; color:#4338CA; letter-spacing:0.4px;">🏦 Total en Cuentas Bancarias (${bankAccounts.length})</div>
+            <div style="font-family:var(--font-heading); font-size:1.55rem; font-weight:900; color:#312E81; margin-top:4px;">${this.formatCurrency(totalBankBalance)}</div>
+            <div style="font-size:0.74rem; color:var(--text-muted); margin-top:3px;">Suma de Cuenta Sharick, Cuenta Carlos, Charles Joyas SAS</div>
+          </div>
+          <div style="background:linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.06)); border:1px solid rgba(16, 185, 129, 0.3); border-radius:var(--radius-md); padding:1rem 1.2rem;">
+            <div style="font-size:0.76rem; font-weight:700; text-transform:uppercase; color:#047857; letter-spacing:0.4px;">💵 Efectivo Disponible en Caja</div>
+            <div style="font-family:var(--font-heading); font-size:1.55rem; font-weight:900; color:#065F46; margin-top:4px;">${this.formatCurrency(totalCashBalance)}</div>
+            <div style="font-size:0.74rem; color:var(--text-muted); margin-top:3px;">Dinero físico disponible en gaveta del turno actual</div>
+          </div>
+          <div style="background:linear-gradient(135deg, rgba(217, 119, 6, 0.1), rgba(245, 158, 11, 0.06)); border:1px solid rgba(217, 119, 6, 0.3); border-radius:var(--radius-md); padding:1rem 1.2rem;">
+            <div style="font-size:0.76rem; font-weight:700; text-transform:uppercase; color:#B45309; letter-spacing:0.4px;">💰 Liquidez Total Consolidada (Bancos + Caja)</div>
+            <div style="font-family:var(--font-heading); font-size:1.55rem; font-weight:900; color:#92400E; margin-top:4px;">${this.formatCurrency(totalLiquidity)}</div>
+            <div style="font-size:0.74rem; color:var(--text-muted); margin-top:3px;">Total dinero disponible entre todas las cuentas y efectivo</div>
+          </div>
+        </div>
+
+        <!-- TARJETAS INDIVIDUALES POR CUENTA REGISTRADA -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem;">
+          ${accountCardsHtml}
+        </div>
+      `;
+    }
+
+    if (!tbody) return;
+
+    tbody.innerHTML = (this.data.paymentMethods || []).map(pm => {
+      const accKey = this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount);
+      const accObj = accKey ? accountsMap[accKey] : null;
+
+      const extractBtn = accObj
+        ? `<button class="btn-action-edit" onclick="app.openAccountMovementsModal('${this.escapeHtml(accObj.key)}')" title="Ver extracto de movimientos">📋 Extracto</button>`
+        : '';
+      const adjustBtn = (accObj && canAdjust)
+        ? `<button class="btn-action-edit" onclick="app.openAccountAdjustmentModal('${this.escapeHtml(accObj.key)}')" title="Ajustar saldo de esta cuenta" style="color:#4338CA;">⚖️ Saldo</button>`
+        : '';
       const editBtn = isSuperAdmin ? `<button class="btn-action-edit" onclick="app.openEditPaymethodModal('${pm.id}')">Editar</button>` : '';
       const deleteBtn = isSuperAdmin ? `<button class="btn-action-delete" onclick="app.deletePaymethod('${pm.id}')">Eliminar</button>` : '';
-      const actions = `${editBtn}${deleteBtn}`;
-      const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
+      const actions = `${extractBtn}${adjustBtn}${editBtn}${deleteBtn}`;
+      const actionHtml = actions ? `<div class="action-btn-group" style="flex-wrap:wrap; gap:4px;">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
+
+      const incomesCell = accObj
+        ? `<span style="color:var(--emerald-text); font-weight:700;">+${this.formatCurrency(accObj.incomes)}</span><div style="font-size:0.7rem; color:var(--text-muted);">${accObj.incomesCount} ingresos</div>`
+        : `<span style="color:var(--text-muted); font-size:0.78rem;">—</span>`;
+
+      const expensesCell = accObj
+        ? `<span style="color:${accObj.expenses > 0 ? 'var(--rose-text)' : 'var(--text-muted)'}; font-weight:700;">-${this.formatCurrency(accObj.expenses)}</span><div style="font-size:0.7rem; color:var(--text-muted);">${accObj.expensesCount} salidas</div>`
+        : `<span style="color:var(--text-muted); font-size:0.78rem;">—</span>`;
+
+      const balanceCell = accObj
+        ? `<span style="font-weight:800; font-size:0.95rem; color:${accObj.balance >= 0 ? (accObj.isCash ? '#059669' : '#4338CA') : 'var(--rose-text)'};">${this.formatCurrency(accObj.balance)}</span>`
+        : `<span class="badge badge-inactive" style="font-size:0.72rem;">Modalidad POS</span>`;
+
+      const typeBadge = accObj
+        ? `<div style="font-size:0.72rem; color:${accObj.isCash ? '#059669' : '#4338CA'}; font-weight:600; margin-top:2px;">${accObj.isCash ? '💵 Caja Física' : `🏦 Cuenta (${accObj.shortName})`}</div>`
+        : `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">💳 Medio de Cobro POS</div>`;
 
       return `
         <tr>
           <td><b>${this.escapeHtml(pm.id)}</b></td>
-          <td><span class="font-bold">${this.escapeHtml(pm.name)}</span></td>
+          <td>
+            <span class="font-bold">${this.escapeHtml(pm.name)}</span>
+            ${typeBadge}
+          </td>
           <td>${this.escapeHtml(pm.fee)}</td>
+          <td style="text-align:right;">${incomesCell}</td>
+          <td style="text-align:right;">${expensesCell}</td>
+          <td style="text-align:right;">${balanceCell}</td>
           <td><span class="badge badge-active"><span class="badge-dot"></span>Habilitado</span></td>
           <td>${actionHtml}</td>
         </tr>
       `;
     }).join('');
+  }
+
+  openAccountMovementsModal(accountKey) {
+    const accountsMap = this.getAccountsFinancialSummary();
+    const acc = accountsMap[accountKey];
+    if (!acc) {
+      this.showToast('No se encontró información de la cuenta seleccionada.', 'warning');
+      return;
+    }
+    this._currentExtractAccountKey = accountKey;
+
+    const titleEl = document.getElementById('account-movements-modal-title');
+    const subEl = document.getElementById('account-movements-modal-subtitle');
+    const bodyEl = document.getElementById('account-movements-modal-body');
+    const adjBtn = document.getElementById('account-movements-adjust-btn');
+
+    if (titleEl) titleEl.innerHTML = `${acc.isCash ? '💵' : '🏦'} Extracto de Cuenta: ${this.escapeHtml(acc.name)}`;
+    if (subEl) subEl.textContent = `Historial completo de ventas, abonos, gastos, pagos a proveedores y ajustes registrados en ${acc.shortName}`;
+    if (adjBtn) {
+      adjBtn.onclick = () => {
+        this.closeModal('account-movements-modal');
+        this.openAccountAdjustmentModal(accountKey);
+      };
+    }
+
+    const canDeleteAdj = this.currentUser?.role === 'Super Admin' || this.isAdminUser();
+
+    const rowsHtml = acc.movements.length > 0
+      ? acc.movements.map(m => {
+          const filterClass = m.isAdjustment ? 'acc-mov-adjust' : (m.isIncome ? 'acc-mov-income' : 'acc-mov-expense');
+          const sign = m.isIncome ? '+' : '-';
+          const amtColor = m.isIncome ? 'var(--emerald-text)' : 'var(--rose-text)';
+          const badgeBg = m.isAdjustment
+            ? 'rgba(2, 132, 199, 0.12)'
+            : (m.isIncome ? 'rgba(16, 185, 129, 0.12)' : 'rgba(244, 63, 94, 0.12)');
+          const badgeColor = m.isAdjustment ? '#0369A1' : (m.isIncome ? '#047857' : '#BE123C');
+          const delBtn = (m.isAdjustment && m.adjustmentId && canDeleteAdj)
+            ? `<button type="button" class="btn-action-delete" onclick="app.deleteAccountAdjustment('${this.escapeHtml(m.adjustmentId)}', '${this.escapeHtml(accountKey)}')" style="font-size:0.7rem; padding:2px 6px; margin-left:6px;" title="Eliminar este ajuste manual">🗑️</button>`
+            : '';
+
+          return `
+            <tr class="acc-mov-row ${filterClass}" style="border-bottom:1px solid var(--border-color);">
+              <td style="padding:8px 10px; font-size:0.8rem; white-space:nowrap;">
+                <div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(m.date || '—')}</div>
+                <div style="font-size:0.72rem; color:var(--text-muted); font-family:monospace;">${this.escapeHtml(m.time || '')}</div>
+              </td>
+              <td style="padding:8px 10px; font-size:0.8rem; font-family:monospace; font-weight:700;">${this.escapeHtml(m.id)}</td>
+              <td style="padding:8px 10px; font-size:0.8rem;">
+                <span class="badge" style="background:${badgeBg}; color:${badgeColor}; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:10px;">
+                  ${this.escapeHtml(m.typeLabel)}
+                </span>
+              </td>
+              <td style="padding:8px 10px; font-size:0.82rem; color:var(--text-main); font-weight:600;">${this.escapeHtml(m.concept)}</td>
+              <td style="padding:8px 10px; font-size:0.8rem; color:var(--text-muted);">
+                <div><b>${this.escapeHtml(m.party)}</b></div>
+                <div style="font-size:0.7rem;">Por: ${this.escapeHtml(m.operator)}</div>
+              </td>
+              <td style="padding:8px 10px; font-size:0.88rem; font-weight:800; color:${amtColor}; text-align:right; white-space:nowrap;">
+                ${sign}${this.formatCurrency(m.amount)}${delBtn}
+              </td>
+            </tr>
+          `;
+        }).join('')
+      : `<tr><td colspan="6" style="text-align:center; padding:2rem; color:var(--text-muted);">No hay movimientos registrados todavía en esta cuenta.</td></tr>`;
+
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:0.75rem; margin-bottom:1.1rem;">
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:8px; padding:0.75rem 0.9rem;">
+            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">${acc.isCash ? 'Efectivo en Gaveta (Turno)' : 'Saldo Base Inicial'}</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--text-main); margin-top:2px;">${this.formatCurrency(acc.isCash ? (acc.shiftDrawerBalance ?? acc.balance) : acc.initialBalance)}</div>
+          </div>
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:8px; padding:0.75rem 0.9rem;">
+            <div style="font-size:0.72rem; color:var(--emerald-text); font-weight:700;">(+) Total Ingresos (${acc.incomesCount})</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--emerald-text); margin-top:2px;">+${this.formatCurrency(acc.incomes)}</div>
+          </div>
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:8px; padding:0.75rem 0.9rem;">
+            <div style="font-size:0.72rem; color:var(--rose-text); font-weight:700;">(-) Total Egresos (${acc.expensesCount})</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--rose-text); margin-top:2px;">-${this.formatCurrency(acc.expenses)}</div>
+          </div>
+          <div style="background:rgba(79, 70, 229, 0.08); border:1.5px solid rgba(79, 70, 229, 0.3); border-radius:8px; padding:0.75rem 0.9rem;">
+            <div style="font-size:0.72rem; color:#4338CA; font-weight:800; text-transform:uppercase;">(=) Saldo Disponible Actual</div>
+            <div style="font-size:1.25rem; font-weight:900; color:#4338CA; margin-top:2px;">${this.formatCurrency(acc.balance)}</div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
+          <div class="finanzas-period-selector" id="acc-mov-filter-pills" style="display:inline-flex; gap:4px;">
+            <button type="button" class="finanzas-period-pill active" onclick="app.filterAccountMovementsModal('all', this)">Todos (${acc.movements.length})</button>
+            <button type="button" class="finanzas-period-pill" onclick="app.filterAccountMovementsModal('income', this)">📥 Ingresos (${acc.incomesCount})</button>
+            <button type="button" class="finanzas-period-pill" onclick="app.filterAccountMovementsModal('expense', this)">📤 Egresos (${acc.expensesCount})</button>
+            <button type="button" class="finanzas-period-pill" onclick="app.filterAccountMovementsModal('adjust', this)">⚖️ Ajustes / Transf. (${acc.adjustmentsCount})</button>
+          </div>
+          <span style="font-size:0.76rem; color:var(--text-muted);">Mostrando <b id="acc-mov-visible-count">${acc.movements.length}</b> movimientos</span>
+        </div>
+
+        <div style="border:1px solid var(--border-color); border-radius:8px; overflow:hidden;">
+          <table style="width:100%; border-collapse:collapse;">
+            <thead style="background:var(--canvas-bg); border-bottom:1px solid var(--border-color); font-size:0.75rem; color:var(--text-muted); text-align:left;">
+              <tr>
+                <th style="padding:8px 10px;">Fecha / Hora</th>
+                <th style="padding:8px 10px;">Referencia</th>
+                <th style="padding:8px 10px;">Tipo Operación</th>
+                <th style="padding:8px 10px;">Detalle / Concepto</th>
+                <th style="padding:8px 10px;">Tercero / Operador</th>
+                <th style="padding:8px 10px; text-align:right;">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    this.openModal('account-movements-modal');
+  }
+
+  filterAccountMovementsModal(type, btnEl) {
+    const pills = document.querySelectorAll('#acc-mov-filter-pills .finanzas-period-pill');
+    pills.forEach(p => p.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    const rows = document.querySelectorAll('#account-movements-modal-body .acc-mov-row');
+    let visible = 0;
+    rows.forEach(r => {
+      const show =
+        type === 'all' ||
+        (type === 'income' && r.classList.contains('acc-mov-income')) ||
+        (type === 'expense' && r.classList.contains('acc-mov-expense')) ||
+        (type === 'adjust' && r.classList.contains('acc-mov-adjust'));
+      r.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    const countEl = document.getElementById('acc-mov-visible-count');
+    if (countEl) countEl.textContent = visible;
+  }
+
+  async deleteAccountAdjustment(adjId, accountKey) {
+    if (!confirm('¿Estás seguro de eliminar este ajuste manual de cuenta?')) return;
+    if (!Array.isArray(this.data.accountAdjustments)) return;
+    // Eliminar ajuste y su par en caso de transferencia vinculada
+    const target = this.data.accountAdjustments.find(a => a.id === adjId);
+    const linkedPairId = target?.linkedTransferId;
+    this.data.accountAdjustments = this.data.accountAdjustments.filter(a => a.id !== adjId && (!linkedPairId || a.linkedTransferId !== linkedPairId));
+    await this.savePersistence();
+    this.syncAllModules();
+    if (accountKey) {
+      this.openAccountMovementsModal(accountKey);
+    }
+    this.showToast('Ajuste manual eliminado y saldo recalculado.', 'info');
+  }
+
+  openAccountAdjustmentModal(defaultAccountKey = 'cuenta_sharick') {
+    const accountsMap = this.getAccountsFinancialSummary();
+    const accountsList = Object.values(accountsMap);
+
+    const accSelect = document.getElementById('acc-adj-account-select');
+    const destSelect = document.getElementById('acc-adj-dest-select');
+    const typeSelect = document.getElementById('acc-adj-type');
+    const amountInput = document.getElementById('acc-adj-amount-input');
+    const conceptInput = document.getElementById('acc-adj-concept-input');
+
+    if (accSelect) {
+      accSelect.innerHTML = accountsList.map(a =>
+        `<option value="${this.escapeHtml(a.key)}" ${a.key === defaultAccountKey ? 'selected' : ''}>${a.isCash ? '💵' : '🏦'} ${this.escapeHtml(a.name)} (Actual: ${this.formatCurrency(a.balance)})</option>`
+      ).join('');
+    }
+    if (destSelect) {
+      destSelect.innerHTML = accountsList.map(a =>
+        `<option value="${this.escapeHtml(a.key)}" ${a.key !== defaultAccountKey ? 'selected' : ''}>${a.isCash ? '💵' : '🏦'} ${this.escapeHtml(a.name)} (Actual: ${this.formatCurrency(a.balance)})</option>`
+      ).join('');
+    }
+    if (typeSelect) typeSelect.value = 'set_balance';
+    if (conceptInput) conceptInput.value = '';
+
+    const chosenAcc = accountsMap[defaultAccountKey] || accountsList[0];
+    if (amountInput && chosenAcc) {
+      amountInput.value = this.formatNumberWithCommas(Math.max(0, chosenAcc.balance));
+    }
+
+    this.onAccountAdjustTypeChange();
+    this.attachGlobalNumberMasks();
+    this.openModal('account-adjust-modal');
+  }
+
+  onAccountAdjustAccountChange() {
+    const type = document.getElementById('acc-adj-type')?.value || 'set_balance';
+    if (type === 'set_balance') {
+      const accountsMap = this.getAccountsFinancialSummary();
+      const accKey = document.getElementById('acc-adj-account-select')?.value;
+      const acc = accountsMap[accKey];
+      const amountInput = document.getElementById('acc-adj-amount-input');
+      if (acc && amountInput) {
+        amountInput.value = this.formatNumberWithCommas(Math.max(0, acc.balance));
+      }
+    }
+    this.updateAccountAdjustPreview();
+  }
+
+  onAccountAdjustTypeChange() {
+    const type = document.getElementById('acc-adj-type')?.value || 'set_balance';
+    const destGroup = document.getElementById('acc-adj-dest-group');
+    const accLabel = document.getElementById('acc-adj-account-label');
+    const amtLabel = document.getElementById('acc-adj-amount-label');
+
+    if (destGroup) destGroup.style.display = type === 'transfer' ? 'block' : 'none';
+    if (accLabel) {
+      accLabel.textContent = type === 'transfer' ? 'Cuenta Origen (De donde sale el dinero) *' : 'Cuenta Bancaria / Caja *';
+    }
+    if (amtLabel) {
+      if (type === 'set_balance') amtLabel.textContent = 'Nuevo Saldo Real Disponible en la Cuenta ($ COP) *';
+      else if (type === 'income') amtLabel.textContent = 'Monto a Ingresar / Sumar a la Cuenta ($ COP) *';
+      else if (type === 'expense') amtLabel.textContent = 'Monto a Retirar / Descontar de la Cuenta ($ COP) *';
+      else amtLabel.textContent = 'Monto a Transferir ($ COP) *';
+    }
+    this.updateAccountAdjustPreview();
+  }
+
+  updateAccountAdjustPreview() {
+    const previewBox = document.getElementById('acc-adj-preview-box');
+    if (!previewBox) return;
+
+    const accountsMap = this.getAccountsFinancialSummary();
+    const type = document.getElementById('acc-adj-type')?.value || 'set_balance';
+    const accKey = document.getElementById('acc-adj-account-select')?.value;
+    const destKey = document.getElementById('acc-adj-dest-select')?.value;
+    const rawVal = this.parseCleanNumber(document.getElementById('acc-adj-amount-input')?.value) || 0;
+
+    const acc = accountsMap[accKey];
+    if (!acc) {
+      previewBox.innerHTML = '';
+      return;
+    }
+
+    if (type === 'set_balance') {
+      const diff = Math.round(rawVal - acc.balance);
+      const diffSign = diff >= 0 ? '+' : '';
+      previewBox.innerHTML = `
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="color:var(--text-muted);">Saldo Actual en Sistema (${this.escapeHtml(acc.shortName)}):</span>
+          <b>${this.formatCurrency(acc.balance)}</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="color:var(--text-muted);">Ajuste Automático a Aplicar:</span>
+          <b style="color:${diff >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${diffSign}${this.formatCurrency(diff)}</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.92rem;">
+          <span style="font-weight:800; color:var(--text-main);">Nuevo Saldo Disponible en Cuenta:</span>
+          <b style="color:#4338CA; font-size:1rem;">${this.formatCurrency(rawVal)}</b>
+        </div>
+      `;
+    } else if (type === 'income' || type === 'expense') {
+      const nextBal = type === 'income' ? (acc.balance + rawVal) : (acc.balance - rawVal);
+      previewBox.innerHTML = `
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="color:var(--text-muted);">Saldo Actual (${this.escapeHtml(acc.shortName)}):</span>
+          <b>${this.formatCurrency(acc.balance)}</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.92rem;">
+          <span style="font-weight:800; color:var(--text-main);">Saldo Resultante tras Operación:</span>
+          <b style="color:${nextBal >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'}; font-size:1rem;">${this.formatCurrency(nextBal)}</b>
+        </div>
+      `;
+    } else if (type === 'transfer') {
+      const destAcc = accountsMap[destKey];
+      const nextOrigin = acc.balance - rawVal;
+      const nextDest = destAcc ? (destAcc.balance + rawVal) : rawVal;
+      previewBox.innerHTML = `
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="color:var(--text-muted);">Origen (${this.escapeHtml(acc.shortName)}):</span>
+          <span>${this.formatCurrency(acc.balance)} → <b style="color:var(--rose-text);">${this.formatCurrency(nextOrigin)}</b></span>
+        </div>
+        ${destAcc ? `
+        <div style="display:flex; justify-content:space-between;">
+          <span style="color:var(--text-muted);">Destino (${this.escapeHtml(destAcc.shortName)}):</span>
+          <span>${this.formatCurrency(destAcc.balance)} → <b style="color:var(--emerald-text);">${this.formatCurrency(nextDest)}</b></span>
+        </div>
+        ` : ''}
+      `;
+    }
+  }
+
+  async submitAccountAdjustment() {
+    const accountsMap = this.getAccountsFinancialSummary();
+    const type = document.getElementById('acc-adj-type')?.value || 'set_balance';
+    const accKey = document.getElementById('acc-adj-account-select')?.value;
+    const destKey = document.getElementById('acc-adj-dest-select')?.value;
+    const rawVal = this.parseCleanNumber(document.getElementById('acc-adj-amount-input')?.value);
+    const conceptRaw = document.getElementById('acc-adj-concept-input')?.value?.trim() || '';
+
+    const acc = accountsMap[accKey];
+    if (!acc) return;
+
+    if (!Array.isArray(this.data.accountAdjustments)) {
+      this.data.accountAdjustments = [];
+    }
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const operator = this.currentUser?.name || 'Administrador';
+
+    if (type === 'set_balance') {
+      if (isNaN(rawVal) || rawVal < 0) {
+        this.showToast('Ingresa un saldo válido mayor o igual a $0.', 'warning');
+        return;
+      }
+      const diff = Math.round(rawVal - acc.balance);
+      if (diff === 0) {
+        this.showToast(`La cuenta ${acc.shortName} ya tiene un saldo de ${this.formatCurrency(rawVal)}.`, 'info');
+        this.closeModal('account-adjust-modal');
+        return;
+      }
+      this.data.accountAdjustments.unshift({
+        id: this.generateSequentialId('AJ-CTA', this.data.accountAdjustments),
+        accountKey: acc.key,
+        date: dateStr,
+        time: timeStr,
+        timestamp: now.getTime(),
+        category: 'Cuadre de Saldo Real',
+        typeLabel: diff >= 0 ? '🎯 Cuadre de Saldo (+)' : '🎯 Cuadre de Saldo (-)',
+        isIncome: diff >= 0,
+        amount: Math.abs(diff),
+        concept: conceptRaw || `Cuadre manual de saldo disponible a ${this.formatCurrency(rawVal)}`,
+        party: acc.name,
+        operator
+      });
+      await this.savePersistence();
+      this.syncAllModules();
+      this.closeModal('account-adjust-modal');
+      this.showToast(`Saldo de ${acc.name} actualizado a ${this.formatCurrency(rawVal)}`, 'success');
+      return;
+    }
+
+    if (isNaN(rawVal) || rawVal <= 0) {
+      this.showToast('Por favor ingresa un monto mayor a $0.', 'warning');
+      return;
+    }
+
+    if (type === 'income' || type === 'expense') {
+      const isInc = type === 'income';
+      this.data.accountAdjustments.unshift({
+        id: this.generateSequentialId('AJ-CTA', this.data.accountAdjustments),
+        accountKey: acc.key,
+        date: dateStr,
+        time: timeStr,
+        timestamp: now.getTime(),
+        category: isInc ? 'Ingreso Manual' : 'Retiro Manual',
+        typeLabel: isInc ? '📥 Ingreso Manual (+)' : '📤 Retiro Manual (-)',
+        isIncome: isInc,
+        amount: Math.round(rawVal),
+        concept: conceptRaw || (isInc ? `Ingreso / Consignación manual en ${acc.shortName}` : `Retiro / Egreso manual de ${acc.shortName}`),
+        party: acc.name,
+        operator
+      });
+      await this.savePersistence();
+      this.syncAllModules();
+      this.closeModal('account-adjust-modal');
+      this.showToast(`${isInc ? 'Ingreso' : 'Retiro'} de ${this.formatCurrency(rawVal)} registrado en ${acc.name}`, 'success');
+      return;
+    }
+
+    if (type === 'transfer') {
+      if (!destKey || destKey === accKey) {
+        this.showToast('Selecciona una cuenta destino diferente a la cuenta origen.', 'warning');
+        return;
+      }
+      const destAcc = accountsMap[destKey];
+      if (!destAcc) return;
+
+      const pairId = `TRF-${Date.now().toString(36).toUpperCase()}`;
+      this.data.accountAdjustments.unshift(
+        {
+          id: `${pairId}-IN`,
+          linkedTransferId: pairId,
+          accountKey: destAcc.key,
+          date: dateStr,
+          time: timeStr,
+          timestamp: now.getTime(),
+          category: 'Transferencia entre Cuentas',
+          typeLabel: `🔄 Entrada desde ${acc.shortName}`,
+          isIncome: true,
+          amount: Math.round(rawVal),
+          concept: conceptRaw || `Transferencia recibida desde ${acc.name}`,
+          party: `Origen: ${acc.shortName}`,
+          operator
+        },
+        {
+          id: `${pairId}-OUT`,
+          linkedTransferId: pairId,
+          accountKey: acc.key,
+          date: dateStr,
+          time: timeStr,
+          timestamp: now.getTime(),
+          category: 'Transferencia entre Cuentas',
+          typeLabel: `🔄 Envío hacia ${destAcc.shortName}`,
+          isIncome: false,
+          amount: Math.round(rawVal),
+          concept: conceptRaw || `Transferencia enviada hacia ${destAcc.name}`,
+          party: `Destino: ${destAcc.shortName}`,
+          operator
+        }
+      );
+      await this.savePersistence();
+      this.syncAllModules();
+      this.closeModal('account-adjust-modal');
+      this.showToast(`Transferencia de ${this.formatCurrency(rawVal)} realizada de ${acc.shortName} a ${destAcc.shortName}`, 'success');
+    }
   }
 
   renderDashboardRecentSales() {
@@ -12555,52 +13528,64 @@ class NexusApp {
 
   renderCashShiftAccountsBreakdownWidget(breakdown) {
     if (!breakdown) return '';
-    const accounts = Object.values(breakdown).filter(a => a.opening > 0 || a.incomes > 0 || a.expenses > 0);
+    const accounts = Object.values(breakdown);
     if (accounts.length === 0) return '';
+    const globalSummary = this.getAccountsFinancialSummary ? this.getAccountsFinancialSummary() : {};
 
     return `
       <div style="margin-top:1.25rem; background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1.25rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
           <h4 style="font-size:0.92rem; font-weight:700; margin:0; display:flex; align-items:center; gap:0.45rem; color:var(--text-main);">
-            <span>🏦</span> Conciliación y Arqueo por Cuenta Bancaria (Transferencias / Datáfono)
+            <span>🏦</span> Conciliación y Saldos por Cuenta Bancaria (Cuenta Sharick, Cuenta Carlos, Charles Joyas SAS)
           </h4>
-          <span style="font-size:0.76rem; color:var(--text-muted);">
-            Monitoreo en vivo de ingresos y egresos por cuenta
-          </span>
+          <button type="button" class="btn btn-secondary text-xs" onclick="app.switchSubView('dashboard', 'formas_pago')" style="padding:4px 10px; font-weight:700;">
+            💳 Ir a Saldos y Extractos de Cuentas →
+          </button>
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:0.75rem;">
-          ${accounts.map(acc => `
+          ${accounts.map(acc => {
+            const accKey = this.resolveCanonicalAccountKey ? this.resolveCanonicalAccountKey(acc.name, true) : null;
+            const globalAcc = accKey ? globalSummary[accKey] : null;
+            const totalAvailable = globalAcc ? globalAcc.balance : acc.net;
+            return `
             <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:0.85rem; position:relative; overflow:hidden;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem; gap:4px; flex-wrap:wrap;">
                 <span style="font-weight:700; font-size:0.88rem; color:var(--text-main); display:inline-flex; align-items:center; gap:5px;">
                   <span>🏦</span> ${this.escapeHtml(acc.name)}
                 </span>
-                <span class="badge" style="background:rgba(99, 102, 241, 0.12); color:#4338CA; font-weight:700; font-size:0.7rem;">
-                  Saldo Neto: ${this.formatCurrency(acc.net)}
+                <span class="badge" style="background:rgba(99, 102, 241, 0.12); color:#4338CA; font-weight:800; font-size:0.72rem;">
+                  Saldo Cuenta: ${this.formatCurrency(totalAvailable)}
                 </span>
               </div>
               <div style="font-size:0.76rem; display:flex; flex-direction:column; gap:3px;">
                 ${acc.opening > 0 ? `
                   <div style="display:flex; justify-content:space-between; color:var(--text-muted);">
-                    <span>Base Inicial:</span>
+                    <span>Base Turno:</span>
                     <b>+${this.formatCurrency(acc.opening)}</b>
                   </div>
                 ` : ''}
                 <div style="display:flex; justify-content:space-between; color:var(--emerald-text);">
-                  <span>(+) Ingresos (Ventas/Abonos):</span>
+                  <span>(+) Ingresos Turno:</span>
                   <b>+${this.formatCurrency(acc.incomes)}</b>
                 </div>
                 <div style="display:flex; justify-content:space-between; color:${acc.expenses > 0 ? 'var(--rose-text)' : 'var(--text-muted)'};">
-                  <span>(-) Egresos / Gastos:</span>
+                  <span>(-) Egresos Turno:</span>
                   <b>-${this.formatCurrency(acc.expenses)}</b>
                 </div>
-                <div style="display:flex; justify-content:space-between; padding-top:4px; margin-top:2px; border-top:1px solid var(--border-color); font-weight:800; font-size:0.82rem; color:var(--text-main);">
-                  <span>(=) Saldo Turno:</span>
+                <div style="display:flex; justify-content:space-between; padding-top:4px; margin-top:2px; border-top:1px solid var(--border-color); font-weight:800; font-size:0.8rem; color:var(--text-main);">
+                  <span>(=) Neto de este Turno:</span>
                   <span style="color:#4338CA;">${this.formatCurrency(acc.net)}</span>
                 </div>
+                ${accKey ? `
+                <div style="margin-top:6px; display:flex; gap:6px;">
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.openAccountMovementsModal('${this.escapeHtml(accKey)}')" style="flex:1; padding:3px 6px; font-size:0.71rem; justify-content:center;">📋 Extracto</button>
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.openAccountAdjustmentModal('${this.escapeHtml(accKey)}')" style="flex:1; padding:3px 6px; font-size:0.71rem; justify-content:center;">⚖️ Ajustar</button>
+                </div>
+                ` : ''}
               </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
       </div>
     `;
@@ -26082,7 +27067,7 @@ class NexusApp {
     const discoveredAccounts = [];
     (this.data.paymentMethods || []).forEach(pm => {
       const lower = (pm.name || '').toLowerCase();
-      if ((lower.includes('cuenta') || lower.includes('cta') || lower.includes('banco') || lower.includes('bancaria')) &&
+      if ((pm.isBankAccount || lower.includes('cuenta') || lower.includes('cta') || lower.includes('banco') || lower.includes('bancaria') || lower.includes('nequi') || lower.includes('daviplata') || lower.includes('bancolombia')) &&
           !lower.includes('efectivo') && !lower.includes('separe') && !lower.includes('crédito cliente')) {
         let cleanName = pm.name.trim();
         if (cleanName) discoveredAccounts.push(cleanName);
