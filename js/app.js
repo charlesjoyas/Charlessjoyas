@@ -134,7 +134,7 @@ class NexusApp {
     const raw = String(sku || '').trim();
     if (!raw) return fallbackId ? String(fallbackId) : '';
     if (/^\d+$/.test(raw)) {
-      return raw.padStart(3, '0');
+      return raw.length < 3 ? raw.padStart(3, '0') : raw;
     }
     return raw;
   }
@@ -410,7 +410,7 @@ class NexusApp {
 
     const name = this.normalizeSearchStr(p.name);
     const sku = this.normalizeSearchStr(p.sku);
-    const paddedSku = /^\d+$/.test(sku) ? sku.padStart(3, '0') : sku;
+    const paddedSku = /^\d+$/.test(sku) ? (sku.length < 3 ? sku.padStart(3, '0') : sku) : sku;
     const id = this.normalizeSearchStr(p.id);
     const barcode = this.normalizeSearchStr(p.barcode);
     const category = this.normalizeSearchStr(p.categoryName || p.category);
@@ -421,10 +421,20 @@ class NexusApp {
       return true;
     }
 
-    // Match if query prefixes with "cod" or "codigo" (e.g. "cod 001")
-    const cleanQ = q.replace(/^(?:cod|codigo)\.?\s*/i, '');
+    // Match if query prefixes with "cod" or "codigo" (e.g. "cod 001", "cod 0474")
+    const cleanQ = q.replace(/^(?:cod|codigo)\.?\s*/i, '').trim();
     if (cleanQ && cleanQ !== q) {
       if (name.includes(cleanQ) || sku.includes(cleanQ) || paddedSku.includes(cleanQ) || id.includes(cleanQ) || barcode.includes(cleanQ) || category.includes(cleanQ) || supplier.includes(cleanQ)) {
+        return true;
+      }
+    }
+
+    // Numeric code match with or without leading zeros (e.g. searching "0474" matches "474" or "0474", searching "474" matches "0474")
+    const targetQ = cleanQ || q;
+    if (/^\d+$/.test(targetQ)) {
+      const qNum = targetQ.replace(/^0+/, '') || '0';
+      const skuNum = /^\d+$/.test(sku) ? (sku.replace(/^0+/, '') || '0') : '';
+      if (skuNum && qNum === skuNum) {
         return true;
       }
     }
@@ -432,9 +442,13 @@ class NexusApp {
     // Multi-token match (allows searching e.g. "topo 2026" or "balineria 1")
     const tokens = q.split(/\s+/).filter(Boolean);
     if (tokens.length > 1) {
-      return tokens.every(tok => 
-        name.includes(tok) || sku.includes(tok) || id.includes(tok) || barcode.includes(tok) || category.includes(tok) || supplier.includes(tok)
-      );
+      return tokens.every(tok => {
+        const cleanTok = tok.replace(/^(?:cod|codigo)\.?\s*/i, '').trim();
+        const tokNum = /^\d+$/.test(cleanTok) ? (cleanTok.replace(/^0+/, '') || '0') : '';
+        const skuNum = /^\d+$/.test(sku) ? (sku.replace(/^0+/, '') || '0') : '';
+        const numMatch = tokNum && skuNum && tokNum === skuNum;
+        return numMatch || name.includes(tok) || sku.includes(tok) || id.includes(tok) || barcode.includes(tok) || category.includes(tok) || supplier.includes(tok);
+      });
     }
 
     return false;
@@ -617,15 +631,8 @@ class NexusApp {
 
     if (this.data.products && Array.isArray(this.data.products)) {
       // Purge decommissioned/deleted products from any residual client-side cache
-      const DELETED_PRODUCT_KEYS = new Set([
-        '212', '0212', '219', '0219', '404', '0404', '181', '0181', '439', '0439',
-        '200', '0200', '591', '0591', '367', '0367', '352', '0352', '213', '0213',
-        '411', '0411', '227', '0227', '635', '0635', '753', '0753', '478', '0478',
-        '220', '0220', '474', '0474', '620', '0620', '340', '0340', '356', '0356',
-        '425', '0425', '292', '0292', '236', '0236', '421', '0421', '272', '0272',
-        '383', '0383', '303', '0303', '335', '0335', '136', '0136', '005', '5',
-        '794', '0794', '569', '0569', '530', '0530', '487', '0487', '688', '0688',
-        '650', '0650', '223', '0223',
+      // Purge decommissioned legacy products by unique ID if synced from old client cache
+      const DECOMMISSIONED_LEGACY_IDS = new Set([
         'PRD-CJ-0213', 'PRD-CJ-0220', 'PRD-CJ-0403', 'PRD-CJ-0181', 'PRD-CJ-0438',
         'PRD-CJ-0201', 'PRD-CJ-0590', 'PRD-CJ-0367', 'PRD-CJ-0353', 'PRD-CJ-0214',
         'PRD-CJ-0410', 'PRD-CJ-0228', 'PRD-CJ-0634', 'PRD-CJ-0752', 'PRD-CJ-0477',
@@ -639,10 +646,8 @@ class NexusApp {
       const prevCount = this.data.products.length;
       this.data.products = this.data.products.filter(p => {
         if (!p) return false;
-        const skuStr = String(p.sku || '').trim();
         const idStr = String(p.id || '').trim();
-        const numStr = String(parseInt(skuStr, 10));
-        return !DELETED_PRODUCT_KEYS.has(skuStr) && !DELETED_PRODUCT_KEYS.has(idStr) && !DELETED_PRODUCT_KEYS.has(numStr);
+        return !DECOMMISSIONED_LEGACY_IDS.has(idStr);
       });
       if (this.data.products.length !== prevCount) {
         try {
@@ -3368,10 +3373,16 @@ class NexusApp {
             { id: 'oro18k', name: 'Oro 18K Italiano & Ley' };
           const isExtras = catObj.type === 'extras' || catObj.isExtra;
 
-          // Prioridad 1: Coincidencia por Código (SKU) exacto (identificador único del inventario)
+          // Prioridad 1: Coincidencia por Código (SKU) exacto (o normalizado numérico si aplica)
           let targetProd = null;
           if (prodSku) {
-            targetProd = (this.data.products || []).find(p => p.sku && p.sku.toLowerCase().trim() === prodSku.toLowerCase().trim());
+            const cleanProdSku = prodSku.toLowerCase().replace(/^0+/, '');
+            targetProd = (this.data.products || []).find(p => {
+              const pSku = String(p.sku || '').trim().toLowerCase();
+              if (pSku === prodSku.toLowerCase()) return true;
+              if (cleanProdSku && pSku.replace(/^0+/, '') === cleanProdSku) return true;
+              return false;
+            });
           }
 
           // Prioridad 2: Si no hubo coincidencia por SKU, verificar prodId únicamente si el producto seleccionado coincide con el SKU
@@ -3988,7 +3999,14 @@ class NexusApp {
       return;
     }
 
-    const existing = (this.data.products || []).find(p => p.sku && p.sku.toLowerCase().trim() === skuVal);
+    const cleanSkuVal = skuVal.replace(/^0+/, '');
+    const existing = (this.data.products || []).find(p => {
+      const pSku = String(p.sku || '').trim().toLowerCase();
+      if (!pSku) return false;
+      if (pSku === skuVal) return true;
+      if (cleanSkuVal && pSku.replace(/^0+/, '') === cleanSkuVal) return true;
+      return false;
+    });
     if (existing) {
       if (hiddenId) hiddenId.value = existing.id;
       const nameInput = document.getElementById('po-product-name');
@@ -4037,7 +4055,14 @@ class NexusApp {
     // Si ya hay un SKU escrito, solo buscar producto con ese SKU específico
     let targetProd = null;
     if (currentSku) {
-      targetProd = (this.data.products || []).find(p => p.sku && p.sku.toLowerCase().trim() === currentSku);
+      const cleanCurrentSku = currentSku.replace(/^0+/, '');
+      targetProd = (this.data.products || []).find(p => {
+        const pSku = String(p.sku || '').trim().toLowerCase();
+        if (!pSku) return false;
+        if (pSku === currentSku) return true;
+        if (cleanCurrentSku && pSku.replace(/^0+/, '') === cleanCurrentSku) return true;
+        return false;
+      });
     } else {
       // Coincidencia exacta por nombre
       targetProd = (this.data.products || []).find(p => p.name && p.name.toLowerCase().trim() === valLower);
@@ -26585,13 +26610,15 @@ class NexusApp {
           const term = searchInput.value.trim();
           if (!term) return;
 
-          // Priority 1: Exact code match (SKU, barcode, ID)
+          // Priority 1: Exact code match (SKU, barcode, ID, with or without leading zeros)
           const normTerm = this.normalizeSearchStr(term);
-          const exactCodeMatch = (this.data.products || []).find(p => 
-            this.normalizeSearchStr(p.sku) === normTerm ||
-            this.normalizeSearchStr(p.barcode) === normTerm ||
-            this.normalizeSearchStr(p.id) === normTerm
-          );
+          const cleanNormTerm = normTerm.replace(/^0+/, '');
+          const exactCodeMatch = (this.data.products || []).find(p => {
+            const pSku = this.normalizeSearchStr(p.sku);
+            if (pSku === normTerm || this.normalizeSearchStr(p.barcode) === normTerm || this.normalizeSearchStr(p.id) === normTerm) return true;
+            if (cleanNormTerm && pSku.replace(/^0+/, '') === cleanNormTerm) return true;
+            return false;
+          });
 
           if (exactCodeMatch) {
             this.addToCart(exactCodeMatch.id);

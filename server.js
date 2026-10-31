@@ -238,17 +238,9 @@ app.post('/api/data', async (req, res) => {
 
     data.updatedAt = new Date().toISOString();
 
-    // Filter out decommissioned/deleted products from any client sync payload
+    // Filter out decommissioned legacy products by unique ID if synced from old client cache
     if (Array.isArray(data.products)) {
-      const DELETED_PRODUCT_KEYS = new Set([
-        '212', '0212', '219', '0219', '404', '0404', '181', '0181', '439', '0439',
-        '200', '0200', '591', '0591', '367', '0367', '352', '0352', '213', '0213',
-        '411', '0411', '227', '0227', '635', '0635', '753', '0753', '478', '0478',
-        '220', '0220', '474', '0474', '620', '0620', '340', '0340', '356', '0356',
-        '425', '0425', '292', '0292', '236', '0236', '421', '0421', '272', '0272',
-        '383', '0383', '303', '0303', '335', '0335', '136', '0136', '005', '5',
-        '794', '0794', '569', '0569', '530', '0530', '487', '0487', '688', '0688',
-        '650', '0650', '223', '0223',
+      const DECOMMISSIONED_LEGACY_IDS = new Set([
         'PRD-CJ-0213', 'PRD-CJ-0220', 'PRD-CJ-0403', 'PRD-CJ-0181', 'PRD-CJ-0438',
         'PRD-CJ-0201', 'PRD-CJ-0590', 'PRD-CJ-0367', 'PRD-CJ-0353', 'PRD-CJ-0214',
         'PRD-CJ-0410', 'PRD-CJ-0228', 'PRD-CJ-0634', 'PRD-CJ-0752', 'PRD-CJ-0477',
@@ -260,10 +252,8 @@ app.post('/api/data', async (req, res) => {
       ]);
       data.products = data.products.filter(p => {
         if (!p) return false;
-        const skuStr = String(p.sku || '').trim();
         const idStr = String(p.id || '').trim();
-        const numStr = String(parseInt(skuStr, 10));
-        return !DELETED_PRODUCT_KEYS.has(skuStr) && !DELETED_PRODUCT_KEYS.has(idStr) && !DELETED_PRODUCT_KEYS.has(numStr);
+        return !DECOMMISSIONED_LEGACY_IDS.has(idStr);
       });
     }
 
