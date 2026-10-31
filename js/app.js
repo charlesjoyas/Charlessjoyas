@@ -11520,6 +11520,14 @@ class NexusApp {
     this.showToast(`Inventario (${filterMsg}) exportado en CSV con separadores de miles (${prodsToExport.length} productos)`, 'success');
   }
 
+  clearInvExcelDateRange() {
+    const fromInput = document.getElementById('inv-excel-date-from');
+    const toInput = document.getElementById('inv-excel-date-to');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+    this.showToast('Fechas de salidas para Excel restablecidas a todo el historial', 'info');
+  }
+
   exportInventoryExcel() {
     const allProds = (this.data.products || []).filter(Boolean);
     if (allProds.length === 0) {
@@ -11529,6 +11537,38 @@ class NexusApp {
 
     const currentFilter = this.inventoryStockFilter || 'all';
     const searchVal = (document.getElementById('inventory-search')?.value || '').trim();
+
+    const fromInput = document.getElementById('inv-excel-date-from');
+    const toInput = document.getElementById('inv-excel-date-to');
+    let dateFrom = (fromInput?.value || '').trim();
+    let dateTo = (toInput?.value || '').trim();
+
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      const tmp = dateFrom;
+      dateFrom = dateTo;
+      dateTo = tmp;
+      if (fromInput) fromInput.value = dateFrom;
+      if (toInput) toInput.value = dateTo;
+    }
+
+    const formatDateDisplay = (isoStr) => {
+      if (!isoStr) return '';
+      const parts = isoStr.split('-');
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return isoStr;
+    };
+
+    let periodLabel = 'Todo el Histórico';
+    if (dateFrom && dateTo) {
+      periodLabel = dateFrom === dateTo ? `Día ${formatDateDisplay(dateFrom)}` : `Del ${formatDateDisplay(dateFrom)} al ${formatDateDisplay(dateTo)}`;
+    } else if (dateFrom) {
+      periodLabel = `Desde el ${formatDateDisplay(dateFrom)}`;
+    } else if (dateTo) {
+      periodLabel = `Hasta el ${formatDateDisplay(dateTo)}`;
+    }
+
+    const pad = n => String(n).padStart(2, '0');
+    const toIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
     const parseNum = (v) => {
       if (typeof v === 'number') return isNaN(v) ? 0 : v;
@@ -11617,7 +11657,28 @@ class NexusApp {
     // =========================================================================
     // HOJA 2: SALIDAS Y VENTAS POR CATEGORÍA + RESUMEN EN STOCK
     // =========================================================================
-    const txs = (this.data.recentTransactions || []).filter(Boolean);
+    const allTxs = (this.data.recentTransactions || []).filter(Boolean);
+    const txs = allTxs.filter(tx => {
+      if (!dateFrom && !dateTo) return true;
+      const rawDateStr = String(tx.date || tx.createdAt || tx.timestamp || '').trim();
+      if (!rawDateStr) return false;
+
+      let txIso = '';
+      if (/^\d{4}-\d{2}-\d{2}/.test(rawDateStr)) {
+        txIso = rawDateStr.slice(0, 10);
+      } else {
+        const d = this.parseDateSafe(rawDateStr);
+        if (d && !isNaN(d.getTime())) {
+          txIso = toIso(d);
+        }
+      }
+      if (!txIso) return false;
+
+      if (dateFrom && txIso < dateFrom) return false;
+      if (dateTo && txIso > dateTo) return false;
+      return true;
+    });
+
     const cats = (this.data.categories || []).filter(Boolean);
 
     const prodMap = new Map();
@@ -11891,6 +11952,13 @@ class NexusApp {
     </Row>`;
     });
 
+    if (!rowsTabla3Xml) {
+      rowsTabla3Xml = `
+    <Row ss:Height="22">
+     <Cell ss:MergeAcross="9" ss:StyleID="CellCenter"><Data ss:Type="String">No se registraron salidas de joyas para el período seleccionado (${escapeXml(periodLabel)})</Data></Cell>
+    </Row>`;
+    }
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -11925,7 +11993,7 @@ class NexusApp {
     <Cell ss:MergeAcross="14" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Metales Preciosos: Oro 18K, 14K, Plata 925</Data></Cell>
    </Row>
    <Row ss:Height="18">
-    <Cell ss:MergeAcross="14" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(dateFormatted)} | Generado por: ${escapeXml(this.currentUser?.name || 'Administrador')} | Filtro: ${filterText} | Total Ítems: ${prodsToExport.length}</Data></Cell>
+    <Cell ss:MergeAcross="14" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(dateFormatted)} | Generado por: ${escapeXml(this.currentUser?.name || 'Administrador')} | Filtro: ${filterText} | Período Salidas (Hoja 2): ${escapeXml(periodLabel)} | Total Ítems: ${prodsToExport.length}</Data></Cell>
    </Row>
    <Row ss:Height="10"></Row>
 
@@ -12001,10 +12069,10 @@ class NexusApp {
     <Cell ss:MergeAcross="9" ss:StyleID="TitleHeader"><Data ss:Type="String">  CHARLES JOYAS SAS — RESUMEN DE SALIDAS, VENTAS EN GRAMOS Y BALANCE DE STOCK POR CATEGORÍA</Data></Cell>
    </Row>
    <Row ss:Height="18">
-    <Cell ss:MergeAcross="9" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Auditoría Consolidada de Gramos Vendidos vs. Stock Disponible</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="SubTitleHeader"><Data ss:Type="String">  NIT: 901838998-0 | Joyería Fina &amp; Taller | Período de Salidas: ${escapeXml(periodLabel)}</Data></Cell>
    </Row>
    <Row ss:Height="18">
-    <Cell ss:MergeAcross="9" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(dateFormatted)} | Generado por: ${escapeXml(this.currentUser?.name || 'Administrador')} | Total Ventas / Salidas Registradas: ${totalTxCount} transacciones</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="MetaHeader"><Data ss:Type="String">  Fecha Emisión: ${escapeXml(dateFormatted)} | Generado por: ${escapeXml(this.currentUser?.name || 'Administrador')} | Período: ${escapeXml(periodLabel)} | Salidas Registradas: ${totalTxCount} transacciones (${totalSoldGrams.toFixed(2)} g)</Data></Cell>
    </Row>
    <Row ss:Height="10"></Row>
 
@@ -12027,7 +12095,7 @@ class NexusApp {
 
    <!-- Sección 1 -->
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  1. GRAMOS QUE HAN SALIDO O SE HAN VENDIDO POR CATEGORÍAS</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  1. GRAMOS QUE HAN SALIDO O SE HAN VENDIDO POR CATEGORÍAS (${escapeXml(periodLabel)})</Data></Cell>
    </Row>
    <Row ss:Height="24">
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Categoría / Línea</Data></Cell>
@@ -12058,7 +12126,7 @@ class NexusApp {
 
    <!-- Sección 2 -->
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  2. RESUMEN EN STOCK: LO QUE SALIÓ O VENDIMOS VS. EXISTENCIAS ACTUALES</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  2. RESUMEN EN STOCK: LO QUE SALIÓ (${escapeXml(periodLabel)}) VS. EXISTENCIAS ACTUALES</Data></Cell>
    </Row>
    <Row ss:Height="24">
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Categoría / Línea</Data></Cell>
@@ -12089,7 +12157,7 @@ class NexusApp {
 
    <!-- Sección 3 -->
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  3. TOP JOYAS CON MAYOR SALIDA / VENTA EN GRAMOS</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="SectionHeader"><Data ss:Type="String">  3. TOP JOYAS CON MAYOR SALIDA / VENTA EN GRAMOS (${escapeXml(periodLabel)})</Data></Cell>
    </Row>
    <Row ss:Height="24">
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">Código (SKU)</Data></Cell>
@@ -12107,8 +12175,20 @@ class NexusApp {
  </Worksheet>
 </Workbook>`;
 
-    this._downloadExcelWorkbook(xml, 'Inventario_Charles_Joyas');
-    this.showToast(`Inventario exportado exitosamente a Excel con Resumen de Salidas y Stock (${prodsToExport.length} productos)`, 'success');
+    let fileName = 'Inventario_Charles_Joyas';
+    if (dateFrom && dateTo) {
+      fileName += `_${dateFrom}_al_${dateTo}`;
+    } else if (dateFrom) {
+      fileName += `_desde_${dateFrom}`;
+    } else if (dateTo) {
+      fileName += `_hasta_${dateTo}`;
+    }
+
+    this._downloadExcelWorkbook(xml, fileName);
+    const toastMsg = (dateFrom || dateTo)
+      ? `Inventario exportado a Excel (${periodLabel}) con ${totalTxCount} transacciones de salida (${prodsToExport.length} productos)`
+      : `Inventario exportado exitosamente a Excel con Resumen de Salidas y Stock (${prodsToExport.length} productos)`;
+    this.showToast(toastMsg, 'success');
   }
 
   renderInventoryTable() {

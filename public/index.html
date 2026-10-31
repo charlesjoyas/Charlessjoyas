@@ -1122,6 +1122,20 @@
                 <p class="section-subtitle">Control de existencias físicas, precios de costo, márgenes y alertas de stock.</p>
               </div>
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <!-- SELECTOR DE FECHAS EXCLUSIVO PARA EXPORTACIÓN EXCEL -->
+                <div class="finanzas-date-range-box" id="inv-excel-date-range-box" style="padding: 2px 8px; margin: 0; display: inline-flex; align-items: center; gap: 0.35rem;" title="Rango de fechas para las salidas y ventas de la Hoja 2 del Excel (dejar vacío para todo el historial)">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: #059669; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    Fechas Excel:
+                  </span>
+                  <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);">Desde:</span>
+                  <input type="date" id="inv-excel-date-from" title="Fecha inicial para salidas del Excel" style="font-size:0.75rem; padding: 0.15rem 0.35rem; height: 26px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--card-bg); color: var(--text-main);">
+                  <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted);">Hasta:</span>
+                  <input type="date" id="inv-excel-date-to" title="Fecha final para salidas del Excel" style="font-size:0.75rem; padding: 0.15rem 0.35rem; height: 26px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--card-bg); color: var(--text-main);">
+                  <button type="button" class="btn btn-secondary text-xs" onclick="app.clearInvExcelDateRange()" style="padding: 0.15rem 0.45rem; font-size: 0.7rem; height: 24px; border-radius: 4px; font-weight: 600;" title="Limpiar fechas y exportar todo el historial">
+                    Todo
+                  </button>
+                </div>
                 <button type="button" class="btn btn-secondary" id="export-inventory-excel-btn" onclick="app.exportInventoryExcel()" title="Exportar catálogo e inventario a Excel (.xls) con formato y separadores de miles" style="display:inline-flex; align-items:center; gap:0.35rem; color:#059669; font-weight:700; border-color:#059669;">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                   <span>Exportar Excel</span>
