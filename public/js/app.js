@@ -14,6 +14,7 @@ class NexusApp {
     this.currentTheme = 'light';
     this.currentRadarFilter = 'todos';
     this.radarSearchTerm = '';
+    this.radarSortOrder = 'codigo_asc';
     this.inventoryStockFilter = 'all';
     this.activeCashShiftTab = 'current';
     this.cashShiftHistoryPeriod = 'all';
@@ -94,6 +95,61 @@ class NexusApp {
       }
     });
     return `${prefix}-${String(maxNum + 1).padStart(digits, '0')}`;
+  }
+
+  compareProductCodes(pA, pB, desc = false) {
+    if (!pA && !pB) return 0;
+    if (!pA) return 1;
+    if (!pB) return -1;
+    const strA = String(pA.sku || pA.id || '').trim();
+    const strB = String(pB.sku || pB.id || '').trim();
+
+    const matchA = strA.match(/^(\d+)(?:-(\d+))?$/);
+    const matchB = strB.match(/^(\d+)(?:-(\d+))?$/);
+
+    let res = 0;
+    if (matchA && matchB) {
+      const numA = parseInt(matchA[1], 10);
+      const numB = parseInt(matchB[1], 10);
+      if (numA !== numB) {
+        res = numA - numB;
+      } else {
+        const subA = matchA[2] ? parseInt(matchA[2], 10) : 0;
+        const subB = matchB[2] ? parseInt(matchB[2], 10) : 0;
+        res = subA - subB;
+      }
+    } else {
+      res = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: 'base' });
+    }
+    if (res === 0) {
+      res = String(pA.name || '').localeCompare(String(pB.name || ''), 'es');
+    }
+    if (res === 0) {
+      res = String(pA.id || '').localeCompare(String(pB.id || ''));
+    }
+    return desc ? -res : res;
+  }
+
+  formatProductSku(sku, fallbackId = '') {
+    const raw = String(sku || '').trim();
+    if (!raw) return fallbackId ? String(fallbackId) : '';
+    if (/^\d+$/.test(raw)) {
+      return raw.padStart(3, '0');
+    }
+    return raw;
+  }
+
+  getNextConsecutiveSku() {
+    let maxNum = 0;
+    (this.data.products || []).forEach(p => {
+      const match = String(p?.sku || '').trim().match(/^(\d+)/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum && n < 2000) maxNum = n;
+      }
+    });
+    const next = maxNum + 1;
+    return String(next).padStart(3, '0');
   }
 
   // Cached Intl.NumberFormat instances — created once, reused on every call
@@ -354,14 +410,23 @@ class NexusApp {
 
     const name = this.normalizeSearchStr(p.name);
     const sku = this.normalizeSearchStr(p.sku);
+    const paddedSku = /^\d+$/.test(sku) ? sku.padStart(3, '0') : sku;
     const id = this.normalizeSearchStr(p.id);
     const barcode = this.normalizeSearchStr(p.barcode);
     const category = this.normalizeSearchStr(p.categoryName || p.category);
     const supplier = this.normalizeSearchStr(p.supplier);
 
     // Direct match against query
-    if (name.includes(q) || sku.includes(q) || id.includes(q) || barcode.includes(q) || category.includes(q) || supplier.includes(q)) {
+    if (name.includes(q) || sku.includes(q) || paddedSku.includes(q) || id.includes(q) || barcode.includes(q) || category.includes(q) || supplier.includes(q)) {
       return true;
+    }
+
+    // Match if query prefixes with "cod" or "codigo" (e.g. "cod 001")
+    const cleanQ = q.replace(/^(?:cod|codigo)\.?\s*/i, '');
+    if (cleanQ && cleanQ !== q) {
+      if (name.includes(cleanQ) || sku.includes(cleanQ) || paddedSku.includes(cleanQ) || id.includes(cleanQ) || barcode.includes(cleanQ) || category.includes(cleanQ) || supplier.includes(cleanQ)) {
+        return true;
+      }
     }
 
     // Multi-token match (allows searching e.g. "topo 2026" or "balineria 1")
@@ -574,6 +639,8 @@ class NexusApp {
         }
         seenProdIds.add(p.id);
       });
+      // Keep products cleanly organized by consecutive code (001 -> 999)
+      this.data.products.sort((a, b) => this.compareProductCodes(a, b, false));
       // NOTE: Empty array is valid for clean production data
     } else {
       this.data.products = [];
@@ -3285,7 +3352,7 @@ class NexusApp {
           // (No se reutiliza otro producto existente aunque comparta el mismo nombre de modelo)
           if (!targetProd) {
             const newProdId = this.generateUniqueId('PRD-CJ', this.data.products);
-            const newSku = prodSku || this.generateUniqueId('SKU', this.data.products);
+            const newSku = prodSku || this.getNextConsecutiveSku();
             targetProd = {
               id: newProdId,
               sku: newSku,
@@ -3307,7 +3374,8 @@ class NexusApp {
               sold30d: 0,
               createdAt: new Date().toISOString()
             };
-            this.data.products.unshift(targetProd);
+            this.data.products.push(targetProd);
+            this.data.products.sort((a, b) => this.compareProductCodes(a, b, false));
           } else {
             // Reabastecimiento de producto existente
             targetProd.measureType = measureType;
@@ -3563,7 +3631,8 @@ class NexusApp {
           status: !active ? 'inactive' : (stock > 0 ? 'active' : 'out_of_stock')
         };
 
-        this.data.products.unshift(newP);
+        this.data.products.push(newP);
+        this.data.products.sort((a, b) => this.compareProductCodes(a, b, false));
         const addedCost = this.getProductTotalCost(newP);
         const addedGrams = this.getGramsFromProduct(newP);
         if (!this.data.kpis) this.data.kpis = {};
@@ -4599,6 +4668,9 @@ class NexusApp {
   openAddProductModal() {
     const addForm = document.getElementById('add-product-form');
     if (addForm) addForm.reset();
+    const nextSku = this.getNextConsecutiveSku();
+    const skuInput = document.getElementById('new-prod-sku');
+    if (skuInput) skuInput.value = nextSku;
     const measureSelect = document.getElementById('new-prod-measure-type');
     if (measureSelect) measureSelect.value = 'Pesaje';
     const weightSelect = document.getElementById('new-prod-weight-unit');
@@ -25126,52 +25198,69 @@ class NexusApp {
   }
 
   sortRadarStock(order) {
-    this.radarSortOrder = order || 'stock_asc';
+    this.radarSortOrder = order || 'codigo_asc';
     try {
       localStorage.setItem('nexus_radar_sort', this.radarSortOrder);
     } catch (_) {}
     this.renderRadarStock();
   }
 
+  getRadarSortOrder() {
+    if (!this.radarSortOrder) {
+      try {
+        const stored = localStorage.getItem('nexus_radar_sort');
+        // Migrate legacy default 'stock_asc' to requested 'codigo_asc' so it's always consecutive by default
+        this.radarSortOrder = (stored && stored !== 'stock_asc') ? stored : 'codigo_asc';
+      } catch (_) {
+        this.radarSortOrder = 'codigo_asc';
+      }
+    }
+    return this.radarSortOrder || 'codigo_asc';
+  }
+
   sortRadarMetrics(metrics) {
     if (!Array.isArray(metrics)) return [];
     const list = [...metrics];
-    if (!this.radarSortOrder) {
-      try {
-        this.radarSortOrder = localStorage.getItem('nexus_radar_sort') || 'stock_asc';
-      } catch (_) {
-        this.radarSortOrder = 'stock_asc';
-      }
-    }
-    const order = this.radarSortOrder;
+    const order = this.getRadarSortOrder();
 
     switch (order) {
+      case 'codigo_asc':
+        return list.sort((a, b) => this.compareProductCodes(a.product, b.product, false));
+      case 'codigo_desc':
+        return list.sort((a, b) => this.compareProductCodes(a.product, b.product, true));
       case 'stock_asc':
         return list.sort((a, b) => {
           const diff = (Number(a.stock) || 0) - (Number(b.stock) || 0);
-          return diff !== 0 ? diff : String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es');
+          return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
         });
       case 'stock_desc':
         return list.sort((a, b) => {
           const diff = (Number(b.stock) || 0) - (Number(a.stock) || 0);
-          return diff !== 0 ? diff : String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es');
+          return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
         });
       case 'dias_asc':
         return list.sort((a, b) => {
           const diff = (Number(a.diasRestantes) || 0) - (Number(b.diasRestantes) || 0);
-          return diff !== 0 ? diff : (Number(a.stock) || 0) - (Number(b.stock) || 0);
+          return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
         });
       case 'dias_desc':
         return list.sort((a, b) => {
           const diff = (Number(b.diasRestantes) || 0) - (Number(a.diasRestantes) || 0);
-          return diff !== 0 ? diff : (Number(a.stock) || 0) - (Number(b.stock) || 0);
+          return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
         });
       case 'nombre_asc':
-        return list.sort((a, b) => String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es'));
+        return list.sort((a, b) => {
+          const diff = String(a.product?.name || '').localeCompare(String(b.product?.name || ''), 'es');
+          return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
+        });
       case 'nombre_desc':
-        return list.sort((a, b) => String(b.product?.name || '').localeCompare(String(a.product?.name || ''), 'es'));
+        return list.sort((a, b) => {
+          const diff = String(b.product?.name || '').localeCompare(String(a.product?.name || ''), 'es');
+          return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
+        });
+      case 'default':
       default:
-        return list;
+        return list.sort((a, b) => this.compareProductCodes(a.product, b.product, false));
     }
   }
 
@@ -25189,17 +25278,11 @@ class NexusApp {
 
     if (!this.currentRadarFilter) this.currentRadarFilter = 'todos';
     if (this.radarSearchTerm === undefined) this.radarSearchTerm = '';
-    if (!this.radarSortOrder) {
-      try {
-        this.radarSortOrder = localStorage.getItem('nexus_radar_sort') || 'stock_asc';
-      } catch (_) {
-        this.radarSortOrder = 'stock_asc';
-      }
-    }
+    const currentOrder = this.getRadarSortOrder();
 
     const elSort = document.getElementById('radar-stock-sort');
     if (elSort) {
-      elSort.value = this.radarSortOrder;
+      elSort.value = currentOrder;
     }
 
     const allMetrics = (this.data.products || []).filter(Boolean).map(p => this.calculateProductRadarMetrics(p)).filter(Boolean);
@@ -25258,7 +25341,8 @@ class NexusApp {
     container.innerHTML = filtered.map(m => {
       const p = m.product;
       const catLabel = p.categoryName || p.category || 'General';
-      const skuLabel = p.sku || p.id || '';
+      const formattedSku = this.formatProductSku(p.sku, p.id);
+      const skuLabel = formattedSku ? `Cód. ${formattedSku}` : '';
       const stockValClass = m.stock <= 0 ? 'val-red' : 'val-green';
       const stockDisplay = m.stock % 1 === 0 ? m.stock : Number(m.stock.toFixed(2));
       const isUnidades = (p.measureType || 'Pesaje') === 'Unidades';
@@ -25281,7 +25365,7 @@ class NexusApp {
 
             <div class="radar-tags-row">
               <span class="radar-tag-chip">${this.escapeHtml(catLabel)}</span>
-              ${skuLabel ? `<span class="radar-tag-chip">${this.escapeHtml(skuLabel)}</span>` : ''}
+              ${skuLabel ? `<span class="radar-tag-chip font-mono" style="font-weight:700;">${this.escapeHtml(skuLabel)}</span>` : ''}
             </div>
 
             <div class="radar-metrics-box">
@@ -25354,7 +25438,7 @@ class NexusApp {
     // -------------------------------------------------------------------------
     const rowsHoja1 = metricsToExport.map(m => {
       const p = m.product || {};
-      const sku = p.sku || p.id || '';
+      const sku = this.formatProductSku(p.sku, p.id);
       const name = p.name || '';
       const cat = p.categoryName || p.category || '';
       const stock = parseFloat(String(m.stock !== undefined && m.stock !== null ? m.stock : 0).replace(',', '.')) || 0;
