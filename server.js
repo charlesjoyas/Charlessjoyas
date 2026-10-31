@@ -237,6 +237,36 @@ app.post('/api/data', async (req, res) => {
     }
 
     data.updatedAt = new Date().toISOString();
+
+    // Filter out decommissioned/deleted products from any client sync payload
+    if (Array.isArray(data.products)) {
+      const DELETED_PRODUCT_KEYS = new Set([
+        '212', '0212', '219', '0219', '404', '0404', '181', '0181', '439', '0439',
+        '200', '0200', '591', '0591', '367', '0367', '352', '0352', '213', '0213',
+        '411', '0411', '227', '0227', '635', '0635', '753', '0753', '478', '0478',
+        '220', '0220', '474', '0474', '620', '0620', '340', '0340', '356', '0356',
+        '425', '0425', '292', '0292', '236', '0236', '421', '0421', '272', '0272',
+        '383', '0383', '303', '0303', '335', '0335', '136', '0136', '005', '5',
+        '794', '0794', '569', '0569', '530', '0530', '487', '0487', '688', '0688',
+        '650', '0650', '223', '0223',
+        'PRD-CJ-0213', 'PRD-CJ-0220', 'PRD-CJ-0403', 'PRD-CJ-0181', 'PRD-CJ-0438',
+        'PRD-CJ-0201', 'PRD-CJ-0590', 'PRD-CJ-0367', 'PRD-CJ-0353', 'PRD-CJ-0214',
+        'PRD-CJ-0410', 'PRD-CJ-0228', 'PRD-CJ-0634', 'PRD-CJ-0752', 'PRD-CJ-0477',
+        'PRD-CJ-0221', 'PRD-CJ-0473', 'PRD-CJ-0619', 'PRD-CJ-0341', 'PRD-CJ-0356',
+        'PRD-CJ-0424', 'PRD-CJ-0293', 'PRD-CJ-0237', 'PRD-CJ-0420', 'PRD-CJ-0273',
+        'PRD-CJ-0383', 'PRD-CJ-0304', 'PRD-CJ-0336', 'PRD-CJ-0136', 'PRD-CJ-0005',
+        'PRD-249', 'PRD-CJ-0568', 'PRD-CJ-0529', 'PRD-CJ-0486', 'PRD-CJ-0687',
+        'PRD-CJ-0649', 'PRD-CJ-0224'
+      ]);
+      data.products = data.products.filter(p => {
+        if (!p) return false;
+        const skuStr = String(p.sku || '').trim();
+        const idStr = String(p.id || '').trim();
+        const numStr = String(parseInt(skuStr, 10));
+        return !DELETED_PRODUCT_KEYS.has(skuStr) && !DELETED_PRODUCT_KEYS.has(idStr) && !DELETED_PRODUCT_KEYS.has(numStr);
+      });
+    }
+
     saveLocalDb(data);
 
     if (!mongoConnected) {
