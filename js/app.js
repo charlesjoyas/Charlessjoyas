@@ -10855,31 +10855,18 @@ class NexusApp {
     const tbody = document.getElementById('fin-compras-tbody');
     if (!tbody) return;
     if (!this.data.purchases || this.data.purchases.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">📦</div><div style="font-weight:600;">No hay órdenes de compra registradas</div><div style="font-size:0.8rem; margin-top:0.25rem;">Haga clic en "+ Nueva Orden de Compra" para registrar una entrada de stock.</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">📦</div><div style="font-weight:600;">No hay órdenes de compra registradas</div><div style="font-size:0.8rem; margin-top:0.25rem;">Haga clic en "+ Nueva Orden de Compra" para registrar una entrada de stock.</div></td></tr>`;
       return;
     }
     const canDeletePO = this.isAdminUser();
 
     tbody.innerHTML = this.data.purchases.map(po => {
-      const isPaid = po.paymentStatus === 'Pagado Total';
-      const receiptBtn = `<button class="btn-action-view" onclick="app.showPurchaseReceiptModal('${po.id}')" title="Ver Recibo Térmico de Compra" style="margin-right:4px;">🧾 Recibo</button>`;
-      const payBtn = !isPaid 
-        ? `<button class="btn btn-primary text-xs" onclick="app.markPurchaseAsPaid('${po.id}')" title="Marcar como pagada y saldar cuenta" style="padding:2px 8px; margin-right:4px; font-weight:700; background:#059669; border-color:#059669;">💳 Pagar</button>` 
-        : '';
-      const deleteBtn = canDeletePO ? `<button class="btn-action-delete" onclick="app.deletePurchaseOrder('${po.id}')" title="Reversar compra, devolver dinero a caja y descontar inventario" style="padding:2px 8px; font-size:0.75rem; font-weight:700;">🔄 Reversar Compra</button>` : '';
-      const actionHtml = `<div class="action-btn-group">${payBtn}${receiptBtn}${deleteBtn}</div>`;
-
-      const prodDisplay = po.productName ? `
-        <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(po.productName)}</div>
-        <div class="text-xs" style="color:var(--text-muted);">${po.productSku ? `<span style="font-family:monospace; font-weight:700; color:var(--brand-primary);">${this.escapeHtml(po.productSku)}</span> · ` : ''}${this.escapeHtml(po.supplier || '')}</div>
-      ` : `<div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(po.supplier || 'Proveedor')}</div>`;
-
       const qty = po.quantity !== undefined ? po.quantity : (po.itemsCount || 1);
       const totalGrams = Number(po.totalGrams) || 0;
       const unitCost = Number(po.unitCost) || 0;
 
-      // Conciliación automática de órdenes donde el total se había calculado solo por unidades sin multiplicar gramos
-      if (totalGrams > 0 && unitCost > 0) {
+      // Conciliación automática solo para órdenes que no hayan sido editadas manualmente
+      if (!po.manualTotal && !po.edited && totalGrams > 0 && unitCost > 0) {
         const expectedTotal = Math.round(totalGrams * unitCost);
         if (po.total < expectedTotal && Math.round(qty * unitCost) === po.total) {
           po.total = expectedTotal;
@@ -10889,8 +10876,35 @@ class NexusApp {
         }
       }
 
+      const poTotal = Number(po.total) || 0;
+      const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
+      const poPending = Math.max(0, poTotal - poPaid);
+      const isPaid = po.paymentStatus === 'Pagado Total' || (poTotal > 0 && poPending <= 0.01);
+
+      const editBtn = `<button class="btn-action-edit" onclick="app.openEditPurchaseOrderModal('${this.escapeHtml(po.id)}')" title="Editar orden de compra, gramos, costo o saldo" style="margin-right:4px; padding:2px 8px; font-size:0.75rem; font-weight:700;">✏️ Editar</button>`;
+      const receiptBtn = `<button class="btn-action-view" onclick="app.showPurchaseReceiptModal('${this.escapeHtml(po.id)}')" title="Ver Recibo Térmico de Compra" style="margin-right:4px;">🧾 Recibo</button>`;
+      const payBtn = !isPaid 
+        ? `<button class="btn btn-primary text-xs" onclick="app.markPurchaseAsPaid('${this.escapeHtml(po.id)}')" title="Marcar como pagada y saldar cuenta" style="padding:2px 8px; margin-right:4px; font-weight:700; background:#059669; border-color:#059669;">💳 Pagar</button>` 
+        : '';
+      const deleteBtn = canDeletePO ? `<button class="btn-action-delete" onclick="app.deletePurchaseOrder('${this.escapeHtml(po.id)}')" title="Reversar compra, devolver dinero a caja y descontar inventario" style="padding:2px 8px; font-size:0.75rem; font-weight:700;">🔄 Reversar Compra</button>` : '';
+      const actionHtml = `<div class="action-btn-group" style="flex-wrap:wrap; gap:4px;">${editBtn}${payBtn}${receiptBtn}${deleteBtn}</div>`;
+
+      const prodDisplay = po.productName ? `
+        <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(po.productName)}</div>
+        <div class="text-xs" style="color:var(--text-muted);">${po.productSku ? `<span style="font-family:monospace; font-weight:700; color:var(--brand-primary);">${this.escapeHtml(po.productSku)}</span> · ` : ''}${this.escapeHtml(po.supplier || '')}</div>
+      ` : `<div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(po.supplier || 'Proveedor')}</div>`;
+
       const gramsDisplay = totalGrams > 0 ? ` <span class="badge" style="background:#FEF3C7; color:#D97706; font-size:0.72rem; padding:1px 5px; font-weight:700; margin-left:2px;">⚖️ ${totalGrams}g</span>` : '';
       const costLabel = totalGrams > 0 ? `Costo / g: ${this.formatCurrency(unitCost)}` : `Costo / u.: ${this.formatCurrency(unitCost)}`;
+
+      let balanceSubHtml = '';
+      if (!isPaid) {
+        if (poPaid > 0) {
+          balanceSubHtml = `<div class="text-xs" style="margin-top:2px; font-weight:600;"><span style="color:var(--emerald-text, #059669);">Abono: ${this.formatCurrency(poPaid)}</span> · <span style="color:var(--rose-text, #e11d48);">Debe: ${this.formatCurrency(poPending)}</span></div>`;
+        } else {
+          balanceSubHtml = `<div class="text-xs" style="margin-top:2px; color:var(--rose-text, #e11d48); font-weight:600;">Saldo: ${this.formatCurrency(poPending)}</div>`;
+        }
+      }
 
       return `
         <tr>
@@ -10904,9 +10918,12 @@ class NexusApp {
             </div>
             ${unitCost ? `<div class="text-xs" style="color:var(--text-muted); margin-top:2px;">${costLabel}</div>` : ''}
           </td>
-          <td><span class="font-bold" style="color:var(--text-main);">${this.formatCurrency(po.total)}</span></td>
-          <td><span class="badge badge-active">${this.escapeHtml(po.status)}</span></td>
-          <td><span class="badge ${isPaid ? 'badge-active' : 'badge-warning'}">${this.escapeHtml(po.paymentStatus)}</span></td>
+          <td>
+            <span class="font-bold" style="color:var(--text-main);">${this.formatCurrency(poTotal)}</span>
+            ${balanceSubHtml}
+          </td>
+          <td><span class="badge badge-active">${this.escapeHtml(po.status || 'Recibido')}</span></td>
+          <td><span class="badge ${isPaid ? 'badge-active' : 'badge-warning'}">${isPaid ? 'Pagado Total' : 'Pendiente'}</span></td>
           <td>${actionHtml}</td>
         </tr>
       `;
@@ -11164,9 +11181,12 @@ class NexusApp {
             </span>
           </td>
           <td style="text-align:center;">
-            <div class="action-btn-group" style="justify-content:center; gap:6px;">
+            <div class="action-btn-group" style="justify-content:center; gap:6px; flex-wrap:wrap;">
               <button class="btn btn-secondary text-xs" style="padding:4px 10px; font-weight:600; display:inline-flex; align-items:center; gap:4px;" onclick="app.viewSupplierCreditPurchases('${this.escapeHtml(cp.id)}')">
                 <span>📄 Ver Facturas (${poCount})</span>
+              </button>
+              <button class="btn-action-edit text-xs" style="padding:4px 10px; font-weight:700;" onclick="app.openEditSupplierCreditModal('${this.escapeHtml(cp.id)}')" title="Ajustar o corregir el saldo que se debe a este proveedor">
+                ✏️ Editar Saldo
               </button>
               ${!isPaid ? `<button class="btn btn-primary text-xs" style="padding:4px 12px; font-weight:700;" onclick="app.paySupplierCredit('${this.escapeHtml(cp.id)}')">💳 Pagar</button>` : ''}
               ${this.isAdminUser() ? `<button class="btn-action-delete" style="padding:4px 8px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${this.escapeHtml(cp.id)}')">🗑️</button>` : ''}
@@ -11230,14 +11250,22 @@ class NexusApp {
     const poTbody = document.getElementById('supp-modal-po-tbody');
     if (poTbody) {
       if (suppPOs.length === 0) {
-        poTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No se encontraron órdenes de compra vinculadas a este crédito.</td></tr>`;
+        poTbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No se encontraron órdenes de compra vinculadas a este crédito.</td></tr>`;
       } else {
         poTbody.innerHTML = suppPOs.map(po => {
           const poTotal = Number(po.total) || 0;
-          const poPaid = Number(po.paidAmount) || 0;
-          const isPoPaid = po.paymentStatus === 'Pagado Total' || poPaid >= poTotal - 0.01;
+          const isPoPaid = po.paymentStatus === 'Pagado Total' || (Number(po.paidAmount) || 0) >= poTotal - 0.01;
+          const poPaid = isPoPaid ? poTotal : Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
+          const poPending = Math.max(0, poTotal - poPaid);
           const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
           const qty = po.itemsCount || po.quantity || 1;
+
+          const balanceCell = isPoPaid
+            ? `<span style="color:var(--emerald-text, #059669); font-size:0.75rem; font-weight:700;">Pagado: ${this.formatCurrency(poTotal)}</span>`
+            : `<div style="font-size:0.75rem; line-height:1.25;">
+                 ${poPaid > 0 ? `<div style="color:var(--emerald-text, #059669); font-weight:600;">Abono: ${this.formatCurrency(poPaid)}</div>` : ''}
+                 <div style="color:var(--rose-text, #e11d48); font-weight:700;">Debe: ${this.formatCurrency(poPending)}</div>
+               </div>`;
 
           return `
             <tr>
@@ -11251,8 +11279,14 @@ class NexusApp {
               </td>
               <td style="padding:8px 10px; text-align:right;">${grams > 0 ? `${grams}g` : `${qty} und`}</td>
               <td style="padding:8px 10px; text-align:right; font-weight:700;">${this.formatCurrency(poTotal)}</td>
+              <td style="padding:8px 10px; text-align:right;">${balanceCell}</td>
               <td style="padding:8px 10px; text-align:center;">
                 <span class="badge ${isPoPaid ? 'badge-active' : 'badge-warning'}" style="font-size:0.7rem;">${isPoPaid ? 'Pagado Total' : 'Pendiente'}</span>
+              </td>
+              <td style="padding:8px 10px; text-align:center;">
+                <button type="button" class="btn-action-edit" style="padding:3px 8px; font-size:0.72rem; font-weight:700;" onclick="app.openEditPurchaseOrderModal('${this.escapeHtml(po.id)}', '${this.escapeHtml(cp.id)}')">
+                  ✏️ Editar
+                </button>
               </td>
             </tr>
           `;
@@ -11281,6 +11315,14 @@ class NexusApp {
       }
     }
 
+    // Botón para editar directamente el saldo del proveedor
+    const editBalBtn = document.getElementById('supp-modal-edit-balance-btn');
+    if (editBalBtn) {
+      editBalBtn.onclick = () => {
+        this.openEditSupplierCreditModal(cp.id);
+      };
+    }
+
     // Botón de pago en el pie del modal
     const payBtn = document.getElementById('supp-modal-pay-btn');
     if (payBtn) {
@@ -11296,6 +11338,516 @@ class NexusApp {
     }
 
     this.openModal('supplier-credit-purchases-modal');
+  }
+
+  /* ==========================================================================
+     EDICIÓN DE ÓRDENES DE COMPRA Y SALDOS DE PROVEEDORES
+     ========================================================================== */
+  openEditPurchaseOrderModal(poId, fromSupplierCreditId = '') {
+    const po = (this.data.purchases || []).find(p => p.id === poId);
+    if (!po) {
+      this.showToast(`No se encontró la orden de compra #${poId}`, 'warning');
+      return;
+    }
+
+    const titleEl = document.getElementById('edit-po-modal-title');
+    if (titleEl) titleEl.innerText = `Editar Orden de Compra #${po.id}`;
+
+    document.getElementById('edit-po-id').value = po.id;
+    document.getElementById('edit-po-from-cp-id').value = fromSupplierCreditId || '';
+    document.getElementById('edit-po-date').value = po.date || new Date().toISOString().slice(0, 10);
+    document.getElementById('edit-po-supplier').value = po.supplier || '';
+    document.getElementById('edit-po-product-name').value = po.productName || '';
+    document.getElementById('edit-po-product-sku').value = po.productSku || '';
+
+    // Poblar lista de proveedores sugeridos
+    const datalist = document.getElementById('edit-po-suppliers-datalist');
+    if (datalist) {
+      const names = new Set();
+      (this.data.suppliers || []).forEach(s => { if (s && s.name) names.add(s.name.trim()); });
+      (this.data.purchases || []).forEach(p => { if (p && p.supplier) names.add(p.supplier.trim()); });
+      datalist.innerHTML = Array.from(names).map(n => `<option value="${this.escapeHtml(n)}"></option>`).join('');
+    }
+
+    const qty = po.quantity !== undefined ? Number(po.quantity) : (Number(po.itemsCount) || 1);
+    const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
+    const unitCost = Number(po.unitCost) || 0;
+    const total = Math.round(Number(po.total) || 0);
+    const isPaid = po.paymentStatus === 'Pagado Total';
+    const paid = isPaid ? total : Math.min(total, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
+    const pending = Math.max(0, total - paid);
+
+    document.getElementById('edit-po-qty').value = qty;
+    document.getElementById('edit-po-grams').value = grams;
+    document.getElementById('edit-po-unit-cost').value = unitCost;
+    document.getElementById('edit-po-adjust-stock').checked = false;
+
+    document.getElementById('edit-po-total').value = total;
+    document.getElementById('edit-po-payment-status').value = isPaid ? 'Pagado Total' : 'Pendiente';
+    document.getElementById('edit-po-paid').value = paid;
+    document.getElementById('edit-po-pending').value = pending;
+    document.getElementById('edit-po-sync-mode').value = 'recalc_all_pos';
+
+    this.updateEditPOPreview();
+    this.openModal('edit-purchase-order-modal');
+  }
+
+  recalcEditPOTotal(mode) {
+    const qty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
+    const grams = parseFloat(document.getElementById('edit-po-grams')?.value) || 0;
+    const unitCost = parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0;
+    let newTotal = 0;
+    if (mode === 'grams') {
+      newTotal = Math.round(grams * unitCost);
+    } else {
+      newTotal = Math.round(qty * unitCost);
+    }
+    const totalEl = document.getElementById('edit-po-total');
+    if (totalEl) totalEl.value = newTotal;
+    this.onEditPOTotalChange();
+  }
+
+  onEditPOQtyOrCostChange() {
+    const grams = parseFloat(document.getElementById('edit-po-grams')?.value) || 0;
+    const qty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
+    const unitCost = parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0;
+    if (unitCost > 0) {
+      const autoTotal = grams > 0 ? Math.round(grams * unitCost) : Math.round(qty * unitCost);
+      const totalEl = document.getElementById('edit-po-total');
+      if (totalEl) totalEl.value = autoTotal;
+      this.onEditPOTotalChange();
+    } else {
+      this.updateEditPOPreview();
+    }
+  }
+
+  onEditPOTotalChange() {
+    const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
+    const status = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
+    const paidEl = document.getElementById('edit-po-paid');
+    const pendingEl = document.getElementById('edit-po-pending');
+
+    if (status === 'Pagado Total') {
+      if (paidEl) paidEl.value = total;
+      if (pendingEl) pendingEl.value = 0;
+    } else {
+      const currentPaid = Math.min(total, Math.max(0, Math.round(parseFloat(paidEl?.value) || 0)));
+      if (paidEl) paidEl.value = currentPaid;
+      if (pendingEl) pendingEl.value = Math.max(0, total - currentPaid);
+    }
+    this.updateEditPOPreview();
+  }
+
+  onEditPOPaymentStatusChange() {
+    const status = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
+    const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
+    const paidEl = document.getElementById('edit-po-paid');
+    const pendingEl = document.getElementById('edit-po-pending');
+
+    if (status === 'Pagado Total') {
+      if (paidEl) paidEl.value = total;
+      if (pendingEl) pendingEl.value = 0;
+    } else {
+      const currentPaid = Math.round(parseFloat(paidEl?.value) || 0);
+      if (currentPaid >= total) {
+        if (paidEl) paidEl.value = 0;
+        if (pendingEl) pendingEl.value = total;
+      } else {
+        if (pendingEl) pendingEl.value = Math.max(0, total - currentPaid);
+      }
+    }
+    this.updateEditPOPreview();
+  }
+
+  onEditPOPaidChange() {
+    const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
+    const paid = Math.min(total, Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-paid')?.value) || 0)));
+    const pending = Math.max(0, total - paid);
+    const pendingEl = document.getElementById('edit-po-pending');
+    const statusEl = document.getElementById('edit-po-payment-status');
+
+    if (pendingEl) pendingEl.value = pending;
+    if (statusEl) statusEl.value = (pending <= 0 && total > 0) ? 'Pagado Total' : 'Pendiente';
+    this.updateEditPOPreview();
+  }
+
+  onEditPOPendingChange() {
+    const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
+    const pending = Math.min(total, Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-pending')?.value) || 0)));
+    const paid = Math.max(0, total - pending);
+    const paidEl = document.getElementById('edit-po-paid');
+    const statusEl = document.getElementById('edit-po-payment-status');
+
+    if (paidEl) paidEl.value = paid;
+    if (statusEl) statusEl.value = (pending <= 0 && total > 0) ? 'Pagado Total' : 'Pendiente';
+    this.updateEditPOPreview();
+  }
+
+  updateEditPOPreview() {
+    const previewEl = document.getElementById('edit-po-supplier-impact-preview');
+    if (!previewEl) return;
+
+    const poId = document.getElementById('edit-po-id')?.value;
+    const po = (this.data.purchases || []).find(p => p.id === poId);
+    if (!po) return;
+
+    const suppInput = (document.getElementById('edit-po-supplier')?.value || po.supplier || '').trim();
+    const suppNorm = suppInput.toLowerCase();
+    const newTotal = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
+    const newPending = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-pending')?.value) || 0));
+    const syncMode = document.getElementById('edit-po-sync-mode')?.value || 'recalc_all_pos';
+
+    const oldTotal = Math.round(Number(po.total) || 0);
+    const oldPaid = po.paymentStatus === 'Pagado Total' ? oldTotal : Math.min(oldTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
+    const oldPending = Math.max(0, oldTotal - oldPaid);
+
+    // Buscar crédito actual del proveedor
+    const sc = (this.data.supplierCredits || []).find(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
+    const suppObj = (this.data.suppliers || []).find(s => (s.name || '').toLowerCase().trim() === suppNorm);
+    const currentSuppPending = sc ? (Number(sc.pendingAmount) || 0) : (suppObj ? (Number(suppObj.creditBalance) || 0) : 0);
+
+    // Calcular suma exacta de saldos pendientes de todas las OCs del proveedor con este cambio
+    const suppPOs = (this.data.purchases || []).filter(p => {
+      if (p.id === po.id) return true;
+      return (p.supplier || '').toLowerCase().trim() === suppNorm;
+    });
+
+    let sumAllPOsTotal = 0;
+    let sumAllPOsPending = 0;
+    suppPOs.forEach(p => {
+      if (p.id === po.id) {
+        sumAllPOsTotal += newTotal;
+        sumAllPOsPending += newPending;
+      } else {
+        const t = Math.round(Number(p.total) || 0);
+        const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
+        sumAllPOsTotal += t;
+        sumAllPOsPending += Math.max(0, t - pd);
+      }
+    });
+
+    let resultingSupplierPending = currentSuppPending;
+    if (syncMode === 'recalc_all_pos') {
+      resultingSupplierPending = sumAllPOsPending;
+    } else if (syncMode === 'apply_delta') {
+      const delta = newPending - oldPending;
+      resultingSupplierPending = Math.max(0, currentSuppPending + delta);
+    }
+
+    previewEl.innerHTML = `
+      <div>• Saldo de esta orden (<b>${this.escapeHtml(po.id)}</b>): pasa de <b>${this.formatCurrency(oldPending)}</b> a <b style="color:var(--rose-text, #e11d48);">${this.formatCurrency(newPending)}</b></div>
+      <div style="margin-top:2px;">• Deuda total registrada con <b>${this.escapeHtml(suppInput || 'Proveedor')}</b>: pasa de <b>${this.formatCurrency(currentSuppPending)}</b> a <b style="color:var(--primary-indigo); font-size:0.84rem;">${this.formatCurrency(resultingSupplierPending)}</b></div>
+    `;
+  }
+
+  async saveEditedPurchaseOrder(event) {
+    if (event) event.preventDefault();
+
+    const poId = document.getElementById('edit-po-id')?.value;
+    const fromCpId = document.getElementById('edit-po-from-cp-id')?.value;
+    const po = (this.data.purchases || []).find(p => p.id === poId);
+    if (!po) {
+      this.showToast('No se encontró la orden de compra para actualizar', 'danger');
+      return;
+    }
+
+    const oldSupplier = (po.supplier || '').trim();
+    const oldSupplierNorm = oldSupplier.toLowerCase();
+    const oldQty = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
+    const oldGrams = Number(po.totalGrams) || Number(po.productGrams) || 0;
+    const oldTotal = Math.round(Number(po.total) || 0);
+    const oldPaid = po.paymentStatus === 'Pagado Total' ? oldTotal : Math.min(oldTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
+    const oldPending = Math.max(0, oldTotal - oldPaid);
+
+    const newDate = document.getElementById('edit-po-date')?.value || po.date;
+    const newSupplier = (document.getElementById('edit-po-supplier')?.value || oldSupplier).trim();
+    const newSupplierNorm = newSupplier.toLowerCase();
+    const newProductName = (document.getElementById('edit-po-product-name')?.value || po.productName || '').trim();
+    const newProductSku = (document.getElementById('edit-po-product-sku')?.value || po.productSku || '').trim();
+
+    const newQty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
+    const newGrams = parseFloat(document.getElementById('edit-po-grams')?.value) || 0;
+    const newUnitCost = Math.round(parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0);
+    const adjustStock = Boolean(document.getElementById('edit-po-adjust-stock')?.checked);
+
+    const newTotal = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
+    const statusSelect = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
+    const rawPaid = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-paid')?.value) || 0));
+    const newPaid = statusSelect === 'Pagado Total' ? newTotal : Math.min(newTotal, rawPaid);
+    const newPending = Math.max(0, newTotal - newPaid);
+    const finalPaymentStatus = (newPending <= 0 && newTotal > 0) ? 'Pagado Total' : statusSelect;
+    const syncMode = document.getElementById('edit-po-sync-mode')?.value || 'recalc_all_pos';
+
+    // 1. Si el usuario marcó ajustar stock en inventario y cambió gramaje o cantidad
+    if (adjustStock) {
+      const targetProd = (this.data.products || []).find(p =>
+        (po.productId && p.id === po.productId) ||
+        (newProductSku && p.sku === newProductSku) ||
+        (po.productSku && p.sku === po.productSku)
+      );
+      if (targetProd) {
+        const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
+        const deltaStock = isPesaje ? (newGrams - oldGrams) : (newQty - oldQty);
+        if (Math.abs(deltaStock) > 0.0001) {
+          const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
+          targetProd.stock = Math.round(Math.max(0, currentStock + deltaStock) * 100) / 100;
+          const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
+          targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
+        }
+        if (newUnitCost > 0) {
+          targetProd.cost = newUnitCost;
+        }
+      }
+    }
+
+    // 2. Actualizar la Orden de Compra y bloquear sobreescritura automática
+    po.date = newDate;
+    po.supplier = newSupplier;
+    if (newProductName) po.productName = newProductName;
+    if (newProductSku) po.productSku = newProductSku;
+    po.quantity = newQty;
+    po.itemsCount = newQty;
+    po.totalGrams = newGrams;
+    po.unitCost = newUnitCost;
+    po.total = newTotal;
+    po.paidAmount = newPaid;
+    po.paymentStatus = finalPaymentStatus;
+    po.manualTotal = true;
+    po.edited = true;
+    po.updatedAt = new Date().toISOString();
+
+    // 3. Sincronizar saldo del proveedor
+    const updateSupplierBalanceHelper = (suppNorm, mode) => {
+      if (!suppNorm || mode === 'none') return;
+      const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
+      let sumTotal = 0;
+      let sumPaid = 0;
+      let sumPending = 0;
+
+      suppPOs.forEach(p => {
+        const t = Math.round(Number(p.total) || 0);
+        const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
+        const pend = Math.max(0, t - pd);
+        sumTotal += t;
+        sumPaid += pd;
+        sumPending += pend;
+      });
+
+      let suppObj = (this.data.suppliers || []).find(s => (s.name || '').toLowerCase().trim() === suppNorm);
+      let credList = (this.data.supplierCredits || []).filter(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
+
+      let targetPending = sumPending;
+      let targetTotalOwed = sumTotal;
+      let targetPaid = sumPaid;
+
+      if (mode === 'apply_delta') {
+        const currentPending = credList.length > 0
+          ? credList.reduce((acc, c) => acc + (Number(c.pendingAmount) || 0), 0)
+          : (suppObj ? (Number(suppObj.creditBalance) || 0) : 0);
+        const currentTotalOwed = credList.length > 0
+          ? credList.reduce((acc, c) => acc + (Number(c.totalOwed) || 0), 0)
+          : sumTotal;
+        const deltaPending = newPending - oldPending;
+        const deltaTotal = newTotal - oldTotal;
+        targetPending = Math.max(0, Math.round(currentPending + deltaPending));
+        targetTotalOwed = Math.max(targetPending, Math.round(currentTotalOwed + deltaTotal));
+        targetPaid = Math.max(0, targetTotalOwed - targetPending);
+      }
+
+      if (suppObj) {
+        suppObj.creditBalance = targetPending;
+      }
+
+      if (credList.length > 0) {
+        const primary = credList[0];
+        primary.supplier = suppObj ? suppObj.name : newSupplier;
+        primary.totalOwed = targetTotalOwed;
+        primary.paidAmount = targetPaid;
+        primary.pendingAmount = targetPending;
+        primary.status = targetPending > 0 ? 'Pendiente' : 'Pagado Total';
+        primary.purchaseOrderIds = suppPOs.map(p => p.id);
+        // Si había otros registros duplicados para el mismo proveedor, limpiarlos
+        if (credList.length > 1) {
+          const extraIds = new Set(credList.slice(1).map(c => c.id));
+          this.data.supplierCredits = (this.data.supplierCredits || []).filter(c => !extraIds.has(c.id));
+        }
+      } else if (targetPending > 0) {
+        this.data.supplierCredits.push({
+          id: this.getNextSupplierCreditId ? this.getNextSupplierCreditId() : `CP-${Date.now()}`,
+          supplier: suppObj ? suppObj.name : newSupplier,
+          supplierId: suppObj ? suppObj.id : '',
+          totalOwed: targetTotalOwed,
+          paidAmount: targetPaid,
+          pendingAmount: targetPending,
+          date: newDate,
+          lastPurchaseDate: newDate,
+          dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+          status: 'Pendiente',
+          purchaseOrderIds: suppPOs.map(p => p.id)
+        });
+      }
+    };
+
+    if (oldSupplierNorm !== newSupplierNorm) {
+      updateSupplierBalanceHelper(oldSupplierNorm, 'recalc_all_pos');
+      updateSupplierBalanceHelper(newSupplierNorm, syncMode === 'none' ? 'recalc_all_pos' : syncMode);
+    } else {
+      updateSupplierBalanceHelper(newSupplierNorm, syncMode);
+    }
+
+    this.syncSupplierCreditsState();
+    this.syncAllCategoryGrams();
+    await this.savePersistence();
+    this.syncAllModules();
+    this.renderFinComprasTable();
+    if (typeof this.renderFinCreditosProveedoresTable === 'function') {
+      this.renderFinCreditosProveedoresTable();
+    }
+
+    this.closeModal('edit-purchase-order-modal');
+
+    // Si se abrió desde el detalle de facturas de un proveedor, refrescar ese modal en vivo
+    if (fromCpId) {
+      const updatedCp = (this.data.supplierCredits || []).find(c =>
+        c.id === fromCpId || (c.supplier || '').toLowerCase().trim() === newSupplierNorm
+      );
+      if (updatedCp) {
+        this.viewSupplierCreditPurchases(updatedCp.id);
+      }
+    }
+
+    this.showToast(`Orden #${po.id} actualizada. Saldo de compra: ${this.formatCurrency(newPending)}`, 'success');
+  }
+
+  openEditSupplierCreditModal(cpId) {
+    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
+    if (!cp) {
+      this.showToast('No se encontró el crédito del proveedor', 'warning');
+      return;
+    }
+
+    const suppNorm = (cp.supplier || '').toLowerCase().trim();
+    const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
+    let posTotal = 0;
+    let posPending = 0;
+    suppPOs.forEach(p => {
+      const t = Math.round(Number(p.total) || 0);
+      const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
+      posTotal += t;
+      posPending += Math.max(0, t - pd);
+    });
+
+    document.getElementById('edit-sc-id').value = cp.id;
+    document.getElementById('edit-sc-supplier').value = cp.supplier || '';
+
+    const totalHint = document.getElementById('edit-sc-pos-total-hint');
+    if (totalHint) totalHint.innerText = this.formatCurrency(posTotal);
+    const pendingHint = document.getElementById('edit-sc-pos-pending-hint');
+    if (pendingHint) pendingHint.innerText = this.formatCurrency(posPending);
+
+    const currentTotalOwed = Math.round(Number(cp.totalOwed) || 0);
+    const currentPending = Math.round(Number(cp.pendingAmount) || 0);
+    const currentPaid = Math.round(Number(cp.paidAmount) || Math.max(0, currentTotalOwed - currentPending));
+
+    document.getElementById('edit-sc-total-owed').value = currentTotalOwed;
+    document.getElementById('edit-sc-paid-amount').value = currentPaid;
+    document.getElementById('edit-sc-pending-amount').value = currentPending;
+
+    this.openModal('edit-supplier-credit-modal');
+  }
+
+  fillSupplierCreditFromPOs() {
+    const cpId = document.getElementById('edit-sc-id')?.value;
+    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
+    if (!cp) return;
+
+    const suppNorm = (cp.supplier || '').toLowerCase().trim();
+    const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
+    let posTotal = 0;
+    let posPaid = 0;
+    let posPending = 0;
+    suppPOs.forEach(p => {
+      const t = Math.round(Number(p.total) || 0);
+      const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
+      posTotal += t;
+      posPaid += pd;
+      posPending += Math.max(0, t - pd);
+    });
+
+    document.getElementById('edit-sc-total-owed').value = posTotal;
+    document.getElementById('edit-sc-paid-amount').value = posPaid;
+    document.getElementById('edit-sc-pending-amount').value = posPending;
+  }
+
+  onEditSCTotalOrPaidChange(changedField) {
+    const totalEl = document.getElementById('edit-sc-total-owed');
+    const paidEl = document.getElementById('edit-sc-paid-amount');
+    const pendingEl = document.getElementById('edit-sc-pending-amount');
+
+    let total = Math.max(0, Math.round(parseFloat(totalEl?.value) || 0));
+    let paid = Math.max(0, Math.round(parseFloat(paidEl?.value) || 0));
+    let pending = Math.max(0, Math.round(parseFloat(pendingEl?.value) || 0));
+
+    if (changedField === 'total' || changedField === 'paid') {
+      pending = Math.max(0, total - paid);
+      if (pendingEl) pendingEl.value = pending;
+    } else if (changedField === 'pending') {
+      if (pending > total) {
+        total = pending;
+        if (totalEl) totalEl.value = total;
+      }
+      paid = Math.max(0, total - pending);
+      if (paidEl) paidEl.value = paid;
+    }
+  }
+
+  async saveEditedSupplierCredit(event) {
+    if (event) event.preventDefault();
+
+    const cpId = document.getElementById('edit-sc-id')?.value;
+    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
+    if (!cp) {
+      this.showToast('No se encontró el registro de crédito del proveedor', 'danger');
+      return;
+    }
+
+    const newTotalOwed = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-total-owed')?.value) || 0));
+    const newPaid = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-paid-amount')?.value) || 0));
+    const newPending = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-pending-amount')?.value) || 0));
+
+    const suppNorm = (cp.supplier || '').toLowerCase().trim();
+    const suppObj = (this.data.suppliers || []).find(s =>
+      (cp.supplierId && s.id === cp.supplierId) ||
+      (s.name || '').toLowerCase().trim() === suppNorm
+    );
+    if (suppObj) {
+      suppObj.creditBalance = newPending;
+    }
+
+    cp.totalOwed = Math.max(newTotalOwed, newPending);
+    cp.paidAmount = newPaid;
+    cp.pendingAmount = newPending;
+    cp.status = newPending > 0 ? 'Pendiente' : 'Pagado Total';
+
+    this.syncSupplierCreditsState();
+    await this.savePersistence();
+    this.syncAllModules();
+    if (typeof this.renderFinCreditosProveedoresTable === 'function') {
+      this.renderFinCreditosProveedoresTable();
+    }
+
+    this.closeModal('edit-supplier-credit-modal');
+
+    // Si estaba abierto el modal de facturas del proveedor, refrescarlo
+    const purchasesModal = document.getElementById('supplier-credit-purchases-modal');
+    if (purchasesModal && purchasesModal.classList.contains('active')) {
+      const updatedCp = (this.data.supplierCredits || []).find(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
+      if (updatedCp) {
+        this.viewSupplierCreditPurchases(updatedCp.id);
+      }
+    }
+
+    this.showToast(`Saldo de ${cp.supplier} actualizado a ${this.formatCurrency(newPending)}`, 'success');
   }
 
   renderInvServiciosTable() {
@@ -17262,7 +17814,10 @@ class NexusApp {
                 </span>
               </td>
               <td style="text-align: center;">
-                <div class="action-btn-group" style="justify-content: center;">
+                <div class="action-btn-group" style="justify-content: center; gap: 4px; flex-wrap: wrap;">
+                  <button class="btn-action-edit text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openEditPurchaseOrderModal('${this.escapeHtml(po.id)}')" title="Editar esta compra">
+                    ✏️ Editar
+                  </button>
                   ${pendingBalance > 0 ? `
                     <button class="btn btn-primary text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openAbonoModalByEntity('supplier', '${po.supplier}')" title="Abonar a Proveedor">
                       💳 Pagar

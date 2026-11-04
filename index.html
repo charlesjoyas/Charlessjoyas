@@ -2875,7 +2875,9 @@
                   <th style="padding:8px 10px;">Producto / Joya</th>
                   <th style="padding:8px 10px; text-align:right;">Gramaje / Cant</th>
                   <th style="padding:8px 10px; text-align:right;">Monto Compra</th>
+                  <th style="padding:8px 10px; text-align:right;">Abonado / Saldo</th>
                   <th style="padding:8px 10px; text-align:center;">Estado Pago</th>
+                  <th style="padding:8px 10px; text-align:center;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="supp-modal-po-tbody"></tbody>
@@ -2904,12 +2906,188 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-top:1px solid var(--border-color);">
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; padding:1rem 1.25rem; border-top:1px solid var(--border-color);">
         <button type="button" class="btn btn-secondary text-xs" onclick="app.closeModal('supplier-credit-purchases-modal')">Cerrar</button>
-        <button type="button" id="supp-modal-pay-btn" class="btn btn-primary text-xs" style="display:flex; align-items:center; gap:6px; font-weight:700;">
-          <span>💳 Registrar Pago a este Proveedor</span>
-        </button>
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+          <button type="button" id="supp-modal-edit-balance-btn" class="btn btn-secondary text-xs" style="display:inline-flex; align-items:center; gap:6px; font-weight:700; border-color:var(--primary-indigo); color:var(--primary-indigo);">
+            <span>✏️ Ajustar Saldo Proveedor</span>
+          </button>
+          <button type="button" id="supp-modal-pay-btn" class="btn btn-primary text-xs" style="display:flex; align-items:center; gap:6px; font-weight:700;">
+            <span>💳 Registrar Pago a este Proveedor</span>
+          </button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDITAR ORDEN DE COMPRA (OC) -->
+  <div class="modal-backdrop" id="edit-purchase-order-modal">
+    <div class="modal-card" style="max-width: 680px; width: 95%;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:rgba(245,158,11,0.15); color:#D97706; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">✏️</div>
+          <div>
+            <h3 class="modal-title" id="edit-po-modal-title">Editar Orden de Compra</h3>
+            <p class="modal-subtitle">Modifica gramaje, costos, proveedor o saldos pendientes de esta factura de compra.</p>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="app.closeModal('edit-purchase-order-modal')">&times;</button>
+      </div>
+      <form id="edit-purchase-order-form" onsubmit="app.saveEditedPurchaseOrder(event)">
+        <div class="modal-body" style="padding:1.25rem; max-height:78vh; overflow-y:auto;">
+          <input type="hidden" id="edit-po-id">
+          <input type="hidden" id="edit-po-from-cp-id">
+
+          <!-- Fila 1: Fecha, Proveedor y Producto -->
+          <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:0.85rem; margin-bottom:0.85rem;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-weight:700; font-size:0.78rem;">Fecha de Compra</label>
+              <input type="date" id="edit-po-date" class="form-control" required>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-weight:700; font-size:0.78rem;">Proveedor</label>
+              <input type="text" id="edit-po-supplier" list="edit-po-suppliers-datalist" class="form-control" placeholder="Nombre del proveedor" required oninput="app.updateEditPOPreview()">
+              <datalist id="edit-po-suppliers-datalist"></datalist>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.9rem;">
+            <label class="form-label" style="font-weight:700; font-size:0.78rem;">Producto / Joya Vinculada</label>
+            <div style="display:grid; grid-template-columns: 1.5fr 1fr; gap:0.75rem;">
+              <input type="text" id="edit-po-product-name" class="form-control" placeholder="Nombre del producto / joya">
+              <input type="text" id="edit-po-product-sku" class="form-control" placeholder="Código / SKU (opcional)" style="font-family:monospace;">
+            </div>
+          </div>
+
+          <!-- Fila 2: Cantidad, Gramos y Costo Unitario -->
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.9rem; margin-bottom:0.9rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap; gap:4px;">
+              <span style="font-weight:700; font-size:0.82rem; color:var(--text-main);">⚖️ Cantidades, Gramaje y Costo</span>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.72rem; font-weight:700;" onclick="app.recalcEditPOTotal('grams')">Calcular: Gramos × Costo</button>
+                <button type="button" class="btn btn-secondary text-xs" style="padding:3px 8px; font-size:0.72rem; font-weight:700;" onclick="app.recalcEditPOTotal('qty')">Calcular: Cant × Costo</button>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.75rem;">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.75rem;">Cantidad (Unid / Ítems)</label>
+                <input type="number" step="0.01" min="0" id="edit-po-qty" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.75rem;">Gramos Totales (g)</label>
+                <input type="number" step="0.01" min="0" id="edit-po-grams" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.75rem;">Costo Unitario ($)</label>
+                <input type="number" step="1" min="0" id="edit-po-unit-cost" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
+              </div>
+            </div>
+            <div style="margin-top:0.6rem; display:flex; align-items:center; gap:0.5rem;">
+              <input type="checkbox" id="edit-po-adjust-stock" style="width:15px; height:15px; cursor:pointer;">
+              <label for="edit-po-adjust-stock" style="font-size:0.76rem; color:var(--text-muted); cursor:pointer; margin:0;">
+                Si cambié los gramos o unidades, ajustar la diferencia en el stock actual del producto en inventario.
+              </label>
+            </div>
+          </div>
+
+          <!-- Fila 3: Valores Financieros de la Compra (Total, Pagado, Saldo Pendiente) -->
+          <div style="background:rgba(99,102,241,0.04); border:1px solid rgba(99,102,241,0.22); border-radius:var(--radius-md); padding:0.9rem; margin-bottom:0.9rem;">
+            <div style="font-weight:700; font-size:0.82rem; color:var(--primary-indigo); margin-bottom:0.65rem;">💰 Valores Financieros y Saldo de esta Compra</div>
+            <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:0.75rem; margin-bottom:0.75rem;">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.76rem; font-weight:700;">Total de la Compra ($)</label>
+                <input type="number" step="1" min="0" id="edit-po-total" class="form-control" style="font-weight:800; font-size:0.95rem;" required oninput="app.onEditPOTotalChange()">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.76rem; font-weight:700;">Estado de Pago</label>
+                <select id="edit-po-payment-status" class="form-control" style="font-weight:700;" onchange="app.onEditPOPaymentStatusChange()">
+                  <option value="Pendiente">⏳ Pendiente (Con saldo por pagar)</option>
+                  <option value="Pagado Total">✅ Pagado Total (Saldada)</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:0.75rem;">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.75rem; color:var(--emerald-text, #059669); font-weight:700;">Monto Ya Pagado / Abonado ($)</label>
+                <input type="number" step="1" min="0" id="edit-po-paid" class="form-control" style="color:var(--emerald-text, #059669); font-weight:700;" oninput="app.onEditPOPaidChange()">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label" style="font-size:0.75rem; color:var(--rose-text, #e11d48); font-weight:700;">Saldo Pendiente de esta Compra ($)</label>
+                <input type="number" step="1" min="0" id="edit-po-pending" class="form-control" style="color:var(--rose-text, #e11d48); font-weight:800;" oninput="app.onEditPOPendingChange()">
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila 4: Modo de Sincronización con el Saldo Global del Proveedor -->
+          <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:var(--radius-md); padding:0.85rem;">
+            <label class="form-label" style="font-weight:700; font-size:0.78rem; color:#92400E; margin-bottom:0.4rem; display:block;">🔄 ¿Cómo actualizar la deuda total del proveedor?</label>
+            <select id="edit-po-sync-mode" class="form-control" style="font-size:0.8rem; font-weight:600; margin-bottom:0.5rem;" onchange="app.updateEditPOPreview()">
+              <option value="recalc_all_pos">✅ Sincronizar deuda del proveedor con la suma exacta de sus OCs pendientes (Recomendado)</option>
+              <option value="apply_delta">➕/➖ Aplicar únicamente la diferencia de saldo de esta compra al saldo actual del proveedor</option>
+              <option value="none">🔒 Modificar solo esta compra sin cambiar el saldo global del proveedor</option>
+            </select>
+            <div id="edit-po-supplier-impact-preview" style="font-size:0.76rem; color:#78350F; line-height:1.4;"></div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-top:1px solid var(--border-color);">
+          <button type="button" class="btn btn-secondary text-xs" onclick="app.closeModal('edit-purchase-order-modal')">Cancelar</button>
+          <button type="submit" class="btn btn-primary text-xs" style="font-weight:700; padding:0.55rem 1.2rem;">💾 Guardar Cambios en Compra</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: AJUSTAR SALDO CONSOLIDADO DE CRÉDITO PROVEEDOR -->
+  <div class="modal-backdrop" id="edit-supplier-credit-modal">
+    <div class="modal-card" style="max-width: 540px; width: 95%;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+          <div style="width:40px; height:40px; border-radius:var(--radius-md); background:rgba(99,102,241,0.15); color:var(--primary-indigo); display:flex; align-items:center; justify-content:center; font-size:1.2rem;">⚖️</div>
+          <div>
+            <h3 class="modal-title" id="edit-sc-modal-title">Ajustar Saldo de Proveedor</h3>
+            <p class="modal-subtitle">Corrige el monto total facturado, abonado y el saldo real que se le debe al proveedor.</p>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="app.closeModal('edit-supplier-credit-modal')">&times;</button>
+      </div>
+      <form id="edit-supplier-credit-form" onsubmit="app.saveEditedSupplierCredit(event)">
+        <div class="modal-body" style="padding:1.25rem;">
+          <input type="hidden" id="edit-sc-id">
+          <div class="form-group" style="margin-bottom:0.85rem;">
+            <label class="form-label" style="font-weight:700; font-size:0.78rem;">Proveedor</label>
+            <input type="text" id="edit-sc-supplier" class="form-control" readonly style="font-weight:700; background:var(--canvas-bg);">
+          </div>
+
+          <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.75rem; margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">
+              Según sus órdenes de compra registradas:<br>
+              Total OCs: <b id="edit-sc-pos-total-hint" style="color:var(--text-main);">$0</b> · Pendiente OCs: <b id="edit-sc-pos-pending-hint" style="color:var(--rose-text);">$0</b>
+            </div>
+            <button type="button" class="btn btn-secondary text-xs" style="font-weight:700; padding:4px 10px;" onclick="app.fillSupplierCreditFromPOs()">
+              🔄 Usar Saldo de sus OCs
+            </button>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr; gap:0.8rem;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-weight:700; font-size:0.78rem;">Total Facturado Acumulado ($)</label>
+              <input type="number" step="1" min="0" id="edit-sc-total-owed" class="form-control" style="font-weight:700;" required oninput="app.onEditSCTotalOrPaidChange('total')">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-weight:700; font-size:0.78rem; color:var(--emerald-text, #059669);">Total Abonado / Pagado ($)</label>
+              <input type="number" step="1" min="0" id="edit-sc-paid-amount" class="form-control" style="font-weight:700; color:var(--emerald-text, #059669);" required oninput="app.onEditSCTotalOrPaidChange('paid')">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-weight:800; font-size:0.82rem; color:var(--rose-text, #e11d48);">Saldo Pendiente Real que se Debe ($)</label>
+              <input type="number" step="1" min="0" id="edit-sc-pending-amount" class="form-control" style="font-weight:800; font-size:1rem; color:var(--rose-text, #e11d48);" required oninput="app.onEditSCTotalOrPaidChange('pending')">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-top:1px solid var(--border-color);">
+          <button type="button" class="btn btn-secondary text-xs" onclick="app.closeModal('edit-supplier-credit-modal')">Cancelar</button>
+          <button type="submit" class="btn btn-primary text-xs" style="font-weight:700; padding:0.55rem 1.2rem;">💾 Guardar Saldo del Proveedor</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -5381,6 +5559,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=98" defer></script>
+  <script src="js/app.js?v=99" defer></script>
 </body>
 </html>
