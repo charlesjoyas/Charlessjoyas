@@ -3422,7 +3422,8 @@ class NexusApp {
             this.data.products.push(targetProd);
             this.data.products.sort((a, b) => this.compareProductCodes(a, b, false));
           } else {
-            // Reabastecimiento de producto existente
+            // Reabastecimiento de producto existente: respetar nombre y categoría indicados en la orden
+            if (prodName) targetProd.name = prodName;
             targetProd.measureType = measureType;
             targetProd.category = catObj.id;
             targetProd.categoryName = catObj.name;
@@ -3824,6 +3825,18 @@ class NexusApp {
   }
 
   openPurchaseModal() {
+    const poForm = document.getElementById('add-purchase-form');
+    if (poForm) poForm.reset();
+    const hiddenId = document.getElementById('po-product-id');
+    if (hiddenId) hiddenId.value = '';
+    const nameInput = document.getElementById('po-product-name');
+    if (nameInput) nameInput.value = '';
+    const skuInput = document.getElementById('po-product-sku');
+    if (skuInput) skuInput.value = '';
+    const costInput = document.getElementById('po-unit-cost');
+    if (costInput) costInput.value = '';
+    const gramsInput = document.getElementById('po-product-grams');
+    if (gramsInput) gramsInput.value = '';
     this.populatePurchaseProductSelect();
     this.openModal('purchase-modal');
   }
@@ -3834,10 +3847,15 @@ class NexusApp {
     const catSelect = document.getElementById('po-category-select');
 
     if (catSelect && this.data.categories) {
+      const prevCat = catSelect.value;
       catSelect.innerHTML = this.data.categories.map(c => 
         `<option value="${this.escapeHtml(c.id)}">${this.escapeHtml(c.name)}</option>`
       ).join('');
-      if (!catSelect.value) catSelect.value = 'oro18k';
+      if (prevCat && this.data.categories.some(c => c.id === prevCat)) {
+        catSelect.value = prevCat;
+      } else {
+        catSelect.value = 'oro18k';
+      }
     }
 
     if (suppSelect) {
@@ -3850,12 +3868,7 @@ class NexusApp {
     }
 
     if (dl && this.data.products) {
-      dl.innerHTML = this.data.products.map(p => {
-        const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
-        const unit = isPesaje ? (p.weightUnit || 'g') : 'u.';
-        const weightInfo = !isPesaje && (p.pieceWeight || p.weight) ? ` · ${p.pieceWeight || p.weight}g` : '';
-        return `<option value="${this.escapeHtml(p.name)}">${this.escapeHtml(p.name)} (Código: ${this.escapeHtml(p.sku || p.id)} · Stock: ${p.stock} ${unit}${weightInfo})</option>`;
-      }).join('');
+      dl.innerHTML = '';
     }
 
     const quantityInput = document.getElementById('po-quantity');
@@ -3874,12 +3887,13 @@ class NexusApp {
     if (statusSelect) statusSelect.value = 'Pagado Total';
     this.onPurchasePaymentStatusChange();
 
-    const nameInput = document.getElementById('po-product-name');
-    if (nameInput && nameInput.value) {
-      this.onPurchaseProductNameInput();
-    } else {
-      this.updatePurchaseCalculations();
+    const catInfo = document.getElementById('po-preview-cat-info');
+    if (catInfo && catSelect) {
+      const catObj = (this.data.categories || []).find(c => c.id === catSelect.value);
+      catInfo.textContent = `Categoría: ${catObj ? catObj.name : 'Oro 18K Italiano & Ley'}`;
     }
+
+    this.updatePurchaseCalculations();
   }
 
   onPurchaseCategoryChange() {
@@ -3889,7 +3903,7 @@ class NexusApp {
     const catObj = (this.data.categories || []).find(c => c.id === catId);
     if (catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
       const measureSelect = document.getElementById('po-measure-type');
-      if (measureSelect) {
+      if (measureSelect && measureSelect.value !== 'Unidades') {
         measureSelect.value = 'Unidades';
         this.onPurchaseMeasureTypeChange();
       }
@@ -3987,15 +4001,51 @@ class NexusApp {
     this.updatePurchaseCalculations();
   }
 
+  applyExistingProductToPurchase(prodId) {
+    const existing = (this.data.products || []).find(p => p.id === prodId);
+    if (!existing) return;
+
+    const hiddenId = document.getElementById('po-product-id');
+    const nameInput = document.getElementById('po-product-name');
+    const skuInput = document.getElementById('po-product-sku');
+    const catSelect = document.getElementById('po-category-select');
+    const measureSelect = document.getElementById('po-measure-type');
+    const unitCostInput = document.getElementById('po-unit-cost');
+    const gramsInput = document.getElementById('po-product-grams');
+    const catInfo = document.getElementById('po-preview-cat-info');
+
+    if (hiddenId) hiddenId.value = existing.id;
+    if (nameInput && existing.name) nameInput.value = existing.name;
+    if (skuInput && (existing.sku || existing.id)) skuInput.value = existing.sku || existing.id;
+    if (catSelect && existing.category) catSelect.value = existing.category;
+    if (measureSelect) measureSelect.value = existing.measureType || 'Pesaje';
+    this.onPurchaseMeasureTypeChange();
+
+    if (unitCostInput && existing.cost) {
+      unitCostInput.value = this.formatNumberWithCommas(existing.cost || 0);
+    }
+    if (gramsInput && existing.measureType === 'Unidades') {
+      const val = existing.pieceWeight !== undefined && existing.pieceWeight !== null ? existing.pieceWeight : (existing.weight || 0);
+      if (val > 0) gramsInput.value = this.formatNumberWithCommas(val, true);
+    }
+    if (catInfo) {
+      catInfo.innerHTML = `✅ Reabasteciendo: <b>${this.escapeHtml(existing.name)}</b> (${this.escapeHtml(existing.categoryName || existing.category)})`;
+    }
+    this.updatePurchaseCalculations();
+  }
+
   onPurchaseProductSkuInput() {
     const skuInput = document.getElementById('po-product-sku');
     const hiddenId = document.getElementById('po-product-id');
     const catInfo = document.getElementById('po-preview-cat-info');
+    const catSelect = document.getElementById('po-category-select');
     if (!skuInput) return;
     const skuVal = skuInput.value.trim().toLowerCase();
+    const catObj = catSelect ? (this.data.categories || []).find(c => c.id === catSelect.value) : null;
+
     if (!skuVal) {
       if (hiddenId) hiddenId.value = '';
-      if (catInfo) catInfo.textContent = 'Nuevo Producto para Inventario';
+      if (catInfo) catInfo.textContent = `Categoría: ${catObj ? catObj.name : 'General'}`;
       return;
     }
 
@@ -4007,30 +4057,17 @@ class NexusApp {
       if (cleanSkuVal && pSku.replace(/^0+/, '') === cleanSkuVal) return true;
       return false;
     });
+
     if (existing) {
       if (hiddenId) hiddenId.value = existing.id;
-      const nameInput = document.getElementById('po-product-name');
-      if (nameInput && (!nameInput.value.trim() || nameInput.value.trim().toLowerCase() !== existing.name.toLowerCase().trim())) {
-        nameInput.value = existing.name;
+      // NUNCA sobreescribir el nombre ni la categoría automáticamente mientras el usuario escribe el código;
+      // solo mostrar aviso informativo y un botón opcional por si desea cargar los datos de ese producto.
+      if (catInfo) {
+        catInfo.innerHTML = `💡 Código <b>${this.escapeHtml(existing.sku)}</b> existe: <b>${this.escapeHtml(existing.name)}</b> (${this.escapeHtml(existing.categoryName || existing.category)}) <button type="button" onclick="app.applyExistingProductToPurchase('${this.escapeHtml(existing.id)}')" style="margin-left:6px; padding:1px 7px; font-size:0.7rem; font-weight:700; border-radius:4px; border:1px solid var(--primary-indigo); background:rgba(99,102,241,0.1); color:var(--primary-indigo); cursor:pointer;">Cargar sus datos</button>`;
       }
-      const catSelect = document.getElementById('po-category-select');
-      if (catSelect && existing.category) catSelect.value = existing.category;
-      const measureSelect = document.getElementById('po-measure-type');
-      if (measureSelect) measureSelect.value = (existing.measureType || 'Pesaje');
-      const unitCostInput = document.getElementById('po-unit-cost');
-      if (unitCostInput && (!unitCostInput.value || unitCostInput.value === '0')) {
-        unitCostInput.value = this.formatNumberWithCommas(existing.cost || 0);
-      }
-      const gramsInput = document.getElementById('po-product-grams');
-      if (gramsInput && (existing.measureType === 'Unidades')) {
-        const val = existing.pieceWeight !== undefined && existing.pieceWeight !== null ? existing.pieceWeight : (existing.weight || 0);
-        if (val > 0) gramsInput.value = this.formatNumberWithCommas(val, true);
-      }
-      if (catInfo) catInfo.textContent = `Reabastecer: ${existing.name} (${existing.categoryName || existing.category})`;
-      this.onPurchaseMeasureTypeChange();
     } else {
       if (hiddenId) hiddenId.value = '';
-      if (catInfo) catInfo.textContent = 'Nuevo Producto para Inventario (Código Único)';
+      if (catInfo) catInfo.textContent = `Nuevo Producto (${catObj ? catObj.name : 'General'})`;
     }
   }
 
@@ -4038,77 +4075,18 @@ class NexusApp {
     const nameInput = document.getElementById('po-product-name');
     if (!nameInput) return;
     const rawVal = nameInput.value.trim();
-    const hiddenId = document.getElementById('po-product-id');
-    const skuInput = document.getElementById('po-product-sku');
     const catInfo = document.getElementById('po-preview-cat-info');
     const catSelect = document.getElementById('po-category-select');
+    const catObj = catSelect ? (this.data.categories || []).find(c => c.id === catSelect.value) : null;
 
-    if (!rawVal) {
-      if (hiddenId) hiddenId.value = '';
-      this.updatePurchaseCalculations();
-      return;
+    // Respetar 100% lo que el usuario escribe en el nombre y la categoría que haya elegido (no cambiar nunca categoría, SKU ni tipo de medida automáticamente).
+    if (catInfo && !document.getElementById('po-product-sku')?.value.trim()) {
+      catInfo.textContent = rawVal
+        ? `Categoría: ${catObj ? catObj.name : 'General'}`
+        : `Categoría: ${catObj ? catObj.name : '-'}`;
     }
 
-    const valLower = rawVal.toLowerCase();
-    const currentSku = (skuInput?.value || '').trim().toLowerCase();
-
-    // Si ya hay un SKU escrito, solo buscar producto con ese SKU específico
-    let targetProd = null;
-    if (currentSku) {
-      const cleanCurrentSku = currentSku.replace(/^0+/, '');
-      targetProd = (this.data.products || []).find(p => {
-        const pSku = String(p.sku || '').trim().toLowerCase();
-        if (!pSku) return false;
-        if (pSku === currentSku) return true;
-        if (cleanCurrentSku && pSku.replace(/^0+/, '') === cleanCurrentSku) return true;
-        return false;
-      });
-    } else {
-      // Coincidencia exacta por nombre
-      targetProd = (this.data.products || []).find(p => p.name && p.name.toLowerCase().trim() === valLower);
-    }
-
-    const unitCostInput = document.getElementById('po-unit-cost');
-    const gramsInput = document.getElementById('po-product-grams');
-    const measureSelect = document.getElementById('po-measure-type');
-
-    if (targetProd) {
-      if (hiddenId) hiddenId.value = targetProd.id;
-      if (skuInput && !skuInput.value.trim()) skuInput.value = targetProd.sku || targetProd.id;
-      if (unitCostInput && (!unitCostInput.value || unitCostInput.value === '0')) {
-        unitCostInput.value = this.formatNumberWithCommas(targetProd.cost || 0);
-      }
-
-      if (catSelect && targetProd.category) {
-        catSelect.value = targetProd.category;
-      }
-
-      const isUnidades = (targetProd.measureType || 'Pesaje') === 'Unidades';
-      if (measureSelect) {
-        measureSelect.value = isUnidades ? 'Unidades' : 'Pesaje';
-      }
-
-      if (gramsInput) {
-        if (isUnidades) {
-          const val = targetProd.pieceWeight !== undefined && targetProd.pieceWeight !== null ? targetProd.pieceWeight : (targetProd.weight || 0);
-          gramsInput.value = val > 0 ? this.formatNumberWithCommas(val, true) : '';
-        } else {
-          gramsInput.value = '';
-        }
-      }
-
-      if (catInfo) {
-        catInfo.textContent = `Categoría: ${targetProd.categoryName || targetProd.category || 'General'}`;
-      }
-    } else {
-      if (hiddenId) hiddenId.value = '';
-      if (catInfo) {
-        const catObj = catSelect ? (this.data.categories || []).find(c => c.id === catSelect.value) : null;
-        catInfo.textContent = `Nuevo Producto ${catObj ? `(${catObj.name})` : ''}`;
-      }
-    }
-
-    this.onPurchaseMeasureTypeChange();
+    this.updatePurchaseCalculations();
   }
 
   updatePurchaseCalculations() {
