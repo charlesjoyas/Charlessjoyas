@@ -1414,16 +1414,16 @@ class NexusApp {
     const iframeWidthCss = isFullSheetScale ? '800px' : (is80mmDirect ? '80mm' : '58mm');
 
     // Parámetros tipográficos y de ancho según el tipo de impresora
-    const baseFontPx = isFullSheetScale ? 26 : (is80mmDirect ? 15 : 13);
-    const titleFontPx = isFullSheetScale ? 46 : (is80mmDirect ? 26 : 22);
-    const subtitleFontPx = isFullSheetScale ? 28 : (is80mmDirect ? 16 : 14);
-    const totalFontPx = isFullSheetScale ? 32 : (is80mmDirect ? 19 : 16);
+    const baseFontPx = isFullSheetScale ? 30 : (is80mmDirect ? 17 : 15);
+    const titleFontPx = isFullSheetScale ? 52 : (is80mmDirect ? 29 : 25);
+    const subtitleFontPx = isFullSheetScale ? 32 : (is80mmDirect ? 18 : 16);
+    const totalFontPx = isFullSheetScale ? 36 : (is80mmDirect ? 21 : 18);
     const cardMaxWidth = isFullSheetScale ? '100%' : (is80mmDirect ? '74mm' : '52mm');
-    const cardPadding = isFullSheetScale ? '12px 22px' : '2mm 1.5mm';
+    const cardPadding = isFullSheetScale ? '12px 20px' : '2mm 1.5mm';
     const dividerBorder = isFullSheetScale ? '3px solid #000000' : '1.5px solid #000000';
     const dottedBorder = isFullSheetScale ? '2px dashed #000000' : '1px dashed #000000';
-    const logoMaxH = isFullSheetScale ? '95px' : '52px';
-    const logoMaxW = isFullSheetScale ? '280px' : '160px';
+    const logoMaxH = isFullSheetScale ? '105px' : '56px';
+    const logoMaxW = isFullSheetScale ? '300px' : '170px';
 
     // Create or reuse hidden isolated iframe for 100% clean thermal printing
     let printIframe = document.getElementById('pos-print-iframe');
@@ -21839,8 +21839,8 @@ class NexusApp {
       if (isVenta) {
         return `
           <div class="ticket-item-row" style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #000; font-weight:800;">
-            <div class="ticket-sale-line" style="display:flex; justify-content:space-between; align-items:flex-start; font-size:13px; font-weight:800; color:#000;">
-              <div style="font-weight:800; color:#000; flex:2.2; padding-right:8px; line-height:1.3;">
+            <div class="ticket-sale-line" style="display:flex; justify-content:space-between; align-items:flex-start; font-size:14px; font-weight:800; color:#000;">
+              <div style="font-weight:800; color:#000; flex:2.2; padding-right:8px; line-height:1.32;">
                 ${codePrefix}${name}
               </div>
               <div class="ticket-amount" style="flex:1.1; text-align:right; font-weight:900; color:#000; white-space:nowrap;">
@@ -21853,8 +21853,8 @@ class NexusApp {
 
       return `
         <div class="ticket-item-row" style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #000; font-weight:800;">
-          <div style="font-weight:800; font-size:13px; color:#000;">${codePrefix}${name}</div>
-          <div style="display:flex; justify-content:space-between; font-size:12.5px; color:#000; margin-top:2px; font-weight:800;">
+          <div style="font-weight:800; font-size:14px; color:#000;">${codePrefix}${name}</div>
+          <div style="display:flex; justify-content:space-between; font-size:13.5px; color:#000; margin-top:2px; font-weight:800;">
             <span style="flex:1.2; text-align:left; font-weight:800;">${qtyStr}</span>
             <span style="flex:1.5; text-align:center; font-weight:800;">${priceStr}</span>
             <span style="flex:1.3; text-align:right; font-weight:900;">${totalStr}</span>
@@ -21864,17 +21864,17 @@ class NexusApp {
     }).join('');
 
     return `
-      <div class="thermal-ticket-card" style="width:100%; max-width:360px; margin:0 auto; font-family:'Helvetica Neue', Arial, Helvetica, sans-serif; font-size:13px; line-height:1.38; color:#000000; background:#ffffff; padding:14px 12px; border-radius:3px; font-weight:800 !important;">
+      <div class="thermal-ticket-card" style="width:100%; max-width:360px; margin:0 auto; font-family:'Helvetica Neue', Arial, Helvetica, sans-serif; font-size:14px; line-height:1.4; color:#000000; background:#ffffff; padding:14px 12px; border-radius:3px; font-weight:800 !important;">
         <!-- CABECERA: MARCA + LEY DE METAL DINÁMICA -->
         <div style="text-align:center; margin-bottom:4px; font-weight:800;">
           ${logoHtml ? `<div style="margin-bottom:4px;">${logoHtml}</div>` : ''}
-          <div class="ticket-brand-title" style="font-size:22px; font-weight:900; font-family:Georgia, serif; letter-spacing:0.4px; color:#000000; line-height:1.2;">${storeName}</div>
-          <div class="ticket-brand-subtitle" style="font-size:14px; font-style:italic; font-family:Georgia, serif; color:#000000; margin-top:2px; font-weight:800;">${metalLey}</div>
+          <div class="ticket-brand-title" style="font-size:24px; font-weight:900; font-family:Georgia, serif; letter-spacing:0.4px; color:#000000; line-height:1.2;">${storeName}</div>
+          <div class="ticket-brand-subtitle" style="font-size:15px; font-style:italic; font-family:Georgia, serif; color:#000000; margin-top:2px; font-weight:800;">${metalLey}</div>
           <div class="ticket-divider-dotted" style="border-bottom:1.5px dashed #000000; margin:6px 0;"></div>
         </div>
 
         <!-- DATOS DEL COMERCIO Y UBICACIÓN -->
-        <div class="ticket-store-info" style="text-align:center; font-size:12.5px; line-height:1.65; margin:8px 0; font-weight:800; color:#000000;">
+        <div class="ticket-store-info" style="text-align:center; font-size:13.5px; line-height:1.65; margin:8px 0; font-weight:800; color:#000000;">
           ${legalName ? `<div style="font-weight:800; margin-bottom:4px;">${legalName}</div>` : ''}
           ${address ? `<div style="font-weight:800; margin-bottom:4px;">${address}</div>` : ''}
           ${addressExtra ? `<div style="font-weight:800; margin-bottom:4px;">${addressExtra}</div>` : ''}
@@ -21886,7 +21886,7 @@ class NexusApp {
         <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:6px 0;"></div>
 
         <!-- DATOS TERCERO Y OPERADOR -->
-        <div class="ticket-party-info" style="font-size:12.5px; line-height:1.4; margin-bottom:6px; font-weight:800; color:#000000;">
+        <div class="ticket-party-info" style="font-size:13.5px; line-height:1.45; margin-bottom:6px; font-weight:800; color:#000000;">
           <div><b style="font-weight:900;">${partyLabel}:</b> ${this.escapeHtml(partyName || (type === 'compra' ? 'Proveedor' : 'Cliente Mostrador'))}</div>
           ${partyDocument ? `<div><b style="font-weight:900;">${this.escapeHtml(partyDocType || 'Doc')}:</b> ${this.escapeHtml(partyDocument)}</div>` : ''}
           ${partyAddress ? `<div><b style="font-weight:900;">Dir:</b> ${this.escapeHtml(partyAddress)}</div>` : ''}
@@ -21898,12 +21898,12 @@ class NexusApp {
 
         <!-- ENCABEZADO DE COLUMNAS -->
         ${isVenta ? `
-        <div class="ticket-col-header" style="display:flex; justify-content:space-between; font-weight:900; font-size:12.5px; padding:2px 0; color:#000000;">
+        <div class="ticket-col-header" style="display:flex; justify-content:space-between; font-weight:900; font-size:13.5px; padding:2px 0; color:#000000;">
           <span style="flex:2.2; text-align:left; font-weight:900;">Descripción</span>
           <span style="flex:1.1; text-align:right; font-weight:900;">Valor</span>
         </div>
         ` : `
-        <div class="ticket-col-header" style="display:flex; justify-content:space-between; font-weight:900; font-size:12.5px; padding:2px 0; color:#000000;">
+        <div class="ticket-col-header" style="display:flex; justify-content:space-between; font-weight:900; font-size:13.5px; padding:2px 0; color:#000000;">
           <span style="flex:1.2; text-align:left; font-weight:900;">Cant</span>
           <span style="flex:1.5; text-align:center; font-weight:900;">$/Unid</span>
           <span style="flex:1.3; text-align:right; font-weight:900;">Total</span>
@@ -21920,7 +21920,7 @@ class NexusApp {
         <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:6px 0;"></div>
 
         <!-- TOTALES Y LIQUIDACIÓN -->
-        <div class="ticket-totals-section" style="font-size:13px; line-height:1.45; font-weight:800; color:#000000;">
+        <div class="ticket-totals-section" style="font-size:14px; line-height:1.48; font-weight:800; color:#000000;">
           ${tax > 0 ? `
           <div style="display:flex; justify-content:space-between; font-weight:800;">
             <span style="font-weight:800;">Subtotal:</span>
@@ -21930,7 +21930,7 @@ class NexusApp {
             <span style="font-weight:800;">IVA (${store.taxRate || 0}%):</span>
             <span style="font-weight:800;">${this.formatCurrency(tax)}</span>
           </div>` : ''}
-          <div class="ticket-grand-total" style="display:flex; justify-content:space-between; font-weight:900; font-size:15px; margin:3px 0;">
+          <div class="ticket-grand-total" style="display:flex; justify-content:space-between; font-weight:900; font-size:16.5px; margin:3px 0;">
             <span style="font-weight:900;">${type === 'compra' ? 'TOTAL COMPRA:' : 'TOTAL VENTA:'}</span>
             <span class="ticket-amount" style="font-weight:900;">${this.formatCurrency(total)}</span>
           </div>
@@ -22011,7 +22011,7 @@ class NexusApp {
         <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:8px 0 6px 0;"></div>
 
         <!-- PIE DE RECIBO -->
-        <div class="ticket-footer" style="text-align:center; font-weight:900; font-size:12.5px; margin-top:4px; letter-spacing:0.3px; color:#000000;">
+        <div class="ticket-footer" style="text-align:center; font-weight:900; font-size:13.5px; margin-top:4px; letter-spacing:0.3px; color:#000000;">
           ${footerLabel}
         </div>
       </div>
