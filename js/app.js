@@ -1440,6 +1440,7 @@ class NexusApp {
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
   <title>Ticket POS - ${this.escapeHtml(this.data.store?.name || 'Comprobante')}</title>
   <style id="ticket-page-size">@page { margin: 0; }</style>
   <style>
@@ -1449,6 +1450,12 @@ class NexusApp {
       print-color-adjust: exact !important;
       font-weight: 800 !important;
       color: #000000 !important;
+      text-decoration: none !important;
+    }
+    a, a[href], a[x-apple-data-detectors], .thermal-ticket-card a {
+      color: #000000 !important;
+      text-decoration: none !important;
+      border-bottom: none !important;
     }
     html, body {
       margin: 0 !important;
@@ -1498,7 +1505,6 @@ class NexusApp {
       font-weight: 800 !important;
       margin-top: 3px !important;
     }
-    .thermal-ticket-card .ticket-store-info,
     .thermal-ticket-card .ticket-party-info,
     .thermal-ticket-card .ticket-col-header,
     .thermal-ticket-card .ticket-sale-line,
@@ -1506,8 +1512,21 @@ class NexusApp {
     .thermal-ticket-card .ticket-totals-section,
     .thermal-ticket-card .ticket-footer {
       font-size: ${baseFontPx}px !important;
-      line-height: 1.38 !important;
+      line-height: 1.42 !important;
       font-weight: 800 !important;
+    }
+    .thermal-ticket-card .ticket-store-info {
+      font-size: ${baseFontPx}px !important;
+      line-height: 1.68 !important;
+      margin: ${isFullSheetScale ? '14px 0' : '8px 0'} !important;
+      font-weight: 800 !important;
+    }
+    .thermal-ticket-card .ticket-store-info > div {
+      margin-bottom: ${isFullSheetScale ? '8px' : '4px'} !important;
+    }
+    .thermal-ticket-card .ticket-store-tx-line {
+      margin-top: ${isFullSheetScale ? '14px' : '8px'} !important;
+      margin-bottom: 0 !important;
     }
     .thermal-ticket-card .ticket-grand-total {
       font-size: ${totalFontPx}px !important;
@@ -21855,13 +21874,13 @@ class NexusApp {
         </div>
 
         <!-- DATOS DEL COMERCIO Y UBICACIÓN -->
-        <div class="ticket-store-info" style="text-align:center; font-size:12.5px; line-height:1.38; margin-bottom:6px; font-weight:800; color:#000000;">
-          ${legalName ? `<div style="font-weight:800;">${legalName}</div>` : ''}
-          ${address ? `<div style="font-weight:800;">${address}</div>` : ''}
-          ${addressExtra ? `<div style="font-weight:800;">${addressExtra}</div>` : ''}
-          ${phone ? `<div style="font-weight:800;">CEL ${phone}</div>` : ''}
-          ${taxId ? `<div style="font-weight:800;">NIT ${taxId}</div>` : ''}
-          <div style="margin-top:5px; font-weight:900;">${txTitle} #${this.escapeHtml(txId)} - ${dateStr} ${timeStr}</div>
+        <div class="ticket-store-info" style="text-align:center; font-size:12.5px; line-height:1.65; margin:8px 0; font-weight:800; color:#000000;">
+          ${legalName ? `<div style="font-weight:800; margin-bottom:4px;">${legalName}</div>` : ''}
+          ${address ? `<div style="font-weight:800; margin-bottom:4px;">${address}</div>` : ''}
+          ${addressExtra ? `<div style="font-weight:800; margin-bottom:4px;">${addressExtra}</div>` : ''}
+          ${phone ? `<div style="font-weight:800; margin-bottom:4px;">CEL <span style="text-decoration:none; color:#000000;">${phone}</span></div>` : ''}
+          ${taxId ? `<div style="font-weight:800; margin-bottom:4px;">NIT <span style="text-decoration:none; color:#000000;">${taxId}</span></div>` : ''}
+          <div class="ticket-store-tx-line" style="margin-top:8px; font-weight:900;">${txTitle} #${this.escapeHtml(txId)} - ${dateStr} ${timeStr}</div>
         </div>
 
         <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:6px 0;"></div>
