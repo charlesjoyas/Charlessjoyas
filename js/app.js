@@ -1368,6 +1368,12 @@ class NexusApp {
     if (modal) {
       modal.classList.add('open');
       this.attachGlobalNumberMasks();
+      if (modalId === 'receipt-modal') {
+        const profileSelect = document.getElementById('receipt-print-profile');
+        if (profileSelect) {
+          profileSelect.value = this.getReceiptPrintProfile();
+        }
+      }
     }
   }
 
@@ -1376,7 +1382,21 @@ class NexusApp {
     if (modal) modal.classList.remove('open');
   }
 
-  printTicket() {
+  getReceiptPrintProfile() {
+    try {
+      return localStorage.getItem('nexus_receipt_print_profile') || 'ipad_80mm';
+    } catch (_) {
+      return 'ipad_80mm';
+    }
+  }
+
+  onReceiptPrintProfileChange(profile) {
+    try {
+      localStorage.setItem('nexus_receipt_print_profile', profile || 'ipad_80mm');
+    } catch (_) {}
+  }
+
+  async printTicket() {
     const receiptBody = document.getElementById('receipt-modal-body');
     if (!receiptBody) {
       window.print();
@@ -1384,15 +1404,35 @@ class NexusApp {
     }
 
     const ticketHtml = receiptBody.innerHTML;
+    const profileSelect = document.getElementById('receipt-print-profile');
+    const profile = (profileSelect && profileSelect.value) ? profileSelect.value : this.getReceiptPrintProfile();
+    this.onReceiptPrintProfileChange(profile);
+
+    const isFullSheetScale = profile === 'ipad_80mm';
+    const is80mmDirect = profile === 'thermal_80mm';
+    const paperWidthMm = is80mmDirect ? 80 : 58;
+    const iframeWidthCss = isFullSheetScale ? '800px' : (is80mmDirect ? '80mm' : '58mm');
+
+    // Parámetros tipográficos y de ancho según el tipo de impresora
+    const baseFontPx = isFullSheetScale ? 26 : (is80mmDirect ? 15 : 13);
+    const titleFontPx = isFullSheetScale ? 46 : (is80mmDirect ? 26 : 22);
+    const subtitleFontPx = isFullSheetScale ? 28 : (is80mmDirect ? 16 : 14);
+    const totalFontPx = isFullSheetScale ? 32 : (is80mmDirect ? 19 : 16);
+    const cardMaxWidth = isFullSheetScale ? '100%' : (is80mmDirect ? '74mm' : '52mm');
+    const cardPadding = isFullSheetScale ? '12px 22px' : '2mm 1.5mm';
+    const dividerBorder = isFullSheetScale ? '3px solid #000000' : '1.5px solid #000000';
+    const dottedBorder = isFullSheetScale ? '2px dashed #000000' : '1px dashed #000000';
+    const logoMaxH = isFullSheetScale ? '95px' : '52px';
+    const logoMaxW = isFullSheetScale ? '280px' : '160px';
 
     // Create or reuse hidden isolated iframe for 100% clean thermal printing
     let printIframe = document.getElementById('pos-print-iframe');
     if (!printIframe) {
       printIframe = document.createElement('iframe');
       printIframe.id = 'pos-print-iframe';
-      printIframe.setAttribute('style', 'position:fixed; right:-9999px; bottom:-9999px; width:80mm; height:100px; border:0; visibility:hidden;');
       document.body.appendChild(printIframe);
     }
+    printIframe.setAttribute('style', `position:fixed; right:-9999px; bottom:-9999px; width:${iframeWidthCss}; height:100px; border:0; visibility:hidden;`);
 
     const doc = printIframe.contentDocument || printIframe.contentWindow.document;
     doc.open();
@@ -1401,48 +1441,102 @@ class NexusApp {
 <head>
   <meta charset="UTF-8">
   <title>Ticket POS - ${this.escapeHtml(this.data.store?.name || 'Comprobante')}</title>
+  <style id="ticket-page-size">@page { margin: 0; }</style>
   <style>
-    @page {
-      size: 80mm auto;
-      margin: 0;
-    }
     * {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
-      font-weight: 700 !important;
+      font-weight: 800 !important;
+      color: #000000 !important;
     }
     html, body {
-      margin: 0;
-      padding: 0;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
       background: #ffffff !important;
       color: #000000 !important;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 12px;
-      line-height: 1.35;
-      font-weight: 700 !important;
+      font-family: 'Helvetica Neue', Arial, Helvetica, sans-serif !important;
+      font-size: ${baseFontPx}px !important;
+      line-height: 1.35 !important;
+      font-weight: 800 !important;
+      -webkit-font-smoothing: antialiased !important;
+      text-rendering: geometricPrecision !important;
     }
     .thermal-ticket-card {
-      width: 76mm !important;
-      max-width: 76mm !important;
+      width: 100% !important;
+      max-width: ${cardMaxWidth} !important;
+      overflow-wrap: anywhere;
       margin: 0 auto !important;
-      padding: 2mm 1mm !important;
+      padding: ${cardPadding} !important;
       background: #ffffff !important;
       color: #000000 !important;
       border: none !important;
       box-shadow: none !important;
       box-sizing: border-box !important;
-      font-weight: 700 !important;
+      font-family: 'Helvetica Neue', Arial, Helvetica, sans-serif !important;
+      font-size: ${baseFontPx}px !important;
+      line-height: 1.35 !important;
+      font-weight: 800 !important;
+    }
+    .thermal-ticket-card .ticket-logo,
+    img {
+      max-height: ${logoMaxH} !important;
+      max-width: min(${logoMaxW}, 100%) !important;
+      height: auto !important;
+      display: block !important;
+      margin: 0 auto 8px auto !important;
+    }
+    .thermal-ticket-card .ticket-brand-title {
+      font-size: ${titleFontPx}px !important;
+      font-weight: 900 !important;
+      line-height: 1.15 !important;
+      letter-spacing: 0.3px !important;
+    }
+    .thermal-ticket-card .ticket-brand-subtitle {
+      font-size: ${subtitleFontPx}px !important;
+      font-weight: 800 !important;
+      margin-top: 3px !important;
+    }
+    .thermal-ticket-card .ticket-store-info,
+    .thermal-ticket-card .ticket-party-info,
+    .thermal-ticket-card .ticket-col-header,
+    .thermal-ticket-card .ticket-sale-line,
+    .thermal-ticket-card .ticket-item-row,
+    .thermal-ticket-card .ticket-totals-section,
+    .thermal-ticket-card .ticket-footer {
+      font-size: ${baseFontPx}px !important;
+      line-height: 1.38 !important;
+      font-weight: 800 !important;
+    }
+    .thermal-ticket-card .ticket-grand-total {
+      font-size: ${totalFontPx}px !important;
+      font-weight: 900 !important;
+      margin: 6px 0 !important;
+    }
+    .thermal-ticket-card .ticket-divider {
+      border-bottom: ${dividerBorder} !important;
+      margin: ${isFullSheetScale ? '12px 0' : '6px 0'} !important;
+    }
+    .thermal-ticket-card .ticket-divider-dotted {
+      border-bottom: ${dottedBorder} !important;
+      margin: ${isFullSheetScale ? '10px 0' : '5px 0'} !important;
+    }
+    .thermal-ticket-card .ticket-sale-line {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: flex-start !important;
+    }
+    .thermal-ticket-card .ticket-amount {
+      flex: 0 0 auto !important;
+      padding-left: ${isFullSheetScale ? '12px' : '2mm'} !important;
+      white-space: nowrap !important;
+      font-weight: 900 !important;
     }
     .thermal-ticket-card * {
+      min-width: 0;
       color: #000000 !important;
-      font-weight: 700 !important;
-    }
-    img {
-      max-width: 130px !important;
-      height: auto !important;
-      display: block;
-      margin: 0 auto 4px auto;
+      font-weight: 800 !important;
     }
   </style>
 </head>
@@ -1452,16 +1546,30 @@ class NexusApp {
 </html>`);
     doc.close();
 
-    // Ensure iframe content is ready before triggering print
-    setTimeout(() => {
-      try {
-        printIframe.contentWindow.focus();
-        printIframe.contentWindow.print();
-      } catch (err) {
-        console.warn('Iframe print failed, falling back to window.print():', err);
-        window.print();
+    try {
+      const pendingImages = Array.from(doc.images).filter(image => !image.complete);
+      if (pendingImages.length) {
+        await Promise.race([
+          Promise.allSettled(pendingImages.map(image => image.decode())),
+          new Promise(resolve => setTimeout(resolve, 750))
+        ]);
       }
-    }, 250);
+
+      if (!isFullSheetScale) {
+        const heightMm = Math.ceil(doc.body.getBoundingClientRect().height * 25.4 / 96) + 4;
+        if (heightMm > 2) {
+          doc.getElementById('ticket-page-size').textContent =
+            '@page { size: ' + paperWidthMm + 'mm ' + heightMm + 'mm; margin: 0; }';
+        }
+      } else {
+        doc.getElementById('ticket-page-size').textContent = '@page { margin: 0; }';
+      }
+      printIframe.contentWindow.focus();
+      printIframe.contentWindow.print();
+    } catch (err) {
+      console.warn('Iframe print failed, falling back to window.print():', err);
+      window.print();
+    }
   }
 
   /* --------------------------------------------------------------------------
@@ -21697,7 +21805,7 @@ class NexusApp {
     const agentLabel = type === 'compra' ? 'Comprador' : 'Vendedor';
     const footerLabel = type === 'compra' ? 'Recibo de compra' : 'Recibo de venta';
 
-    const logoHtml = store.branding?.logoUrl ? `<img src="${store.branding.logoUrl}" style="max-height:42px; max-width:130px; margin-bottom:4px; object-fit:contain;">` : '';
+    const logoHtml = store.branding?.logoUrl ? `<img class="ticket-logo" src="${store.branding.logoUrl}" style="max-height:48px; max-width:150px; margin-bottom:4px; object-fit:contain;">` : '';
 
     const isVenta = type === 'venta';
 
@@ -21711,12 +21819,12 @@ class NexusApp {
 
       if (isVenta) {
         return `
-          <div style="margin-bottom:6px; padding-bottom:3px; border-bottom:1px dotted #eaeaea; font-weight:700;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; font-size:12px; font-weight:700;">
-              <div style="font-weight:700; color:#000; flex:2.2; padding-right:8px; line-height:1.3;">
+          <div class="ticket-item-row" style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #000; font-weight:800;">
+            <div class="ticket-sale-line" style="display:flex; justify-content:space-between; align-items:flex-start; font-size:13px; font-weight:800; color:#000;">
+              <div style="font-weight:800; color:#000; flex:2.2; padding-right:8px; line-height:1.3;">
                 ${codePrefix}${name}
               </div>
-              <div style="flex:1.1; text-align:right; font-weight:700; color:#000; white-space:nowrap;">
+              <div class="ticket-amount" style="flex:1.1; text-align:right; font-weight:900; color:#000; white-space:nowrap;">
                 ${totalStr}
               </div>
             </div>
@@ -21725,166 +21833,166 @@ class NexusApp {
       }
 
       return `
-        <div style="margin-bottom:6px; font-weight:700;">
-          <div style="font-weight:700; font-size:12px; color:#000;">${codePrefix}${name}</div>
-          <div style="display:flex; justify-content:space-between; font-size:11.5px; color:#111; margin-top:1px; font-weight:700;">
-            <span style="flex:1.2; text-align:left; font-weight:700;">${qtyStr}</span>
-            <span style="flex:1.5; text-align:center; font-weight:700;">${priceStr}</span>
-            <span style="flex:1.3; text-align:right; font-weight:700;">${totalStr}</span>
+        <div class="ticket-item-row" style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #000; font-weight:800;">
+          <div style="font-weight:800; font-size:13px; color:#000;">${codePrefix}${name}</div>
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; color:#000; margin-top:2px; font-weight:800;">
+            <span style="flex:1.2; text-align:left; font-weight:800;">${qtyStr}</span>
+            <span style="flex:1.5; text-align:center; font-weight:800;">${priceStr}</span>
+            <span style="flex:1.3; text-align:right; font-weight:900;">${totalStr}</span>
           </div>
         </div>
       `;
     }).join('');
 
     return `
-      <div class="thermal-ticket-card" style="max-width:320px; margin:0 auto; font-family:'Courier New', Courier, monospace; font-size:12px; line-height:1.35; color:#000; background:#fff; padding:14px 10px; border-radius:3px; font-weight:700 !important;">
+      <div class="thermal-ticket-card" style="width:100%; max-width:360px; margin:0 auto; font-family:'Helvetica Neue', Arial, Helvetica, sans-serif; font-size:13px; line-height:1.38; color:#000000; background:#ffffff; padding:14px 12px; border-radius:3px; font-weight:800 !important;">
         <!-- CABECERA: MARCA + LEY DE METAL DINÁMICA -->
-        <div style="text-align:center; margin-bottom:4px; font-weight:700;">
+        <div style="text-align:center; margin-bottom:4px; font-weight:800;">
           ${logoHtml ? `<div style="margin-bottom:4px;">${logoHtml}</div>` : ''}
-          <div style="font-size:21px; font-weight:800; font-family:Georgia, serif; letter-spacing:0.4px; color:#000; line-height:1.2;">${storeName}</div>
-          <div style="font-size:13px; font-style:italic; font-family:Georgia, serif; color:#222; margin-top:2px; font-weight:700;">${metalLey}</div>
-          <div style="border-bottom:1px dotted #333; margin:6px 0;"></div>
+          <div class="ticket-brand-title" style="font-size:22px; font-weight:900; font-family:Georgia, serif; letter-spacing:0.4px; color:#000000; line-height:1.2;">${storeName}</div>
+          <div class="ticket-brand-subtitle" style="font-size:14px; font-style:italic; font-family:Georgia, serif; color:#000000; margin-top:2px; font-weight:800;">${metalLey}</div>
+          <div class="ticket-divider-dotted" style="border-bottom:1.5px dashed #000000; margin:6px 0;"></div>
         </div>
 
         <!-- DATOS DEL COMERCIO Y UBICACIÓN -->
-        <div style="text-align:center; font-size:11.5px; line-height:1.35; margin-bottom:6px; font-weight:700;">
-          ${legalName ? `<div style="font-weight:700;">${legalName}</div>` : ''}
-          ${address ? `<div style="font-weight:700;">${address}</div>` : ''}
-          ${addressExtra ? `<div style="font-weight:700;">${addressExtra}</div>` : ''}
-          ${phone ? `<div style="font-weight:700;">CEL ${phone}</div>` : ''}
-          ${taxId ? `<div style="font-weight:700;">NIT ${taxId}</div>` : ''}
-          <div style="margin-top:5px; font-weight:700;">${txTitle} #${this.escapeHtml(txId)} - ${dateStr} ${timeStr}</div>
+        <div class="ticket-store-info" style="text-align:center; font-size:12.5px; line-height:1.38; margin-bottom:6px; font-weight:800; color:#000000;">
+          ${legalName ? `<div style="font-weight:800;">${legalName}</div>` : ''}
+          ${address ? `<div style="font-weight:800;">${address}</div>` : ''}
+          ${addressExtra ? `<div style="font-weight:800;">${addressExtra}</div>` : ''}
+          ${phone ? `<div style="font-weight:800;">CEL ${phone}</div>` : ''}
+          ${taxId ? `<div style="font-weight:800;">NIT ${taxId}</div>` : ''}
+          <div style="margin-top:5px; font-weight:900;">${txTitle} #${this.escapeHtml(txId)} - ${dateStr} ${timeStr}</div>
         </div>
 
-        <div style="border-bottom:1px solid #111; margin:6px 0;"></div>
+        <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:6px 0;"></div>
 
         <!-- DATOS TERCERO Y OPERADOR -->
-        <div style="font-size:11.5px; line-height:1.4; margin-bottom:6px; font-weight:700;">
-          <div><b style="font-weight:800;">${partyLabel}:</b> ${this.escapeHtml(partyName || (type === 'compra' ? 'Proveedor' : 'Cliente Mostrador'))}</div>
-          ${partyDocument ? `<div><b style="font-weight:800;">${this.escapeHtml(partyDocType || 'Doc')}:</b> ${this.escapeHtml(partyDocument)}</div>` : ''}
-          ${partyAddress ? `<div><b style="font-weight:800;">Dir:</b> ${this.escapeHtml(partyAddress)}</div>` : ''}
-          ${partyPhone ? `<div><b style="font-weight:800;">Tel:</b> ${this.escapeHtml(partyPhone)}</div>` : ''}
-          <div><b style="font-weight:800;">${agentLabel}:</b> ${this.escapeHtml(agentName || 'Operador')}</div>
+        <div class="ticket-party-info" style="font-size:12.5px; line-height:1.4; margin-bottom:6px; font-weight:800; color:#000000;">
+          <div><b style="font-weight:900;">${partyLabel}:</b> ${this.escapeHtml(partyName || (type === 'compra' ? 'Proveedor' : 'Cliente Mostrador'))}</div>
+          ${partyDocument ? `<div><b style="font-weight:900;">${this.escapeHtml(partyDocType || 'Doc')}:</b> ${this.escapeHtml(partyDocument)}</div>` : ''}
+          ${partyAddress ? `<div><b style="font-weight:900;">Dir:</b> ${this.escapeHtml(partyAddress)}</div>` : ''}
+          ${partyPhone ? `<div><b style="font-weight:900;">Tel:</b> ${this.escapeHtml(partyPhone)}</div>` : ''}
+          <div><b style="font-weight:900;">${agentLabel}:</b> ${this.escapeHtml(agentName || 'Operador')}</div>
         </div>
 
-        <div style="border-bottom:1px solid #111; margin:6px 0;"></div>
+        <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:6px 0;"></div>
 
         <!-- ENCABEZADO DE COLUMNAS -->
         ${isVenta ? `
-        <div style="display:flex; justify-content:space-between; font-weight:800; font-size:11.5px; padding:2px 0;">
-          <span style="flex:2.2; text-align:left; font-weight:800;">Descripción</span>
-          <span style="flex:1.1; text-align:right; font-weight:800;">Valor</span>
+        <div class="ticket-col-header" style="display:flex; justify-content:space-between; font-weight:900; font-size:12.5px; padding:2px 0; color:#000000;">
+          <span style="flex:2.2; text-align:left; font-weight:900;">Descripción</span>
+          <span style="flex:1.1; text-align:right; font-weight:900;">Valor</span>
         </div>
         ` : `
-        <div style="display:flex; justify-content:space-between; font-weight:800; font-size:11.5px; padding:2px 0;">
-          <span style="flex:1.2; text-align:left; font-weight:800;">Cant</span>
-          <span style="flex:1.5; text-align:center; font-weight:800;">$/Unid</span>
-          <span style="flex:1.3; text-align:right; font-weight:800;">Total</span>
+        <div class="ticket-col-header" style="display:flex; justify-content:space-between; font-weight:900; font-size:12.5px; padding:2px 0; color:#000000;">
+          <span style="flex:1.2; text-align:left; font-weight:900;">Cant</span>
+          <span style="flex:1.5; text-align:center; font-weight:900;">$/Unid</span>
+          <span style="flex:1.3; text-align:right; font-weight:900;">Total</span>
         </div>
         `}
 
-        <div style="border-bottom:1px solid #111; margin:3px 0 6px 0;"></div>
+        <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:3px 0 6px 0;"></div>
 
         <!-- LISTA DE PRODUCTOS -->
-        <div style="margin-bottom:6px; font-weight:700;">
+        <div class="ticket-items-list" style="margin-bottom:6px; font-weight:800;">
           ${itemsRowsHtml}
         </div>
 
-        <div style="border-bottom:1px solid #111; margin:6px 0;"></div>
+        <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:6px 0;"></div>
 
         <!-- TOTALES Y LIQUIDACIÓN -->
-        <div style="font-size:12px; line-height:1.45; font-weight:700;">
+        <div class="ticket-totals-section" style="font-size:13px; line-height:1.45; font-weight:800; color:#000000;">
           ${tax > 0 ? `
-          <div style="display:flex; justify-content:space-between; font-weight:700;">
-            <span style="font-weight:700;">Subtotal:</span>
-            <span style="font-weight:700;">${this.formatCurrency(subtotal)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:800;">
+            <span style="font-weight:800;">Subtotal:</span>
+            <span style="font-weight:800;">${this.formatCurrency(subtotal)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-weight:700;">
-            <span style="font-weight:700;">IVA (${store.taxRate || 0}%):</span>
-            <span style="font-weight:700;">${this.formatCurrency(tax)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:800;">
+            <span style="font-weight:800;">IVA (${store.taxRate || 0}%):</span>
+            <span style="font-weight:800;">${this.formatCurrency(tax)}</span>
           </div>` : ''}
-          <div style="display:flex; justify-content:space-between; font-weight:800; font-size:13.5px; margin:2px 0;">
-            <span style="font-weight:800;">${type === 'compra' ? 'TOTAL COMPRA:' : 'TOTAL VENTA:'}</span>
-            <span style="font-weight:800;">${this.formatCurrency(total)}</span>
+          <div class="ticket-grand-total" style="display:flex; justify-content:space-between; font-weight:900; font-size:15px; margin:3px 0;">
+            <span style="font-weight:900;">${type === 'compra' ? 'TOTAL COMPRA:' : 'TOTAL VENTA:'}</span>
+            <span class="ticket-amount" style="font-weight:900;">${this.formatCurrency(total)}</span>
           </div>
           ${options.bankFeeAmount > 0 ? `
-          <div style="display:flex; justify-content:space-between; font-weight:700; color:#222; font-size:11.5px;">
+          <div style="display:flex; justify-content:space-between; font-weight:800; color:#000000;">
             <span>Recargo Banco/Datáfono (${options.bankFeePercent || 0}%):</span>
             <span>+${this.formatCurrency(options.bankFeeAmount)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-weight:800; font-size:13px; margin:3px 0 1px 0; color:#000;">
+          <div style="display:flex; justify-content:space-between; font-weight:900; margin:3px 0 1px 0; color:#000000;">
             <span>TOTAL COBRADO CLIENTE:</span>
             <span>${this.formatCurrency(options.totalChargedToCustomer || (total + options.bankFeeAmount))}</span>
           </div>
-          <div style="font-size:10px; font-style:italic; color:#444; text-align:center; margin-bottom:4px;">
+          <div style="font-style:italic; color:#000000; text-align:center; margin-bottom:4px;">
             * Comisión bancaria retenida directamente por el datáfono
           </div>` : ''}
-          <div style="display:flex; justify-content:space-between; font-weight:700;">
-            <span style="font-weight:700;">Pagado:</span>
-            <span style="font-weight:700;">${this.formatCurrency(paidAmount)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:800;">
+            <span style="font-weight:800;">Pagado:</span>
+            <span style="font-weight:800;">${this.formatCurrency(paidAmount)}</span>
           </div>
           ${type === 'compra' && paidAmount < total ? `
-          <div style="display:flex; justify-content:space-between; font-weight:800; color:#b91c1c;">
-            <span style="font-weight:800;">Saldo Pendiente:</span>
-            <span style="font-weight:800;">${this.formatCurrency(total - paidAmount)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:900; color:#000000;">
+            <span style="font-weight:900;">Saldo Pendiente:</span>
+            <span style="font-weight:900;">${this.formatCurrency(total - paidAmount)}</span>
           </div>` : ''}
           ${changeAmount > 0 ? `
-          <div style="display:flex; justify-content:space-between; font-weight:700;">
-            <span style="font-weight:700;">Cambio:</span>
-            <span style="font-weight:700;">${this.formatCurrency(changeAmount)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:800;">
+            <span style="font-weight:800;">Cambio:</span>
+            <span style="font-weight:800;">${this.formatCurrency(changeAmount)}</span>
           </div>` : ''}
           ${options.mixedPayments && Array.isArray(options.mixedPayments) && options.mixedPayments.length > 0 ? `
-          <div style="margin-top:2px; font-weight:700;">
-            <div style="display:flex; justify-content:space-between; font-weight:800;">
+          <div style="margin-top:2px; font-weight:800;">
+            <div style="display:flex; justify-content:space-between; font-weight:900;">
               <span>Forma pago:</span>
-              <span style="font-weight:800;">PAGO MIXTO</span>
+              <span style="font-weight:900;">PAGO MIXTO</span>
             </div>
-            <div style="padding-left:4px; margin-top:2px; font-size:11px; line-height:1.4;">
+            <div style="padding-left:4px; margin-top:2px; line-height:1.4;">
               ${options.mixedPayments.map(mp => `
-                <div style="display:flex; justify-content:space-between; font-weight:700;">
+                <div style="display:flex; justify-content:space-between; font-weight:800;">
                   <span>• ${this.escapeHtml(mp.method)}${mp.targetAccount ? ` (${this.escapeHtml(mp.targetAccount)})` : ''}:</span>
-                  <span style="font-weight:700;">${this.formatCurrency(mp.amount)}</span>
+                  <span style="font-weight:800;">${this.formatCurrency(mp.amount)}</span>
                 </div>
-                ${mp.voucher ? `<div style="font-size:10px; color:#333; margin-left:8px;">Voucher: #${this.escapeHtml(mp.voucher)}</div>` : ''}
+                ${mp.voucher ? `<div style="color:#000000; margin-left:8px;">Voucher: #${this.escapeHtml(mp.voucher)}</div>` : ''}
               `).join('')}
             </div>
           </div>
           ` : `
-          <div style="display:flex; justify-content:space-between; font-weight:700;">
-            <span style="font-weight:700;">Forma pago:</span>
-            <span style="font-weight:700;">${this.escapeHtml((paymentMethod || '').toLowerCase().includes('tarjeta') ? 'Tarjeta' : paymentMethod)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:800;">
+            <span style="font-weight:800;">Forma pago:</span>
+            <span style="font-weight:800;">${this.escapeHtml((paymentMethod || '').toLowerCase().includes('tarjeta') ? 'Tarjeta' : paymentMethod)}</span>
           </div>
           ${options.voucher ? `
-          <div style="display:flex; justify-content:space-between; font-weight:700;">
-            <span style="font-weight:700;">Voucher / Aut.:</span>
-            <span style="font-weight:700;">#${this.escapeHtml(options.voucher)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:800;">
+            <span style="font-weight:800;">Voucher / Aut.:</span>
+            <span style="font-weight:800;">#${this.escapeHtml(options.voucher)}</span>
           </div>` : ''}
           `}
           ${type === 'compra' ? `
-          <div style="display:flex; justify-content:space-between; font-weight:800; margin-top:2px;">
-            <span style="font-weight:800;">Estado orden:</span>
-            <span style="color:${paidAmount >= total ? '#065f46' : '#b91c1c'}; font-weight:800;">${paidAmount >= total ? 'PAGADO TOTAL' : 'PENDIENTE DE PAGO'}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:900; margin-top:2px;">
+            <span style="font-weight:900;">Estado orden:</span>
+            <span style="color:#000000; font-weight:900;">${paidAmount >= total ? 'PAGADO TOTAL' : 'PENDIENTE DE PAGO'}</span>
           </div>` : ''}
           ${separeAbono > 0 ? `
-          <div style="display:flex; justify-content:space-between; margin-top:2px; font-weight:700;">
-            <span style="font-weight:700;">Abono Separe:</span>
-            <span style="font-weight:700;">${this.formatCurrency(separeAbono)}</span>
+          <div style="display:flex; justify-content:space-between; margin-top:2px; font-weight:800;">
+            <span style="font-weight:800;">Abono Separe:</span>
+            <span style="font-weight:800;">${this.formatCurrency(separeAbono)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-weight:800; color:#5b21b6;">
-            <span style="font-weight:800;">Saldo Separe:</span>
-            <span style="font-weight:800;">${this.formatCurrency(separePending)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:900; color:#000000;">
+            <span style="font-weight:900;">Saldo Separe:</span>
+            <span style="font-weight:900;">${this.formatCurrency(separePending)}</span>
           </div>` : ''}
           ${customerCreditBalance !== null && customerCreditBalance !== undefined && paymentMethod === 'Crédito' ? `
-          <div style="display:flex; justify-content:space-between; font-weight:800; color:#92400e; margin-top:2px;">
-            <span style="font-weight:800;">Saldo Deuda Cliente:</span>
-            <span style="font-weight:800;">${this.formatCurrency(customerCreditBalance)}</span>
+          <div style="display:flex; justify-content:space-between; font-weight:900; color:#000000; margin-top:2px;">
+            <span style="font-weight:900;">Saldo Deuda Cliente:</span>
+            <span style="font-weight:900;">${this.formatCurrency(customerCreditBalance)}</span>
           </div>` : ''}
         </div>
 
-        <div style="border-bottom:1px solid #111; margin:8px 0 6px 0;"></div>
+        <div class="ticket-divider" style="border-bottom:2px solid #000000; margin:8px 0 6px 0;"></div>
 
         <!-- PIE DE RECIBO -->
-        <div style="text-align:center; font-weight:800; font-size:11.5px; margin-top:4px; letter-spacing:0.3px;">
+        <div class="ticket-footer" style="text-align:center; font-weight:900; font-size:12.5px; margin-top:4px; letter-spacing:0.3px; color:#000000;">
           ${footerLabel}
         </div>
       </div>
