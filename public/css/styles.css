@@ -221,9 +221,6 @@ h1, h2, h3, h4, .font-heading {
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  /* Promote sidebar to its own compositor layer so width transitions
-     don’t trigger main-thread layout of the content area */
-  will-change: width;
 }
 
 .sidebar-header {
@@ -762,14 +759,7 @@ h1, h2, h3, h4, .font-heading {
   height: 8px;
   background-color: var(--emerald-success);
   border-radius: 50%;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  animation: pulse-green 2s infinite;
-}
-
-@keyframes pulse-green {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
 }
 
 .top-bar-right {
@@ -1488,6 +1478,8 @@ button.subnav-tab.active,
   cursor: pointer;
   transition: var(--transition-fast);
   min-height: 125px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 135px;
 }
 
 .pos-product-card:hover {
@@ -1970,23 +1962,22 @@ select.form-control, select.form-select {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 1rem;
   overflow-y: auto;
-  /* GPU-composited opacity animation: no layout or paint cost */
-  will-change: opacity;
 }
 
 .modal-backdrop.open {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
@@ -2003,10 +1994,8 @@ select.form-control, select.form-select {
   display: flex;
   flex-direction: column;
   transform: scale(0.95);
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   margin: auto;
-  /* GPU-composited scale animation */
-  will-change: transform;
 }
 
 .modal-card > form {
@@ -4969,15 +4958,8 @@ html, body {
   border-radius: 50%;
   background: #10B981;
   display: inline-block;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
-  animation: greenPulse 2s infinite;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
   flex-shrink: 0;
-}
-
-@keyframes greenPulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1.1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
 /* Stock Badges de Cantidad en la Tabla de Inventario */
@@ -5277,14 +5259,14 @@ html, body {
   font-weight: 700;
   letter-spacing: 0.3px;
   cursor: pointer;
-  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.45), 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.38), 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
   user-select: none;
 }
 
 .nexus-ai-fab:hover {
   transform: translateY(-3px) scale(1.03);
-  box-shadow: 0 12px 36px rgba(124, 58, 237, 0.6), 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 32px rgba(124, 58, 237, 0.5), 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .nexus-ai-fab-icon {
@@ -5295,31 +5277,25 @@ html, body {
   height: 26px;
   background: rgba(255, 255, 255, 0.2);
   border-radius: 50%;
-  animation: pulseAiGlow 3s infinite ease-in-out;
-}
-
-@keyframes pulseAiGlow {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
-  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
 }
 
 /* Backdrop */
 .nexus-ai-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.72);
   z-index: 1060;
   opacity: 0;
   visibility: hidden;
-  transition: all 0.3s ease;
+  pointer-events: none;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 
 .nexus-ai-backdrop.active,
 .nexus-ai-backdrop.open {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 /* Slide-Over Drawer */
@@ -5335,15 +5311,17 @@ html, body {
   z-index: 1070;
   display: flex;
   flex-direction: column;
-  box-shadow: -10px 0 50px rgba(0, 0, 0, 0.6);
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.55);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   transform: translateX(100%);
-  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  visibility: hidden;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.3s ease;
 }
 
 .nexus-ai-drawer.active,
 .nexus-ai-drawer.open {
   transform: translateX(0);
+  visibility: visible;
 }
 
 /* Header */
@@ -5352,9 +5330,8 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  background: rgba(30, 41, 59, 0.7);
+  background: rgba(30, 41, 59, 0.96);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
 }
 
 .nexus-ai-title-wrap {
@@ -5657,9 +5634,8 @@ html, body {
 /* Input Area */
 .nexus-ai-footer {
   padding: 14px 18px;
-  background: rgba(30, 41, 59, 0.85);
+  background: rgba(30, 41, 59, 0.96);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
 }
 
 .nexus-ai-input-form {
@@ -5670,7 +5646,7 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 9999px;
   padding: 4px 6px 4px 16px;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .nexus-ai-input-form:focus-within {

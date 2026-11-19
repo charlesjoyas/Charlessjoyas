@@ -16,6 +16,8 @@ class NexusApp {
     this.radarSearchTerm = '';
     this.radarSortOrder = 'codigo_asc';
     this.inventoryStockFilter = 'all';
+    this.inventoryRenderLimit = 60;
+    this.posRenderLimit = 60;
     this.activeCashShiftTab = 'current';
     this.cashShiftHistoryPeriod = 'all';
     this.cashShiftHistoryCustomStart = '';
@@ -469,13 +471,15 @@ class NexusApp {
         this.setupGlobalSearch();
         this.setupCrudModals();
         this.setupConfigForm();
-        this.renderAllTables();
+        if (this.currentUser) {
+          this.renderAllTables();
+        }
         this.setupKeyboardShortcuts();
         this.setupRealtimeSync();
         this.attachGlobalNumberMasks();
         this.initAiCopilot();
 
-        if (typeof Chart !== 'undefined') {
+        if (typeof Chart !== 'undefined' && this.currentUser && this.currentSubView === 'inicio') {
           this.initCharts();
         }
 
@@ -858,20 +862,22 @@ class NexusApp {
     this.syncSupplierCreditsState();
     this.syncAllCategoryGrams();
     this.renderAllTables();
-    this.renderCategoryPills();
     this.populateProductCategorySelect('new-prod-cat');
     this.populateProductCategorySelect('edit-prod-cat');
-    this.renderPOSProducts();
-    this.renderPosMetalRates();
-    if (typeof this.renderCarteraMorosidadTable === 'function') this.renderCarteraMorosidadTable();
-    if (typeof this.renderMorosidadPortfolio === 'function') this.renderMorosidadPortfolio();
+    if (this.currentParentView === 'pos') {
+      this.renderCategoryPills();
+      this.renderPOSProducts();
+      this.renderPosMetalRates();
+    }
+    if (this.currentSubView === 'inf_cartera_clientes') {
+      if (typeof this.renderCarteraMorosidadTable === 'function') this.renderCarteraMorosidadTable();
+      if (typeof this.renderMorosidadPortfolio === 'function') this.renderMorosidadPortfolio();
+    }
     this.populateTendenciaDatalist();
     this.populateCheckoutCustomerSelect();
     this.populateCardAccountSelect();
     this.populateTransferAccountSelect();
     this.syncCheckoutCustomerPaymentMethods();
-    this.renderDashboardMetrics();
-    this.renderCuadreCajaCard();
     this.renderCashStatusIndicator();
     if (this.currentSubView === 'inf_tendencia') this.consultarTendencia();
     if (this.currentSubView === 'inf_radar_stock') this.renderRadarStock();
@@ -1206,15 +1212,17 @@ class NexusApp {
             this.data = Object.assign({}, INITIAL_DATA, parsed);
             this.sanitizeLoadedData();
             this.renderAllTables();
-            this.renderDashboardMetrics();
-            this.renderPOSProducts();
+            if (this.currentParentView === 'pos') {
+              this.renderCategoryPills();
+              this.renderPOSProducts();
+              this.renderPosMetalRates();
+            }
             this.renderCart();
-            this.renderCuadreCajaCard();
             this.renderCashStatusIndicator();
             if (this.currentSubView === 'rep_compras') this.renderRepCompras();
             if (this.currentSubView === 'rep_finanzas') this.renderRepFinanzas();
             if (this.currentSubView === 'inf_tendencia') this.consultarTendencia();
-            if (typeof this.initCharts === 'function') this.initCharts();
+            if (typeof this.initCharts === 'function' && this.currentSubView === 'inicio') this.initCharts();
           }
         } catch(err) {
           console.error('[NexusApp] Error en sincronización entre pestañas:', err);
@@ -2258,6 +2266,14 @@ class NexusApp {
     const target = document.getElementById(`view-${parentViewId}`);
     if (target) target.classList.add('active');
 
+    if (parentViewId === 'pos') {
+      this.posRenderLimit = 60;
+      this.renderCategoryPills();
+      this.renderPOSProducts();
+      this.renderPosMetalRates();
+      this.renderCart();
+    }
+
     setTimeout(() => {
       if (contentBody) contentBody.scrollTop = 0;
       if (this.charts) {
@@ -2321,6 +2337,7 @@ class NexusApp {
       if (targetPane) targetPane.classList.add('active');
     }
 
+    if (subViewId === 'productos') this.inventoryRenderLimit = 60;
     this.renderSubViewContent(parentViewId, subViewId);
 
     setTimeout(() => {
@@ -6726,41 +6743,17 @@ class NexusApp {
      TABLE & REPORT RENDERERS (ALL 28 MODULES)
      -------------------------------------------------------------------------- */
   renderAllTables() {
+    if (!this.currentUser) return;
     const sv = this.currentSubView;
-    this.renderDashboardMetrics();
-    this.renderUsersTable();
-    this.renderCustomersTable();
-    this.renderSuppliersTable();
-    this.renderPerfilesTable();
-    this.renderExpensesTable();
-    this.renderPaymentMethodsTable();
-    this.renderFinVentasTable();
-    this.renderFinComprasTable();
-    this.renderFinCreditosClientesTable();
-    this.renderFinCreditosProveedoresTable();
-    this.renderInvServiciosTable();
-    this.renderInvCategoriasTable();
-    this.renderInventoryTable();
-    this.renderInvActivosTable();
-    this.renderCuadreCajaCard();
-    this.renderAbonosVentasTable();
-    this.renderAbonosComprasTable();
-    // Heavy financial reports: only render when the user is actually viewing them.
-    // renderSubViewContent() handles rendering them on navigation, so nothing is lost.
-    if (sv === 'rep_finanzas') this.renderRepFinanzas();
-    if (sv === 'rep_compras') this.renderRepCompras();
-    if (sv === 'rep_general') this.renderRepGeneral();
-    if (sv === 'inf_balance') this.renderInformesBalance();
-    if (sv === 'inf_ventas_producto') this.renderInformesVentasProducto();
-    if (sv === 'inf_listado_periodos') this.renderInformesPeriodos();
-    if (sv === 'inf_cartera_clientes') this.renderInformesCarteraClientes();
-    if (sv === 'inf_margen_real') this.renderInformesMargenReal();
-    if (sv === 'inf_radar_stock') this.renderRadarStock();
-    this.renderDashboardRecentSales();
+    if (!sv) return;
+    this.renderSubViewContent(this.currentParentView, sv);
   }
 
   renderSubViewContent(parent, sub) {
-    if (sub === 'inicio') this.renderDashboardMetrics();
+    if (sub === 'inicio') {
+      this.renderDashboardMetrics();
+      this.renderDashboardRecentSales();
+    }
     if (sub === 'usuarios') this.renderUsersTable();
     if (sub === 'clientes') this.renderCustomersTable();
     if (sub === 'proveedores') this.renderSuppliersTable();
@@ -12109,9 +12102,20 @@ class NexusApp {
 
   setInventoryStockFilter(filterType) {
     this.inventoryStockFilter = filterType;
+    this.inventoryRenderLimit = 60;
     document.querySelectorAll('#inventory-stock-filters .inv-filter-pill').forEach(btn => {
       btn.classList.toggle('active', btn.getAttribute('data-filter') === filterType);
     });
+    this.renderInventoryTable();
+  }
+
+  loadMoreInventory() {
+    this.inventoryRenderLimit = (this.inventoryRenderLimit || 60) + 60;
+    this.renderInventoryTable();
+  }
+
+  loadAllInventory(totalCount) {
+    this.inventoryRenderLimit = Math.max(totalCount || 0, (this.data.products || []).length);
     this.renderInventoryTable();
   }
 
@@ -12960,8 +12964,11 @@ class NexusApp {
 
     const canEditProd = this.canPerformAction('edit', 'product');
     const canDeleteProd = this.canPerformAction('delete', 'product');
+    const renderLimit = this.inventoryRenderLimit || 60;
+    const visibleProducts = filtered.slice(0, renderLimit);
+    const remainingCount = filtered.length - visibleProducts.length;
 
-    tbody.innerHTML = filtered.map(p => {
+    const rowsHtml = visibleProducts.map(p => {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const unit = isPesaje ? (p.weightUnit || 'g') : 'u.';
       const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
@@ -13021,6 +13028,24 @@ class NexusApp {
         </tr>
       `;
     }).join('');
+
+    const loadMoreHtml = remainingCount > 0 ? `
+      <tr id="inventory-load-more-row">
+        <td colspan="9" style="text-align:center; padding:1rem; background:var(--canvas-bg);">
+          <span style="font-size:0.82rem; color:var(--text-muted); margin-right:0.75rem;">
+            Mostrando ${visibleProducts.length} de ${filtered.length} productos
+          </span>
+          <button type="button" class="btn btn-secondary" onclick="app.loadMoreInventory()">
+            Mostrar ${Math.min(60, remainingCount)} más
+          </button>
+          <button type="button" class="btn btn-secondary" style="margin-left:0.5rem;" onclick="app.loadAllInventory(${filtered.length})">
+            Ver todos (${filtered.length})
+          </button>
+        </td>
+      </tr>
+    ` : '';
+
+    tbody.innerHTML = rowsHtml + loadMoreHtml;
   }
 
   async deleteProduct(id, sku = null) {
@@ -27249,18 +27274,24 @@ class NexusApp {
      POS CASHIER SYSTEM
      -------------------------------------------------------------------------- */
   setupPOS() {
-    this.renderCategoryPills();
-    this.renderPOSProducts();
-    this.renderCart();
+    if (this.currentUser && this.currentParentView === 'pos') {
+      this.renderCategoryPills();
+      this.renderPOSProducts();
+      this.renderCart();
+    }
 
     const searchInput = document.getElementById('pos-product-search');
     if (searchInput) {
-      searchInput.addEventListener('input', () => this.renderPOSProducts());
+      searchInput.addEventListener('input', () => {
+        this.posRenderLimit = 60;
+        this.renderPOSProducts();
+      });
 
       // Barcode scanner / Enter key quick-add support
       searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           searchInput.value = '';
+          this.posRenderLimit = 60;
           this.renderPOSProducts();
           return;
         }
@@ -27348,7 +27379,18 @@ class NexusApp {
 
   setCategoryFilter(catId) {
     this.selectedCategory = catId;
+    this.posRenderLimit = 60;
     this.renderCategoryPills();
+    this.renderPOSProducts();
+  }
+
+  loadMorePOSProducts() {
+    this.posRenderLimit = (this.posRenderLimit || 60) + 60;
+    this.renderPOSProducts();
+  }
+
+  loadAllPOSProducts(totalCount) {
+    this.posRenderLimit = Math.max(totalCount || 0, (this.data.products || []).length);
     this.renderPOSProducts();
   }
 
@@ -27463,7 +27505,11 @@ class NexusApp {
       return;
     }
 
-    grid.innerHTML = filtered.map(p => {
+    const renderLimit = this.posRenderLimit || 60;
+    const visibleProducts = filtered.slice(0, renderLimit);
+    const remainingCount = filtered.length - visibleProducts.length;
+
+    const cardsHtml = visibleProducts.map(p => {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const unit = isPesaje ? (p.weightUnit || 'g') : 'u.';
       const unitLabel = isPesaje ? `/ ${unit}` : '';
@@ -27521,6 +27567,22 @@ class NexusApp {
         </div>
       `;
     }).join('');
+
+    const loadMoreHtml = remainingCount > 0 ? `
+      <div style="grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:0.5rem; padding:1rem; background:var(--bg-surface); border:1px dashed var(--border-color); border-radius:var(--radius-lg);">
+        <span style="font-size:0.82rem; color:var(--text-muted); margin-right:0.25rem;">
+          Mostrando ${visibleProducts.length} de ${filtered.length} productos
+        </span>
+        <button type="button" class="btn btn-secondary" onclick="app.loadMorePOSProducts()">
+          Mostrar ${Math.min(60, remainingCount)} más
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="app.loadAllPOSProducts(${filtered.length})">
+          Ver todos (${filtered.length})
+        </button>
+      </div>
+    ` : '';
+
+    grid.innerHTML = cardsHtml + loadMoreHtml;
   }
 
   getCartItemPrice(item) {
@@ -29335,13 +29397,19 @@ class NexusApp {
      INVENTORY TABLE SEARCH
      -------------------------------------------------------------------------- */
   setupInventory() {
-    this.renderInventoryTable();
+    if (this.currentUser && this.currentSubView === 'productos') {
+      this.renderInventoryTable();
+    }
     const searchInput = document.getElementById('inventory-search');
     if (searchInput) {
-      searchInput.addEventListener('input', () => this.renderInventoryTable());
+      searchInput.addEventListener('input', () => {
+        this.inventoryRenderLimit = 60;
+        this.renderInventoryTable();
+      });
       searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           searchInput.value = '';
+          this.inventoryRenderLimit = 60;
           this.renderInventoryTable();
         }
       });
