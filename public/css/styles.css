@@ -5750,9 +5750,25 @@ body,
 
 @media (max-width: 1024px) {
   .pos-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
     min-height: calc(100vh - 58px) !important;
     min-height: calc(100dvh - 58px) !important;
     padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  .pos-products-pane,
+  .products-grid,
+  .category-pills {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .category-pills {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 
   .pos-cart-pane {
@@ -5883,6 +5899,58 @@ body,
 
   .nexus-ai-footer {
     padding-bottom: max(14px, env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Fix POS 2-column cards clipping off the right side in portrait phones */
+  .products-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+
+  .pos-product-card {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    padding: 0.68rem !important;
+  }
+
+  .pos-product-card > div:first-child {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+
+  .pos-product-card .badge {
+    max-width: 100% !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.64rem !important;
+  }
+
+  .pos-product-card .pos-product-title {
+    font-size: 0.82rem !important;
+    overflow-wrap: anywhere;
+  }
+
+  .pos-product-card .pos-product-price-row {
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .pos-product-card .pos-product-price {
+    font-size: clamp(0.84rem, 3.8vw, 1rem) !important;
+  }
+
+  .pos-product-card .pos-add-btn {
+    width: 30px !important;
+    height: 30px !important;
+    flex-shrink: 0 !important;
+  }
+
+  #pos-metal-rates-banner {
+    padding: 0.6rem 0.75rem !important;
+    gap: 0.5rem !important;
+    margin-bottom: 0.65rem !important;
   }
 }
 
