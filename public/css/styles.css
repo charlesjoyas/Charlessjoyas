@@ -5693,3 +5693,239 @@ html, body {
   cursor: not-allowed;
   transform: none;
 }
+
+/* ==========================================================================
+   RESPONSIVE FASE 1: IPHONE (SAFE-AREA / 100DVH / NO AUTO-ZOOM) & TABLETS/DESKTOP
+   ========================================================================== */
+body,
+#app,
+.main-wrapper,
+.login-screen,
+.modal-backdrop {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.nexus-ai-drawer {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Responsive Modal Grid Helpers (replaces rigid inline multi-col grids) */
+.modal-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.modal-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.modal-grid-asym-1-15 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 0.85rem;
+}
+
+.modal-grid-asym-15-1 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+/* PWA / Standalone iOS Notch / Dynamic Island Safe Area */
+@media (display-mode: standalone) {
+  .top-bar {
+    padding-top: env(safe-area-inset-top) !important;
+    height: calc(64px + env(safe-area-inset-top)) !important;
+  }
+  .login-screen {
+    padding-top: max(1.5rem, env(safe-area-inset-top)) !important;
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .pos-layout {
+    min-height: calc(100vh - 58px) !important;
+    min-height: calc(100dvh - 58px) !important;
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  .pos-cart-pane {
+    height: 85vh !important;
+    height: 85dvh !important;
+    max-height: 88dvh !important;
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+
+  .pos-mobile-cart-btn {
+    bottom: max(0.85rem, env(safe-area-inset-bottom)) !important;
+    left: max(1rem, env(safe-area-inset-left)) !important;
+    right: max(1rem, env(safe-area-inset-right)) !important;
+    width: calc(100% - max(1rem, env(safe-area-inset-left)) - max(1rem, env(safe-area-inset-right))) !important;
+    min-height: 46px !important;
+  }
+
+  /* Prevent Nexus AI FAB from overlapping the POS bottom cart button */
+  .nexus-ai-fab {
+    bottom: calc(4.65rem + env(safe-area-inset-bottom)) !important;
+    right: max(1rem, env(safe-area-inset-right)) !important;
+    padding: 9px 14px !important;
+    font-size: 0.82rem !important;
+  }
+
+  .sidebar {
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .top-bar {
+    padding-left: max(0.75rem, env(safe-area-inset-left)) !important;
+    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+  }
+
+  /* Prevent iOS Safari auto-zoom on focus (requires >= 16px) */
+  .form-control,
+  .form-input,
+  .form-select,
+  .login-input,
+  .table-search-input input,
+  .nexus-ai-input,
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  input[type="search"],
+  select,
+  textarea {
+    font-size: 16px !important;
+    scroll-margin-bottom: 120px;
+  }
+
+  /* Minimum comfortable touch targets */
+  .mobile-menu-btn,
+  .theme-toggle-btn,
+  .modal-close-btn,
+  .nexus-ai-btn-icon,
+  .nexus-ai-send-btn {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .qty-btn,
+  .cart-remove-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .cart-qty-input {
+    width: 60px;
+    min-height: 36px;
+  }
+
+  .cat-pill,
+  .subnav-tab,
+  .inv-filter-pill,
+  .finanzas-period-pill,
+  .compras-period-pill {
+    min-height: 38px;
+  }
+}
+
+@media (max-width: 640px) {
+  .modal-card {
+    max-height: 92vh !important;
+    max-height: 92dvh !important;
+  }
+
+  .modal-footer {
+    padding-bottom: max(0.85rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  #toast-container {
+    bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  .modal-grid-2,
+  .modal-grid-3,
+  .modal-grid-asym-1-15,
+  .modal-grid-asym-15-1 {
+    grid-template-columns: 1fr !important;
+    gap: 0.65rem !important;
+  }
+
+  #checkout-pay-methods-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+  }
+
+  .nexus-ai-fab {
+    padding: 9px 12px !important;
+    gap: 6px !important;
+    border-radius: 9999px !important;
+  }
+
+  .nexus-ai-fab span:last-child {
+    font-size: 0.78rem !important;
+  }
+
+  .nexus-ai-drawer {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-left: none !important;
+  }
+
+  .nexus-ai-footer {
+    padding-bottom: max(14px, env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  #pos-add-price-cost-grid,
+  #mixed-cash-1-extra {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Compact Phones: iPhone SE / Mini (<= 400px) */
+@media (max-width: 400px) {
+  .content-body {
+    padding: 0.6rem !important;
+    gap: 0.65rem !important;
+  }
+
+  .products-grid {
+    gap: 0.45rem !important;
+  }
+
+  .pos-product-card {
+    padding: 0.65rem !important;
+    min-height: 112px !important;
+  }
+
+  .kpi-card {
+    padding: 0.7rem !important;
+  }
+
+  #checkout-pay-methods-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .modal-header,
+  .modal-body {
+    padding: 0.85rem 0.95rem !important;
+  }
+}
+
+/* Large Desktop Monitors (>= 1440px) */
+@media (min-width: 1440px) {
+  .pos-layout {
+    grid-template-columns: 1fr 400px;
+  }
+}
