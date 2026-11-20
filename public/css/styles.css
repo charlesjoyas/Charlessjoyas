@@ -5948,10 +5948,251 @@ body,
   }
 
   #pos-metal-rates-banner {
-    padding: 0.6rem 0.75rem !important;
-    gap: 0.5rem !important;
+    padding: 0.55rem 0.75rem !important;
+    gap: 0.4rem !important;
     margin-bottom: 0.65rem !important;
   }
+
+  /* Compact 1-line scrollable metal rates bar on mobile POS */
+  #pos-metal-rates-banner > div:first-child > div > div:last-child {
+    display: none !important;
+  }
+
+  #pos-metal-rates-banner > div:last-child {
+    width: 100%;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 0.65rem !important;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  #pos-metal-rates-banner > div:last-child::-webkit-scrollbar {
+    display: none;
+  }
+
+  #pos-metal-rates-banner > div:last-child > div {
+    flex-shrink: 0;
+    white-space: nowrap;
+    background: var(--bg-surface);
+    border: 1px solid rgba(217, 119, 6, 0.25);
+    padding: 0.25rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.76rem !important;
+  }
+
+  /* Filter & Date Toolbar Full-Width Mobile Adaptation */
+  .finanzas-period-selector,
+  .compras-period-selector,
+  #inventory-stock-filters {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 0.35rem !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .finanzas-period-selector::-webkit-scrollbar,
+  .compras-period-selector::-webkit-scrollbar,
+  #inventory-stock-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .finanzas-period-pill,
+  .compras-period-pill,
+  #inventory-stock-filters .inv-filter-pill {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .finanzas-date-range-box {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    justify-content: space-between !important;
+    padding: 0.5rem !important;
+    gap: 0.45rem !important;
+  }
+
+  .finanzas-date-range-box input[type="date"] {
+    flex: 1 1 130px !important;
+    min-width: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 38px !important;
+  }
+
+  div:has(> #fin-ventas-search) {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  #fin-ventas-search {
+    height: auto !important;
+    min-height: 38px !important;
+  }
+
+  /* Fase 2: Stacked Mobile Cards for Main Operational Tables (CSS-only, zero JS changes) */
+  .table-container:has(tbody#inventory-tbody),
+  .table-container:has(tbody#fin-ventas-tbody),
+  .table-container:has(tbody#fin-compras-tbody),
+  .table-container:has(tbody#dashboard-recent-sales-tbody),
+  .table-wrapper:has(tbody#inventory-tbody),
+  .table-wrapper:has(tbody#fin-ventas-tbody),
+  .table-wrapper:has(tbody#fin-compras-tbody),
+  .table-wrapper:has(tbody#dashboard-recent-sales-tbody) {
+    overflow-x: visible !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody),
+  .data-table:has(tbody#fin-ventas-tbody),
+  .data-table:has(tbody#fin-compras-tbody),
+  .data-table:has(tbody#dashboard-recent-sales-tbody) {
+    min-width: 0 !important;
+    width: 100% !important;
+    display: block !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody) thead,
+  .data-table:has(tbody#fin-ventas-tbody) thead,
+  .data-table:has(tbody#fin-compras-tbody) thead,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) thead {
+    display: none !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody,
+  .data-table:has(tbody#fin-ventas-tbody) tbody,
+  .data-table:has(tbody#fin-compras-tbody) tbody,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody tr,
+  .data-table:has(tbody#fin-ventas-tbody) tbody tr,
+  .data-table:has(tbody#fin-compras-tbody) tbody tr,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr {
+    display: block !important;
+    width: 100% !important;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.7rem;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody tr td,
+  .data-table:has(tbody#fin-ventas-tbody) tbody tr td,
+  .data-table:has(tbody#fin-compras-tbody) tbody tr td,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+    width: 100% !important;
+    padding: 0.38rem 0 !important;
+    border-bottom: 1px dashed var(--border-color) !important;
+    white-space: normal !important;
+    text-align: right !important;
+    font-size: 0.84rem !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody tr td:last-child,
+  .data-table:has(tbody#fin-ventas-tbody) tbody tr td:last-child,
+  .data-table:has(tbody#fin-compras-tbody) tbody tr td:last-child,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td:last-child {
+    border-bottom: none !important;
+    padding-top: 0.55rem !important;
+    justify-content: flex-end !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody tr td > div,
+  .data-table:has(tbody#fin-ventas-tbody) tbody tr td > div,
+  .data-table:has(tbody#fin-compras-tbody) tbody tr td > div,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td > div {
+    max-width: 66%;
+    min-width: 0;
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody tr td .action-btn-group,
+  .data-table:has(tbody#fin-ventas-tbody) tbody tr td .action-btn-group,
+  .data-table:has(tbody#fin-compras-tbody) tbody tr td .action-btn-group,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td .action-btn-group {
+    max-width: 100% !important;
+    justify-content: flex-end !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody) tbody tr td::before,
+  .data-table:has(tbody#fin-ventas-tbody) tbody tr td::before,
+  .data-table:has(tbody#fin-compras-tbody) tbody tr td::before,
+  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td::before {
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  /* Empty state / Load More rows (td[colspan]) stay full-width centered */
+  .data-table tbody tr td[colspan] {
+    display: block !important;
+    text-align: center !important;
+    border-bottom: none !important;
+    padding: 1rem 0.65rem !important;
+  }
+  .data-table tbody tr td[colspan]::before {
+    content: none !important;
+    display: none !important;
+  }
+
+  /* Inventory (9 rendered columns) */
+  #inventory-tbody td:nth-of-type(1)::before { content: "Código"; }
+  #inventory-tbody td:nth-of-type(2)::before { content: "Producto"; }
+  #inventory-tbody td:nth-of-type(3)::before { content: "Medida"; }
+  #inventory-tbody td:nth-of-type(4)::before { content: "Categoría"; }
+  #inventory-tbody td:nth-of-type(5)::before { content: "Costo"; }
+  #inventory-tbody td:nth-of-type(6)::before { content: "Precio"; }
+  #inventory-tbody td:nth-of-type(7)::before { content: "Stock"; }
+  #inventory-tbody td:nth-of-type(8)::before { content: "Estado"; }
+  #inventory-tbody td:nth-of-type(9)::before { content: "Acciones"; }
+
+  /* Historial de Ventas (10 rendered columns) */
+  #fin-ventas-tbody td:nth-of-type(1)::before { content: "ID Venta"; }
+  #fin-ventas-tbody td:nth-of-type(2)::before { content: "Fecha"; }
+  #fin-ventas-tbody td:nth-of-type(3)::before { content: "Atendido por"; }
+  #fin-ventas-tbody td:nth-of-type(4)::before { content: "Cliente"; }
+  #fin-ventas-tbody td:nth-of-type(5)::before { content: "Tipo"; }
+  #fin-ventas-tbody td:nth-of-type(6)::before { content: "Cant / Gramos"; }
+  #fin-ventas-tbody td:nth-of-type(7)::before { content: "Método"; }
+  #fin-ventas-tbody td:nth-of-type(8)::before { content: "Total"; }
+  #fin-ventas-tbody td:nth-of-type(9)::before { content: "Estado"; }
+  #fin-ventas-tbody td:nth-of-type(10)::before { content: "Acciones"; }
+
+  /* Historial de Compras (8 rendered columns) */
+  #fin-compras-tbody td:nth-of-type(1)::before { content: "ID Orden"; }
+  #fin-compras-tbody td:nth-of-type(2)::before { content: "Producto / Prov."; }
+  #fin-compras-tbody td:nth-of-type(3)::before { content: "Fecha"; }
+  #fin-compras-tbody td:nth-of-type(4)::before { content: "Ítems / Gramos"; }
+  #fin-compras-tbody td:nth-of-type(5)::before { content: "Total"; }
+  #fin-compras-tbody td:nth-of-type(6)::before { content: "Recepción"; }
+  #fin-compras-tbody td:nth-of-type(7)::before { content: "Pago"; }
+  #fin-compras-tbody td:nth-of-type(8)::before { content: "Acciones"; }
+
+  /* Ventas Recientes Dashboard (8 rendered columns) */
+  #dashboard-recent-sales-tbody td:nth-of-type(1)::before { content: "N° Ticket"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(2)::before { content: "Fecha"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(3)::before { content: "Atendido por"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(4)::before { content: "Cliente"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(5)::before { content: "Método"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(6)::before { content: "Total"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(7)::before { content: "Estado"; }
+  #dashboard-recent-sales-tbody td:nth-of-type(8)::before { content: "Acciones"; }
 }
 
 @media (max-width: 480px) {
