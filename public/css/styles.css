@@ -1129,18 +1129,19 @@ button.subnav-tab.active,
 }
 
 .dashboard-kpi-grid .kpi-value {
-  font-size: clamp(1.1rem, 1.25vw, 1.45rem);
+  font-size: clamp(1.05rem, 1.3vw, 1.4rem);
   font-weight: 800;
   letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: unset;
 }
 
-/* Laptops y pantallas medianas (769px a 1300px): 3 arriba y 2 abajo al 100% de ancho sin huecos */
-@media (max-width: 1300px) and (min-width: 769px) {
+/* Laptops y pantallas medianas (769px a 1420px): 3 arriba y 2 abajo al 100% de ancho sin huecos */
+@media (max-width: 1420px) and (min-width: 769px) {
   .dashboard-kpi-grid {
-    grid-template-columns: repeat(6, 1fr) !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
     gap: 0.85rem !important;
   }
   .dashboard-kpi-grid > .kpi-card:nth-child(1),
@@ -1157,7 +1158,7 @@ button.subnav-tab.active,
 /* Tablets (481px a 768px): 2 columnas, la 5ª tarjeta ocupa ambas columnas */
 @media (max-width: 768px) {
   .dashboard-kpi-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.65rem !important;
   }
   .dashboard-kpi-grid > .kpi-card {
@@ -1168,13 +1169,13 @@ button.subnav-tab.active,
   }
 }
 
-/* Móviles (<= 480px): 1 columna limpia */
-@media (max-width: 480px) {
-  .dashboard-kpi-grid {
-    grid-template-columns: 1fr !important;
+/* Móviles (<= 640px): 1 columna limpia sin recortes */
+@media (max-width: 640px) {
+  .kpi-grid.dashboard-kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
-  .dashboard-kpi-grid > .kpi-card:last-child {
-    grid-column: span 1 !important;
+  .kpi-grid.dashboard-kpi-grid > .kpi-card:last-child {
+    grid-column: auto !important;
   }
 }
 
@@ -1189,6 +1190,8 @@ button.subnav-tab.active,
   flex-direction: column;
   justify-content: space-between;
   position: relative;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-card:hover {
@@ -1235,16 +1238,18 @@ button.subnav-tab.active,
 .kpi-footer {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
   margin-top: 0.75rem;
   font-size: 0.8rem;
   min-width: 0;
 }
 
 .kpi-footer > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  word-break: break-word;
   min-width: 0;
 }
 
@@ -6035,46 +6040,28 @@ body,
     min-height: 38px !important;
   }
 
-  /* Fase 2: Stacked Mobile Cards for Main Operational Tables (CSS-only, zero JS changes) */
-  .table-container:has(tbody#inventory-tbody),
-  .table-container:has(tbody#fin-ventas-tbody),
-  .table-container:has(tbody#fin-compras-tbody),
-  .table-container:has(tbody#dashboard-recent-sales-tbody),
-  .table-wrapper:has(tbody#inventory-tbody),
-  .table-wrapper:has(tbody#fin-ventas-tbody),
-  .table-wrapper:has(tbody#fin-compras-tbody),
-  .table-wrapper:has(tbody#dashboard-recent-sales-tbody) {
+  /* Fase 2 & 3: Stacked Mobile Cards for All Operational Tables (CSS-only, zero JS changes) */
+  .table-container:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody),
+  .table-wrapper:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) {
     overflow-x: visible !important;
   }
 
-  .data-table:has(tbody#inventory-tbody),
-  .data-table:has(tbody#fin-ventas-tbody),
-  .data-table:has(tbody#fin-compras-tbody),
-  .data-table:has(tbody#dashboard-recent-sales-tbody) {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) {
     min-width: 0 !important;
     width: 100% !important;
     display: block !important;
   }
 
-  .data-table:has(tbody#inventory-tbody) thead,
-  .data-table:has(tbody#fin-ventas-tbody) thead,
-  .data-table:has(tbody#fin-compras-tbody) thead,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) thead {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) thead {
     display: none !important;
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody,
-  .data-table:has(tbody#fin-ventas-tbody) tbody,
-  .data-table:has(tbody#fin-compras-tbody) tbody,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) tbody {
     display: block !important;
     width: 100% !important;
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody tr,
-  .data-table:has(tbody#fin-ventas-tbody) tbody tr,
-  .data-table:has(tbody#fin-compras-tbody) tbody tr,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) tbody tr {
     display: block !important;
     width: 100% !important;
     background: var(--bg-surface);
@@ -6085,10 +6072,7 @@ body,
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody tr td,
-  .data-table:has(tbody#fin-ventas-tbody) tbody tr td,
-  .data-table:has(tbody#fin-compras-tbody) tbody tr td,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) tbody tr td {
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
@@ -6101,35 +6085,28 @@ body,
     font-size: 0.84rem !important;
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody tr td:last-child,
-  .data-table:has(tbody#fin-ventas-tbody) tbody tr td:last-child,
-  .data-table:has(tbody#fin-compras-tbody) tbody tr td:last-child,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td:last-child {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody) tbody tr td:last-child {
     border-bottom: none !important;
     padding-top: 0.55rem !important;
     justify-content: flex-end !important;
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody tr td > div,
-  .data-table:has(tbody#fin-ventas-tbody) tbody tr td > div,
-  .data-table:has(tbody#fin-compras-tbody) tbody tr td > div,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td > div {
+  #abonos-ventas-tbody tr td:last-child {
+    border-bottom: none !important;
+    justify-content: space-between !important;
+  }
+
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) tbody tr td > div {
     max-width: 66%;
     min-width: 0;
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody tr td .action-btn-group,
-  .data-table:has(tbody#fin-ventas-tbody) tbody tr td .action-btn-group,
-  .data-table:has(tbody#fin-compras-tbody) tbody tr td .action-btn-group,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td .action-btn-group {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) tbody tr td .action-btn-group {
     max-width: 100% !important;
     justify-content: flex-end !important;
   }
 
-  .data-table:has(tbody#inventory-tbody) tbody tr td::before,
-  .data-table:has(tbody#fin-ventas-tbody) tbody tr td::before,
-  .data-table:has(tbody#fin-compras-tbody) tbody tr td::before,
-  .data-table:has(tbody#dashboard-recent-sales-tbody) tbody tr td::before {
+  .data-table:has(tbody#inventory-tbody, tbody#fin-ventas-tbody, tbody#fin-compras-tbody, tbody#dashboard-recent-sales-tbody, tbody#customers-tbody, tbody#suppliers-tbody, tbody#expenses-tbody, tbody#fin-cred-cli-tbody, tbody#fin-cred-prv-tbody, tbody#users-tbody, tbody#inv-servicios-tbody, tbody#inv-cat-tbody, tbody#inv-activos-tbody, tbody#abonos-compras-tbody, tbody#abonos-ventas-tbody) tbody tr td::before {
     font-weight: 700;
     font-size: 0.72rem;
     color: var(--text-muted);
@@ -6193,12 +6170,189 @@ body,
   #dashboard-recent-sales-tbody td:nth-of-type(6)::before { content: "Total"; }
   #dashboard-recent-sales-tbody td:nth-of-type(7)::before { content: "Estado"; }
   #dashboard-recent-sales-tbody td:nth-of-type(8)::before { content: "Acciones"; }
+
+  /* Clientes (11) */
+  #customers-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #customers-tbody td:nth-of-type(2)::before { content: "Documento"; }
+  #customers-tbody td:nth-of-type(3)::before { content: "Nombre"; }
+  #customers-tbody td:nth-of-type(4)::before { content: "Teléfono"; }
+  #customers-tbody td:nth-of-type(5)::before { content: "Dirección"; }
+  #customers-tbody td:nth-of-type(6)::before { content: "Email"; }
+  #customers-tbody td:nth-of-type(7)::before { content: "Límite Créd."; }
+  #customers-tbody td:nth-of-type(8)::before { content: "Deuda"; }
+  #customers-tbody td:nth-of-type(9)::before { content: "Pagos"; }
+  #customers-tbody td:nth-of-type(10)::before { content: "Estado"; }
+  #customers-tbody td:nth-of-type(11)::before { content: "Acciones"; }
+
+  /* Proveedores (10) */
+  #suppliers-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #suppliers-tbody td:nth-of-type(2)::before { content: "ID / NIT"; }
+  #suppliers-tbody td:nth-of-type(3)::before { content: "Nombre"; }
+  #suppliers-tbody td:nth-of-type(4)::before { content: "Teléfono"; }
+  #suppliers-tbody td:nth-of-type(5)::before { content: "Email"; }
+  #suppliers-tbody td:nth-of-type(6)::before { content: "Dirección"; }
+  #suppliers-tbody td:nth-of-type(7)::before { content: "Banco"; }
+  #suppliers-tbody td:nth-of-type(8)::before { content: "Saldo"; }
+  #suppliers-tbody td:nth-of-type(9)::before { content: "Estado"; }
+  #suppliers-tbody td:nth-of-type(10)::before { content: "Acciones"; }
+
+  /* Gastos (8) */
+  #expenses-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #expenses-tbody td:nth-of-type(2)::before { content: "Fecha"; }
+  #expenses-tbody td:nth-of-type(3)::before { content: "Descripción"; }
+  #expenses-tbody td:nth-of-type(4)::before { content: "Categoría"; }
+  #expenses-tbody td:nth-of-type(5)::before { content: "Método"; }
+  #expenses-tbody td:nth-of-type(6)::before { content: "Monto"; }
+  #expenses-tbody td:nth-of-type(7)::before { content: "Estado"; }
+  #expenses-tbody td:nth-of-type(8)::before { content: "Acciones"; }
+
+  /* Créditos Clientes (7) */
+  #fin-cred-cli-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #fin-cred-cli-tbody td:nth-of-type(2)::before { content: "Cliente"; }
+  #fin-cred-cli-tbody td:nth-of-type(3)::before { content: "Otorgado"; }
+  #fin-cred-cli-tbody td:nth-of-type(4)::before { content: "Saldo"; }
+  #fin-cred-cli-tbody td:nth-of-type(5)::before { content: "Vencimiento"; }
+  #fin-cred-cli-tbody td:nth-of-type(6)::before { content: "Estado"; }
+  #fin-cred-cli-tbody td:nth-of-type(7)::before { content: "Acciones"; }
+
+  /* Créditos Proveedores (9) */
+  #fin-cred-prv-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #fin-cred-prv-tbody td:nth-of-type(2)::before { content: "Proveedor"; }
+  #fin-cred-prv-tbody td:nth-of-type(3)::before { content: "Compras"; }
+  #fin-cred-prv-tbody td:nth-of-type(4)::before { content: "Pagado"; }
+  #fin-cred-prv-tbody td:nth-of-type(5)::before { content: "Saldo"; }
+  #fin-cred-prv-tbody td:nth-of-type(6)::before { content: "Última Compra"; }
+  #fin-cred-prv-tbody td:nth-of-type(7)::before { content: "Vencimiento"; }
+  #fin-cred-prv-tbody td:nth-of-type(8)::before { content: "Estado"; }
+  #fin-cred-prv-tbody td:nth-of-type(9)::before { content: "Acciones"; }
+
+  /* Usuarios (7) */
+  #users-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #users-tbody td:nth-of-type(2)::before { content: "Nombre"; }
+  #users-tbody td:nth-of-type(3)::before { content: "Email"; }
+  #users-tbody td:nth-of-type(4)::before { content: "Rol"; }
+  #users-tbody td:nth-of-type(5)::before { content: "Último Acceso"; }
+  #users-tbody td:nth-of-type(6)::before { content: "Estado"; }
+  #users-tbody td:nth-of-type(7)::before { content: "Acciones"; }
+
+  /* Servicios (6) */
+  #inv-servicios-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #inv-servicios-tbody td:nth-of-type(2)::before { content: "Servicio"; }
+  #inv-servicios-tbody td:nth-of-type(3)::before { content: "Categoría"; }
+  #inv-servicios-tbody td:nth-of-type(4)::before { content: "Precio"; }
+  #inv-servicios-tbody td:nth-of-type(5)::before { content: "Estado"; }
+  #inv-servicios-tbody td:nth-of-type(6)::before { content: "Acciones"; }
+
+  /* Categorías (8) */
+  #inv-cat-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #inv-cat-tbody td:nth-of-type(2)::before { content: "Nombre"; }
+  #inv-cat-tbody td:nth-of-type(3)::before { content: "Productos"; }
+  #inv-cat-tbody td:nth-of-type(4)::before { content: "Gramos Disp."; }
+  #inv-cat-tbody td:nth-of-type(5)::before { content: "Costo / g"; }
+  #inv-cat-tbody td:nth-of-type(6)::before { content: "Valorización"; }
+  #inv-cat-tbody td:nth-of-type(7)::before { content: "Color"; }
+  #inv-cat-tbody td:nth-of-type(8)::before { content: "Acciones"; }
+
+  /* Activos (8) */
+  #inv-activos-tbody td:nth-of-type(1)::before { content: "ID"; }
+  #inv-activos-tbody td:nth-of-type(2)::before { content: "Bien"; }
+  #inv-activos-tbody td:nth-of-type(3)::before { content: "Categoría"; }
+  #inv-activos-tbody td:nth-of-type(4)::before { content: "Adquisición"; }
+  #inv-activos-tbody td:nth-of-type(5)::before { content: "Costo"; }
+  #inv-activos-tbody td:nth-of-type(6)::before { content: "Valor Actual"; }
+  #inv-activos-tbody td:nth-of-type(7)::before { content: "Estado"; }
+  #inv-activos-tbody td:nth-of-type(8)::before { content: "Acciones"; }
+
+  /* Abonos Ventas (7) */
+  #abonos-ventas-tbody td:nth-of-type(1)::before { content: "ID Abono"; }
+  #abonos-ventas-tbody td:nth-of-type(2)::before { content: "Fecha"; }
+  #abonos-ventas-tbody td:nth-of-type(3)::before { content: "Cliente"; }
+  #abonos-ventas-tbody td:nth-of-type(4)::before { content: "Factura"; }
+  #abonos-ventas-tbody td:nth-of-type(5)::before { content: "Monto"; }
+  #abonos-ventas-tbody td:nth-of-type(6)::before { content: "Método"; }
+  #abonos-ventas-tbody td:nth-of-type(7)::before { content: "Cajero"; }
+
+  /* Abonos Compras (8) */
+  #abonos-compras-tbody td:nth-of-type(1)::before { content: "ID Abono"; }
+  #abonos-compras-tbody td:nth-of-type(2)::before { content: "Fecha"; }
+  #abonos-compras-tbody td:nth-of-type(3)::before { content: "Proveedor"; }
+  #abonos-compras-tbody td:nth-of-type(4)::before { content: "Orden"; }
+  #abonos-compras-tbody td:nth-of-type(5)::before { content: "Monto"; }
+  #abonos-compras-tbody td:nth-of-type(6)::before { content: "Método"; }
+  #abonos-compras-tbody td:nth-of-type(7)::before { content: "Estado"; }
+  #abonos-compras-tbody td:nth-of-type(8)::before { content: "Acciones"; }
+
+  /* Fase 3: Fix Dashboard Panorámica General KPI cards, Modals 95% width, fixed min-width inputs & charts */
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .kpi-grid.dashboard-kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .kpi-grid.dashboard-kpi-grid > .kpi-card {
+    grid-column: auto !important;
+    padding: 1rem !important;
+  }
+
+  .kpi-grid.dashboard-kpi-grid .kpi-value {
+    font-size: clamp(1.15rem, 5vw, 1.5rem) !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    word-break: break-word !important;
+  }
+
+  .modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  #inf-periodos-select,
+  #receipt-print-profile,
+  div:has(> #rep-prod-search-input),
+  div[style*="min-width: 260px"] {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .chart-container {
+    min-height: 220px;
+    height: 240px;
+    width: 100%;
+    position: relative;
+  }
 }
 
 @media (max-width: 480px) {
   #pos-add-price-cost-grid,
-  #mixed-cash-1-extra {
+  #mixed-cash-1-extra,
+  .modal-body [style*="grid-template-columns: 1fr 1fr"],
+  .modal-body [style*="grid-template-columns: repeat(2"] {
     grid-template-columns: 1fr !important;
+  }
+
+  .kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Mobile Landscape Orientation (short screens <= 500px height) */
+@media (max-height: 500px) and (orientation: landscape) {
+  .top-bar {
+    height: 46px !important;
+  }
+  .modal-card {
+    max-height: 94dvh !important;
+  }
+  .modal-header,
+  .modal-footer {
+    padding: 0.55rem 1rem !important;
+  }
+  .pos-cart-pane {
+    height: 92dvh !important;
+    max-height: 92dvh !important;
   }
 }
 
