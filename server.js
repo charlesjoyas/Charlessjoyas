@@ -45,20 +45,32 @@ const DB_FILE = path.join(__dirname, 'db.json');
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-// Security Middleware: Strict restriction on internal database, config and server files
+// Security Middleware: Strict restriction on internal database, config, backups, reports and server files
 app.use((req, res, next) => {
+  let decodedPath = req.path;
+  try {
+    decodedPath = decodeURIComponent(req.path);
+  } catch (_) {
+    return res.status(400).json({ error: 'Solicitud inválida' });
+  }
+  const normalizedPaths = [req.path, decodedPath].map(p => String(p || '').replace(/\/{2,}/g, '/'));
   const blockedPatterns = [
     /^\/db\.json(\.tmp(\.[^/]*)?)?$/i,
     /^\/backups(\/|$)/i,
     /^\/server\.js$/i,
     /^\/package(-lock)?\.json$/i,
+    /^\/vercel\.json$/i,
+    /^\/node_modules(\/|$)/i,
     /^\/scratch(\/|$)/i,
+    /^\/AUDITORIA_/i,
+    /^\/INFORME_/i,
+    /\.(pdf|md|jsonl?|patch|backup)$/i,
     /^\/\.vscode(\/|$)/i,
     /^\/\.git(\/|$)/i,
     /^\/\.env(\.|$)/i,
     /^\/\.[a-zA-Z0-9_-]+/i
   ];
-  if (blockedPatterns.some(regex => regex.test(req.path))) {
+  if (normalizedPaths.some(p => blockedPatterns.some(regex => regex.test(p)))) {
     return res.status(403).json({ error: 'Acceso prohibido: Recurso protegido del sistema' });
   }
   next();
@@ -179,6 +191,7 @@ function saveLocalDb(data) {
     try {
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
     } catch (_) {}
+    throw e;
   }
 }
 
@@ -225,19 +238,38 @@ app.get('/api/data', async (req, res) => {
 // POST /api/data - Sync full state (serialized write queue prevents out-of-order overwrites)
 app.post('/api/data', async (req, res) => {
   const runWrite = async () => {
-    // 1. Authorization check: must have a recognized role header from active session
+    // 1. Authorization check: accept recognized role names OR active user matching DB users list
     const rawRole = String(req.headers['x-nexus-role'] || '').trim();
     const userId = String(req.headers['x-nexus-user-id'] || '').trim();
     const roleLower = rawRole.toLowerCase();
-    const isAllowed =
+    let isKnownActiveUser = false;
+    try {
+      let refUsers = null;
+      if (mongoConnected) {
+        const refDoc = await DataModel.findOne({ key: 'main_store' });
+        if (Array.isArray(refDoc?.content?.users)) refUsers = refDoc.content.users;
+      } else if (!process.env.VERCEL) {
+        const refLocal = loadLocalDb();
+        if (Array.isArray(refLocal?.users)) refUsers = refLocal.users;
+      }
+      if (refUsers && userId) {
+        const matchedUser = refUsers.find(u => u && String(u.id) === userId && u.status === 'Active');
+        if (matchedUser && String(matchedUser.role || '').trim().toLowerCase() === roleLower) {
+          isKnownActiveUser = true;
+        }
+      }
+    } catch (_) {}
+    const isAllowedRole =
       roleLower.includes('admin') ||
       roleLower.includes('cajer') ||
       roleLower.includes('gerente') ||
       roleLower.includes('supervisor') ||
       roleLower.includes('contad') ||
-      roleLower.includes('inventario');
+      roleLower.includes('inventario') ||
+      roleLower.includes('vendedor') ||
+      roleLower.includes('operad');
 
-    if (!rawRole || !userId || !isAllowed) {
+    if (!rawRole || !userId || (!isKnownActiveUser && !isAllowedRole)) {
       return res.status(403).json({ error: 'No autorizado: Se requiere una sesión válida para sincronizar datos.' });
     }
 

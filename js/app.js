@@ -146,7 +146,11 @@ class NexusApp {
     let maxNum = 0;
     (this.data.products || []).forEach(p => {
       const skuStr = String(p?.sku || '').trim();
-      if (skuStr) usedSkus.add(skuStr.toLowerCase());
+      if (skuStr) {
+        usedSkus.add(skuStr.toLowerCase());
+        const noZeros = skuStr.toLowerCase().replace(/^0+/, '');
+        if (noZeros) usedSkus.add(noZeros);
+      }
       // Ignore block/series SKUs (>= 2000, e.g. 8000, 20000) for base seed, then probe upward for unused SKU
       const match = skuStr.match(/^(\d+)$/);
       if (match) {
@@ -625,7 +629,6 @@ class NexusApp {
           cat.cost = parseFloat(String(cat.cost).replace(',', '.')) || 0;
         }
       });
-      this.syncAllCategoryGrams();
     }
 
     if (this.data.products && Array.isArray(this.data.products)) {
@@ -661,8 +664,11 @@ class NexusApp {
         if (!p.sku) p.sku = '001';
 
         if (!this.data.categories.some(c => c.id === p.category)) {
-          p.category = 'oro18k';
-          p.categoryName = 'Oro 18K Italiano & Ley';
+          const fallbackCat = this.data.categories.find(c => c.id === 'oro18k') || this.data.categories[0];
+          if (fallbackCat) {
+            p.category = fallbackCat.id;
+            p.categoryName = fallbackCat.name;
+          }
         }
 
         // Deduplication & unique ID guarantee
@@ -814,15 +820,15 @@ class NexusApp {
 
           // If local data is strictly newer by more than 2s (e.g. user created entities while DB was syncing), preserve local data and re-sync
           if (localData && localData.products && localTime > dbTime + 2000) {
-            console.log('[NexusApp] LocalStorage tiene datos más recientes que el servidor. Preservando estado local y re-sincronizando...');
+            console.log('[NexusApp] LocalStorage tiene datos más recientes que el servidor. Preservando estado local para re-sincronizar...');
             this.data = Object.assign({}, INITIAL_DATA, localData);
             this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
             this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
             this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
             this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
             this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
+            this._hasUnsavedLocalChanges = true;
             this.sanitizeLoadedData();
-            this.savePersistence();
             return;
           }
 
@@ -915,9 +921,12 @@ class NexusApp {
   getProductTotalCost(p) {
     if (!p) return 0;
     const cost = Math.max(0, parseFloat(String(p.cost || 0).replace(',', '.')) || 0);
-    const grams = this.getGramsFromProduct(p);
-    if (grams > 0) {
-      return Math.round(grams * cost * 100) / 100;
+    const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
+    if (!isPesaje) {
+      const grams = this.getGramsFromProduct(p);
+      if (grams > 0) {
+        return Math.round(grams * cost * 100) / 100;
+      }
     }
     const stock = Math.max(0, parseFloat(String(p.stock || 0).replace(',', '.')) || 0);
     return Math.round(stock * cost * 100) / 100;
@@ -932,7 +941,7 @@ class NexusApp {
         const pCatName = String(p.categoryName || '').toLowerCase().trim();
         const cId = String(cat.id || '').toLowerCase().trim();
         const cName = String(cat.name || '').toLowerCase().trim();
-        return pCat === cId || pCat === cName || pCatName === cName || pCatName === cId;
+        return pCat === cId || (!pCat && (pCatName === cName || pCatName === cId));
       });
       cat.itemsCount = prodsInCat.length;
 
@@ -998,7 +1007,7 @@ class NexusApp {
       const m = String(sc.id).match(/^CP-(\d+)$/i);
       if (!m) { hasLegacyIds = true; break; }
       const num = parseInt(m[1], 10);
-      if (num > 50 || seenIds.has(sc.id)) { hasLegacyIds = true; break; }
+      if (isNaN(num) || seenIds.has(sc.id)) { hasLegacyIds = true; break; }
       seenIds.add(sc.id);
     }
 
@@ -1110,10 +1119,11 @@ class NexusApp {
         });
       }
 
-      // 1 registro consolidado saldado si tiene historial pagado
-      if (paidList.length > 0 && (pendingVal === 0 || paidList.length > 5)) {
+      // 1 registro consolidado saldado si tiene historial pagado (mantener también si volvió a tener compras pendientes)
+      if (paidList.length > 0) {
         const prefPaidId = paidList.find(c => /^CP-\d+$/i.test(c.id || ''))?.id;
         const totalPaidHist = paidList.reduce((sum, c) => sum + (Number(c.totalOwed) || Number(c.paidAmount) || 0), 0);
+        const paidHistEntries = paidList.flatMap(c => Array.isArray(c.history) ? c.history : []);
         consolidated.push({
           id: allocCreditId(prefPaidId),
           supplier: realName,
@@ -1125,7 +1135,8 @@ class NexusApp {
           lastPurchaseDate: latest,
           dueDate: latest,
           status: 'Pagado Total',
-          purchaseOrderIds: Array.from(allPOIds)
+          purchaseOrderIds: Array.from(allPOIds),
+          ...(paidHistEntries.length > 0 ? { history: paidHistEntries } : {})
         });
       }
     }
@@ -1199,10 +1210,16 @@ class NexusApp {
 
     const executePost = async () => {
       try {
-        if (!this.currentUser) return;
+        if (!this.currentUser) {
+          this._hasUnsavedLocalChanges = true;
+          return;
+        }
         const userRole = this.currentUser.role || '';
         const userId = this.currentUser.id || '';
-        if (!userRole || !userId) return;
+        if (!userRole || !userId) {
+          this._hasUnsavedLocalChanges = true;
+          return;
+        }
 
         const res = await fetch('/api/data', {
           method: 'POST',
@@ -1214,8 +1231,13 @@ class NexusApp {
           body: JSON.stringify(this.data)
         });
         if (!res.ok) {
+          this._hasUnsavedLocalChanges = true;
           console.warn('[NexusApp] Backend REST rechazó guardado HTTP:', res.status);
+          if (res.status === 403 || res.status >= 500) {
+            this.showToast('Advertencia: No se pudo sincronizar con el servidor (se conserva respaldo local).', 'warning');
+          }
         } else {
+          this._hasUnsavedLocalChanges = false;
           try {
             const respData = await res.json();
             if (respData?.updatedAt) {
@@ -1226,6 +1248,7 @@ class NexusApp {
           } catch (_) {}
         }
       } catch (e) {
+        this._hasUnsavedLocalChanges = true;
         console.warn('[NexusApp] No se pudo sincronizar con backend REST:', e);
       } finally {
         this._isSaving = false;
@@ -1251,7 +1274,18 @@ class NexusApp {
           const parsed = JSON.parse(e.newValue);
           if (parsed && parsed.products) {
             this.data = Object.assign({}, INITIAL_DATA, parsed);
+            this.data.store = Object.assign({}, INITIAL_DATA.store, parsed.store || {});
+            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, parsed.kpis || {});
+            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, parsed.cashShiftLog || {});
+            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, parsed.balanceSheet || {});
+            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, parsed.stockRadarData || {});
             this.sanitizeLoadedData();
+            if (Array.isArray(this.cart) && this.cart.length > 0) {
+              this.cart = this.cart.map(ci => {
+                const fresh = (this.data.products || []).find(pr => pr.id === ci.product?.id);
+                return fresh ? { ...ci, product: fresh } : null;
+              }).filter(Boolean);
+            }
             this.renderAllTables();
             if (this.currentParentView === 'pos') {
               this.renderCategoryPills();
@@ -1294,6 +1328,10 @@ class NexusApp {
 
   async syncRemoteDataIfChanged() {
     if (this._isSaving || this._pendingSave) return;
+    if (this._hasUnsavedLocalChanges && this.currentUser) {
+      await this.savePersistence();
+      if (this._hasUnsavedLocalChanges) return;
+    }
     try {
       const res = await fetch('/api/data');
       if (res.ok) {
@@ -1313,7 +1351,7 @@ class NexusApp {
 
           // Structural fingerprint covering all transactional, credit, catalog & config collections
           const buildFingerprint = (d) => {
-            const pFp = (d.products || []).map(p => `${p.id}:${p.sku}:${p.name}:${p.stock}:${p.cost}:${p.price}:${p.status}:${p.category}`).join('|');
+            const pFp = (d.products || []).map(p => `${p.id}:${p.sku}:${p.name}:${p.stock}:${p.cost}:${p.price}:${p.status}:${p.category}:${p.measureType || ''}:${p.pieceWeight || 0}:${p.weightUnit || ''}`).join('|');
             const cFp = (d.customers || []).map(c => `${c.id}:${c.name}:${c.creditBalance}`).join('|');
             const sFp = (d.suppliers || []).map(s => `${s.id}:${s.name}:${s.creditBalance}`).join('|');
             const uFp = (d.users || []).map(u => `${u.id}:${u.name}:${u.status}:${u.role}:${(u.customPermissions || []).length}`).join('|');
@@ -1323,7 +1361,9 @@ class NexusApp {
             const poFp = (d.purchases || []).map(po => `${po.id}:${po.total}:${po.paidAmount || 0}:${po.paymentStatus || ''}`).join('|');
             const expFp = (d.expenses || []).map(e => `${e.id}:${e.amount}`).join('|');
             const abFp = `${(d.abonosVentas || []).length}:${(d.abonosCompras || []).length}:${(d.customerCredits || []).reduce((a,c)=>a+(Number(c.currentBalance)||0),0)}:${(d.supplierCredits || []).reduce((a,c)=>a+(Number(c.pendingAmount)||0),0)}`;
-            const miscFp = `${(d.categories || []).length}:${(d.paymentMethods || []).length}:${(d.services || []).length}:${(d.assets || []).length}:${(d.cashShiftsHistory || []).length}:${d.store?.name || ''}`;
+            const catFp = (d.categories || []).map(c => `${c.id}:${c.cost || 0}:${c.availableGrams || 0}:${c.availableUnits || 0}`).join('|');
+            const adjFp = `${(d.accountAdjustments || []).length}:${JSON.stringify(d.accountInitialBalances || {})}:${JSON.stringify(d.store?.metalRates || {})}:${d.store?.taxRate || 0}`;
+            const miscFp = `${catFp}:${(d.paymentMethods || []).length}:${(d.services || []).length}:${(d.assets || []).length}:${(d.cashShiftsHistory || []).length}:${d.store?.name || ''}:${adjFp}`;
             return `${pFp};${cFp};${sFp};${uFp};${prfFp};${cashFp};${txFp};${poFp};${expFp};${abFp};${miscFp}`;
           };
 
@@ -1339,6 +1379,12 @@ class NexusApp {
             this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, remote.stockRadarData || {});
             this._lastServerUpdatedAt = remote.updatedAt || null;
             this.sanitizeLoadedData();
+            if (Array.isArray(this.cart) && this.cart.length > 0) {
+              this.cart = this.cart.map(ci => {
+                const fresh = (this.data.products || []).find(pr => pr.id === ci.product?.id);
+                return fresh ? { ...ci, product: fresh } : null;
+              }).filter(Boolean);
+            }
             try {
               localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
             } catch (_) {}
@@ -1839,8 +1885,13 @@ class NexusApp {
     this.attachGlobalNumberMasks();
     this.showToast(`¡Bienvenido, ${user.name}! Sesión iniciada como ${user.role}.`, 'success');
 
-    // Pull fresh state from database/backend and immediately render all views and dashboard sales
-    await this.syncRemoteDataIfChanged();
+    // Si hubo cambios locales antes de iniciar sesión (p.ej. seed inicial), subirlos antes de traer remoto;
+    // de lo contrario sincronizar cambios remotos desde BD.
+    if (this._hasUnsavedLocalChanges) {
+      await this.savePersistence();
+    } else {
+      await this.syncRemoteDataIfChanged();
+    }
     this.syncAllModules();
 
     const landing = this.getUserInitialView();
@@ -1879,7 +1930,7 @@ class NexusApp {
 
   isSuperAdminRole(roleStr) {
     const r = String(roleStr || '').toLowerCase().trim();
-    return r === 'super admin' || r === 'superadmin' || r.startsWith('super ');
+    return r === 'super admin' || r === 'superadmin' || r === 'super administrador';
   }
 
   hasPermission(parentViewId, subViewId) {
@@ -1990,7 +2041,15 @@ class NexusApp {
       return false;
     }
 
-    // Check custom granular permissions if assigned to this specific user (overrides default role restrictions)
+    const isSuperAdmin = this.isSuperAdminRole(this.currentUser?.role);
+    const isAdmin = role.includes('admin') || role.includes('gerente') || role.includes('supervisor');
+    const isVendedor = role.includes('vendedor') || role.includes('operad');
+
+    if (entity === 'expense' && (action === 'create' || action === 'edit')) {
+      if (isCajero || isAdmin || isVendedor) return true;
+    }
+
+    // Check custom granular permissions if assigned to this specific user (strict override of role profile)
     if (this.currentUser.customPermissions && Array.isArray(this.currentUser.customPermissions)) {
       const perms = this.currentUser.customPermissions;
       if (perms.includes('*')) return true;
@@ -2005,21 +2064,18 @@ class NexusApp {
         purchase: 'comprar'
       };
       const requiredMod = entityModuleMap[entity];
-      if (requiredMod && perms.includes(requiredMod)) {
-        if (action === 'edit' || action === 'create') return true;
+      if (requiredMod) {
+        if (action === 'edit' || action === 'create') {
+          if (perms.includes(requiredMod)) return true;
+          if (entity === 'expense' && (perms.includes('gastos') || perms.includes('pos') || perms.includes('cuadre_caja') || perms.includes('finanzas'))) {
+            return true;
+          }
+          return false;
+        }
+        if (action === 'delete' && !isCajero) {
+          return perms.includes(requiredMod) && isAdmin;
+        }
       }
-      // Permitir registro de gastos a usuarios que operan caja o POS
-      if (entity === 'expense' && (perms.includes('gastos') || perms.includes('pos') || perms.includes('cuadre_caja') || perms.includes('finanzas'))) {
-        if (action === 'edit' || action === 'create') return true;
-      }
-    }
-
-    const isAdmin = role.includes('admin') || role.includes('gerente') || role.includes('supervisor');
-    const isVendedor = role.includes('vendedor') || role.includes('operad');
-
-    // Gastos y egresos operativos: permitir a roles operativos registrar y editar
-    if (entity === 'expense' && (action === 'create' || action === 'edit')) {
-      if (isCajero || isAdmin || isVendedor) return true;
     }
 
     // Cashier restrictions
@@ -2060,9 +2116,9 @@ class NexusApp {
     const select = document.getElementById(selectId);
     if (!select) return;
     let perfiles = this.data.perfiles || [];
-    // Only Super Admin can assign the 'Super Admin' role
-    if (this.currentUser?.role !== 'Super Admin') {
-      perfiles = perfiles.filter(p => p.name !== 'Super Admin');
+    // Only Super Admin can assign Super Admin role
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
+      perfiles = perfiles.filter(p => !this.isSuperAdminRole(p.name));
     }
     select.innerHTML = perfiles.map(p => `
       <option value="${this.escapeHtml(p.name)}" ${p.name?.toLowerCase() === selectedRole?.toLowerCase() ? 'selected' : ''}>${this.escapeHtml(p.name)}</option>
@@ -2117,13 +2173,13 @@ class NexusApp {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const isSuperAdminRole = roleName?.toLowerCase() === 'super admin';
+    const isSuperAdminRole = this.isSuperAdminRole(roleName);
     const users = this.data.users || [];
     container.innerHTML = `
       <label style="font-size:0.8rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Asignar Usuarios a este Rol</label>
       <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:0.4rem; max-height:130px; overflow-y:auto; padding:0.6rem; background:var(--canvas-bg); border-radius:var(--radius-md); border:1px solid var(--border-color);">
         ${users.map(u => {
-          const isSuperUser = u.role === 'Super Admin' || u.id === 'USR-001';
+          const isSuperUser = this.isSuperAdminRole(u.role) || u.id === 'USR-001';
           const isAssigned = u.role?.toLowerCase() === roleName?.toLowerCase();
           
           // Super Admins cannot be reassigned to non-superadmin roles via role checkboxes
@@ -3146,7 +3202,7 @@ class NexusApp {
     if (pmForm) {
       pmForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (this.currentUser?.role !== 'Super Admin') {
+        if (!this.isSuperAdminRole(this.currentUser?.role)) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede configurar métodos de pago.', 'danger');
           return;
         }
@@ -3186,7 +3242,7 @@ class NexusApp {
     if (editPmForm) {
       editPmForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (this.currentUser?.role !== 'Super Admin') {
+        if (!this.isSuperAdminRole(this.currentUser?.role)) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar métodos de pago.', 'danger');
           return;
         }
@@ -3246,14 +3302,20 @@ class NexusApp {
         const finalMethod = isBank ? `Transferencia (${finalTargetAccount})` : rawMethod;
 
         const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
+        if (!isBank && !activeShift) {
+          this.showToast('El turno de caja está CERRADO. Abre un turno en Arqueo de Caja para registrar gastos en Efectivo, o selecciona Transferencia bancaria.', 'warning');
+          return;
+        }
         const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const localDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
         const currentOp = this.currentUser?.name || 'Administración';
         const newExp = {
           id: this.generateSequentialId('EXP', this.data.expenses),
-          date: now.toISOString().slice(0, 10),
+          date: localDate,
           time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           timestamp: now.getTime(),
-          shiftId: activeShift ? activeShift.shiftId : null,
+          shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
           description: desc,
           category: cat,
           amount,
@@ -3302,7 +3364,10 @@ class NexusApp {
         const exp = this.data.expenses.find(x => x.id === id);
         if (exp) {
           const oldAmount = Number(exp.amount) || 0;
-          const oldWasCash = !(exp.isBank || (exp.method && (exp.method.toLowerCase().includes('transfer') || exp.method.toLowerCase().includes('banco'))));
+          const oldMethodL = String(exp.method || '').toLowerCase();
+          const oldAccL = String(exp.targetAccount || '').toLowerCase();
+          const oldIsExplicitCash = !exp.isBank && (oldMethodL.includes('efectivo') || oldAccL.includes('efectivo') || oldAccL.includes('caja'));
+          const oldWasBank = Boolean(exp.isBank || (!oldIsExplicitCash && (oldMethodL.includes('transfer') || oldMethodL.includes('banco') || oldMethodL.includes('tarjeta') || oldMethodL.includes('cuenta') || (!!exp.targetAccount && !oldAccL.includes('caja')))));
           exp.description = document.getElementById('edit-exp-desc').value;
           exp.category = document.getElementById('edit-exp-cat').value;
           exp.amount = Math.max(0, this.parseCleanNumber(document.getElementById('edit-exp-amount')?.value) || 0);
@@ -3315,13 +3380,17 @@ class NexusApp {
           exp.targetAccount = finalTargetAccount;
           exp.isBank = isBank;
 
-          if (exp.shiftId && (!this.data.cashShiftLog || exp.shiftId !== this.data.cashShiftLog.shiftId) && Array.isArray(this.data.cashShiftsHistory)) {
+          const isOpenShift = this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId && exp.shiftId === this.data.cashShiftLog.shiftId;
+          if (exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift && Array.isArray(this.data.cashShiftsHistory)) {
             const hist = this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId);
             if (hist) {
-              const oldCashPortion = oldWasCash ? oldAmount : 0;
+              const oldCashPortion = !oldWasBank ? oldAmount : 0;
               const newCashPortion = !isBank ? exp.amount : 0;
-              const deltaCash = newCashPortion - oldCashPortion;
-              hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) + deltaCash) * 100) / 100;
+              const oldBankPortion = oldWasBank ? oldAmount : 0;
+              const newBankPortion = isBank ? exp.amount : 0;
+              hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) + (newCashPortion - oldCashPortion)) * 100) / 100;
+              hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) + (newBankPortion - oldBankPortion)) * 100) / 100;
+              hist.totalExpenses = Math.round((hist.cashExpenses + hist.bankExpenses) * 100) / 100;
               hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses) * 100) / 100;
               if (hist.closingCash !== undefined) {
                 hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
@@ -3634,6 +3703,18 @@ class NexusApp {
           let effIsExtras = isExtras;
           let effProductGrams = productGrams;
 
+          // 3. Registrar Orden de Compra completa
+          const paymentStatus = document.getElementById('po-payment-status')?.value || 'Pagado Total';
+          const isPaid = paymentStatus === 'Pagado Total';
+          const rawMethod = isPaid ? (document.getElementById('po-payment-method')?.value || 'Efectivo') : 'Crédito Proveedor';
+          const isCash = isPaid && rawMethod.toLowerCase().includes('efectivo');
+          const isBank = isPaid && !isCash;
+          const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
+          if (isCash && !activeShift) {
+            this.showToast('El turno de caja está CERRADO. Abre un turno en Arqueo de Caja para compras en Efectivo, o selecciona Transferencia/Crédito.', 'warning');
+            return;
+          }
+
           if (!targetProd) {
             const newProdId = this.generateUniqueId('PRD-CJ', this.data.products);
             const newSku = prodSku || this.getNextConsecutiveSku();
@@ -3641,9 +3722,9 @@ class NexusApp {
               id: newProdId,
               sku: newSku,
               name: prodName,
-              measureType: measureType,
-              weightUnit: isPesaje ? 'g' : 'u.',
-              unit: isPesaje ? 'g' : 'u.',
+              measureType: isExtras ? 'Unidades' : measureType,
+              weightUnit: isExtras ? 'u.' : (isPesaje ? 'g' : 'u.'),
+              unit: isExtras ? 'u.' : (isPesaje ? 'g' : 'u.'),
               category: catObj.id,
               categoryName: catObj.name,
               isExtra: isExtras,
@@ -3651,9 +3732,9 @@ class NexusApp {
               cost: unitCost,
               price: 0,
               stock: quantity, // Stock inicial igual a la cantidad comprada
-              pieceWeight: isUnidades ? (productGrams || 0) : 0,
-              weight: isUnidades ? (productGrams || 0) : 0,
-              minStock: isUnidades ? 1 : 0.5,
+              pieceWeight: isExtras ? 0 : (isUnidades ? (productGrams || 0) : 0),
+              weight: isExtras ? 0 : (isUnidades ? (productGrams || 0) : 0),
+              minStock: (isExtras || isUnidades) ? 1 : 0.5,
               status: quantity > 0 ? 'active' : 'out_of_stock',
               sold30d: 0,
               createdAt: new Date().toISOString()
@@ -3690,11 +3771,19 @@ class NexusApp {
           }
 
           // Si la categoría es de extras/manillas, no suma gramos de metal a la categoría ni a inventario
+          const poUnitFactor = effIsPesaje ? (() => {
+            const wu = String(targetProd?.weightUnit || document.getElementById('po-weight-unit')?.value || 'g').toLowerCase();
+            if (wu === 'kg') return 1000;
+            if (wu === 'mg') return 0.001;
+            if (wu === 'µg' || wu === 'ug') return 0.000001;
+            if (wu === 'oz') return 28.3495;
+            return 1;
+          })() : 1;
           const totalGramsAdded = effIsExtras
             ? 0
-            : (effIsPesaje ? quantity : (effProductGrams > 0 ? Math.round(quantity * effProductGrams * 100) / 100 : 0));
-          // En joyería fina, si el lote tiene gramaje, el costo unitario ingresado corresponde al gramo ($/g)
-          const totalCost = totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost);
+            : (effIsPesaje ? (Math.round(quantity * poUnitFactor * 100) / 100) : (effProductGrams > 0 ? Math.round(quantity * effProductGrams * 100) / 100 : 0));
+          // En joyería fina, si el lote tiene gramaje, el costo unitario ingresado corresponde al gramo ($/g) o a la unidad ingresada si es kg/oz
+          const totalCost = effIsPesaje ? Math.round(quantity * unitCost) : (totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost));
 
           // 2. Sincronizar disponibilidad de gramos y valuación de categorías & KPIs
           if (!this.data.kpis) this.data.kpis = {};
@@ -3709,17 +3798,13 @@ class NexusApp {
           }
           this.syncAllCategoryGrams();
 
-          // 3. Registrar Orden de Compra completa
-          const paymentStatus = document.getElementById('po-payment-status')?.value || 'Pagado Total';
-          const isPaid = paymentStatus === 'Pagado Total';
-          const rawMethod = isPaid ? (document.getElementById('po-payment-method')?.value || 'Efectivo') : 'Crédito Proveedor';
-          const isCash = isPaid && rawMethod.toLowerCase().includes('efectivo');
-          const isBank = isPaid && !isCash;
           const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
           const selectedAccount = isBank ? (document.getElementById('po-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS') : (isCash ? 'Caja Mostrador (Efectivo)' : null);
           const paymentMethod = isPaid ? (isBank ? `${rawMethod} (${selectedAccount})` : 'Efectivo') : 'Crédito Proveedor';
 
           const now = new Date();
+          const pad = n => String(n).padStart(2, '0');
+          const localDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
           const newPO = {
             id: this.generateSequentialId('OC', this.data.purchases),
             supplier: supp,
@@ -3735,10 +3820,10 @@ class NexusApp {
             productGrams: effProductGrams,
             totalGrams: totalGramsAdded,
             total: totalCost,
-            date: now.toISOString().slice(0, 10),
+            date: localDate,
             time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             timestamp: now.getTime(),
-            shiftId: this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null,
+            shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
             status: "Recibido",
             paymentStatus: paymentStatus,
             paymentMethod: paymentMethod,
@@ -4054,6 +4139,17 @@ class NexusApp {
           }
 
           // Sincronizar automáticamente disponibilidad de gramos en todas las categorías
+          if (oldCatId && oldCatId !== editCatId && Array.isArray(this.data.categories)) {
+            const stillHasOld = this.data.products.some(pr => pr && (pr.category === oldCatId || (!pr.category && pr.categoryName === oldCatName)));
+            if (!stillHasOld) {
+              const oldCatObj = this.data.categories.find(c => c.id === oldCatId || c.name === oldCatName);
+              if (oldCatObj) {
+                oldCatObj.availableGrams = 0;
+                oldCatObj.availableUnits = 0;
+                oldCatObj.totalValuation = 0;
+              }
+            }
+          }
           this.syncAllCategoryGrams();
 
           // SYNCHRONIZATION WITH BACKEND (MongoDB & LocalStorage & db.json)
@@ -4398,7 +4494,7 @@ class NexusApp {
 
       configForm.onsubmit = async (e) => {
         e.preventDefault();
-        if (this.currentUser?.role !== 'Super Admin' && !this.hasPermission('config', null)) {
+        if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
           this.showToast('Acceso Denegado: No tienes permisos para modificar la configuración de la empresa.', 'danger');
           return;
         }
@@ -4542,9 +4638,13 @@ class NexusApp {
   }
 
   updateAppLogos(branding) {
-    const logoUrl = (branding && branding.logoUrl) ? branding.logoUrl : '';
+    const rawLogoUrl = (branding && branding.logoUrl) ? String(branding.logoUrl).trim() : '';
+    const logoUrl = (/^(https?:\/\/|data:image\/(png|jpe?g|webp|gif);base64,|\/|\.\/)/i.test(rawLogoUrl)) ? rawLogoUrl : '';
     const appName = (branding && branding.appName) ? branding.appName : 'NEXUS';
     const appBadge = (branding && branding.appBadge) ? branding.appBadge : 'POS';
+    const safeAppName = this.escapeHtml(appName);
+    const safeAppBadge = this.escapeHtml(appBadge);
+    const safeLogoUrl = this.escapeHtml(logoUrl);
 
     // 1. Nombre y Logo en Barra Lateral (Sidebar)
     const sidebarLogoContainer = document.getElementById('sidebar-brand-logo-container');
@@ -4552,7 +4652,7 @@ class NexusApp {
     const iconBox = document.getElementById('sidebar-brand-icon-box');
 
     if (sidebarTitle) {
-      sidebarTitle.innerHTML = `<span class="brand-name-str" title="${appName}">${appName}</span> <span class="brand-badge">${appBadge}</span>`;
+      sidebarTitle.innerHTML = `<span class="brand-name-str" title="${safeAppName}">${safeAppName}</span> <span class="brand-badge">${safeAppBadge}</span>`;
     }
 
     if (sidebarLogoContainer) {
@@ -4578,7 +4678,7 @@ class NexusApp {
     const loginTitle = document.getElementById('login-brand-title-text');
 
     if (loginTitle) {
-      loginTitle.innerHTML = `<span class="brand-name-str" title="${appName}">${appName}</span> <span class="login-brand-badge">${appBadge}</span>`;
+      loginTitle.innerHTML = `<span class="brand-name-str" title="${safeAppName}">${safeAppName}</span> <span class="login-brand-badge">${safeAppBadge}</span>`;
     }
 
     if (loginContainer) {
@@ -4604,8 +4704,8 @@ class NexusApp {
     // 4. Previsualización de la Tarjeta en Configuración
     const previewBox = document.getElementById('branding-logo-preview-box');
     if (previewBox) {
-      if (logoUrl) {
-        previewBox.innerHTML = `<img src="${logoUrl}" style="max-height:75px; max-width:100%; object-fit:contain;">`;
+      if (safeLogoUrl) {
+        previewBox.innerHTML = `<img src="${safeLogoUrl}" style="max-height:75px; max-width:100%; object-fit:contain;">`;
       } else {
         previewBox.innerHTML = `<span style="font-size:0.85rem; color:var(--text-muted);">Sin logo personalizado (usando icono por defecto)</span>`;
       }
@@ -4613,7 +4713,7 @@ class NexusApp {
 
     const previewHeaderTitle = document.getElementById('preview-brand-title');
     if (previewHeaderTitle) {
-      previewHeaderTitle.innerHTML = `${appName} <span style="font-size:0.65rem; background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px; margin-left:4px;">${appBadge}</span>`;
+      previewHeaderTitle.innerHTML = `${safeAppName} <span style="font-size:0.65rem; background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px; margin-left:4px;">${safeAppBadge}</span>`;
     }
 
     const previewBrandArea = document.getElementById('preview-brand-logo-area');
@@ -4752,7 +4852,7 @@ class NexusApp {
 
     brandingForm.onsubmit = async (e) => {
       e.preventDefault();
-      if (this.currentUser?.role !== 'Super Admin' && !this.hasPermission('config', null)) {
+      if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
         this.showToast('Acceso Denegado: No tienes permisos para modificar el branding y tema visual.', 'danger');
         return;
       }
@@ -5382,7 +5482,7 @@ class NexusApp {
   }
 
   openEditUserModal(id) {
-    if (this.currentUser?.role !== 'Super Admin') {
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
       this.showToast('Acceso Denegado: Solo el Super Admin puede gestionar cuentas de usuario.', 'danger');
       return;
     }
@@ -5632,7 +5732,7 @@ class NexusApp {
   }
 
   openAdminChangePasswordModal(userId) {
-    if (!this.currentUser || this.currentUser.role !== 'Super Admin') {
+    if (!this.currentUser || !this.isSuperAdminRole(this.currentUser.role)) {
       this.showToast('Acceso Denegado: Solo el Super Admin puede gestionar contraseñas de usuarios.', 'danger');
       return;
     }
@@ -5714,7 +5814,7 @@ class NexusApp {
 
   async handleAdminSaveUserPassword(e) {
     if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser || this.currentUser.role !== 'Super Admin') {
+    if (!this.currentUser || !this.isSuperAdminRole(this.currentUser.role)) {
       this.showToast('Acceso Denegado: Solo el Super Admin puede redefinir contraseñas.', 'danger');
       return;
     }
@@ -5774,7 +5874,7 @@ class NexusApp {
   }
 
   openEditProfileModal(id) {
-    if (this.currentUser?.role !== 'Super Admin') {
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
       this.showToast('Acceso Denegado: Solo el Super Admin puede configurar la matriz de perfiles y permisos.', 'danger');
       return;
     }
@@ -5952,8 +6052,19 @@ class NexusApp {
       return;
     }
     const supp = (this.data.suppliers || []).find(s => s.id === id);
+    const suppNorm = (supp?.name || '').toLowerCase().trim();
+    const pendingDebt = (Number(supp?.creditBalance) || 0) + (this.data.supplierCredits || [])
+      .filter(sc => ((sc.supplier || '').toLowerCase().trim() === suppNorm || (supp && sc.supplierId === supp.id)) && (Number(sc.pendingAmount) || 0) > 0)
+      .reduce((s, sc) => s + (Number(sc.pendingAmount) || 0), 0);
+    if (pendingDebt > 0) {
+      this.showToast(`No se puede eliminar "${supp?.name || id}" porque tiene saldo pendiente por pagar (${this.formatCurrency(supp?.creditBalance || pendingDebt)}). Salda la deuda primero.`, 'warning');
+      return;
+    }
     if (!confirm(`¿Estás seguro de eliminar al proveedor "${supp ? supp.name : id}"?`)) return;
     this.data.suppliers = this.data.suppliers.filter(s => s.id !== id);
+    if (Array.isArray(this.data.supplierCredits)) {
+      this.data.supplierCredits = this.data.supplierCredits.filter(sc => !((sc.supplier || '').toLowerCase().trim() === suppNorm && (Number(sc.pendingAmount) || 0) <= 0));
+    }
     await this.savePersistence();
     this.syncAllModules();
     this.showToast(`Proveedor ${supp ? supp.name : id} eliminado`, 'warning');
@@ -5984,7 +6095,7 @@ class NexusApp {
   }
 
   async deletePaymethod(id) {
-    if (this.currentUser?.role !== 'Super Admin') {
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
       this.showToast('Acceso Denegado: Solo el Super Admin puede eliminar métodos de pago.', 'danger');
       return;
     }
@@ -6003,15 +6114,24 @@ class NexusApp {
     if (!confirm('¿Estás seguro de eliminar este registro de gasto o egreso? El monto será reintegrado automáticamente a su saldo correspondiente.')) return;
     const exp = (this.data.expenses || []).find(e => e.id === id);
     this.data.expenses = this.data.expenses.filter(e => e.id !== id);
-    if (exp && exp.shiftId && (!this.data.cashShiftLog || exp.shiftId !== this.data.cashShiftLog.shiftId) && Array.isArray(this.data.cashShiftsHistory)) {
-      const wasCash = !(exp.isBank || (exp.method && (exp.method.toLowerCase().includes('transfer') || exp.method.toLowerCase().includes('banco'))));
+    const isOpenShift = exp && exp.shiftId && this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId === this.data.cashShiftLog.shiftId;
+    if (exp && exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift && Array.isArray(this.data.cashShiftsHistory)) {
+      const mL = String(exp.method || '').toLowerCase();
+      const accL = String(exp.targetAccount || '').toLowerCase();
+      const explicitCash = !exp.isBank && (mL.includes('efectivo') || accL.includes('efectivo') || accL.includes('caja'));
+      const wasBank = Boolean(exp.isBank || (!explicitCash && (mL.includes('transfer') || mL.includes('banco') || mL.includes('tarjeta') || mL.includes('cuenta') || (!!exp.targetAccount && !accL.includes('caja')))));
       const hist = this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId);
-      if (wasCash && hist) {
-        hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) - (Number(exp.amount) || 0)) * 100) / 100;
-        hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses) * 100) / 100;
-        if (hist.closingCash !== undefined) {
-          hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
+      if (hist) {
+        if (!wasBank) {
+          hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) - (Number(exp.amount) || 0)) * 100) / 100;
+          hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses) * 100) / 100;
+          if (hist.closingCash !== undefined) {
+            hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
+          }
+        } else {
+          hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) - (Number(exp.amount) || 0)) * 100) / 100;
         }
+        hist.totalExpenses = Math.round(((Number(hist.cashExpenses) || 0) + (Number(hist.bankExpenses) || 0)) * 100) / 100;
       }
     }
     if (this.calculateShiftTotals) {
@@ -6041,30 +6161,36 @@ class NexusApp {
       this.showToast('Acceso Denegado: No tienes permisos para eliminar categorías del catálogo.', 'danger');
       return;
     }
+    if (id === 'oro18k' || (this.data.categories || []).length <= 1) {
+      this.showToast('La categoría principal del catálogo no puede eliminarse para preservar la integridad de inventario.', 'warning');
+      return;
+    }
     const cat = (this.data.categories || []).find(c => c.id === id);
     const catName = cat ? cat.name : id;
-    if (!confirm(`¿Estás seguro de eliminar la categoría "${catName}"? Los productos asociados se reasignarán a la categoría principal.`)) return;
+    if (!confirm(`¿Estás seguro de eliminar la categoría "${catName}"? Los productos asociados se reasignarán a otra categoría compatible.`)) return;
 
-    // Reasignar productos asociados a la categoría fallback principal para no perder existencias ni trazabilidad de gramos
     const isExtras = cat && (cat.type === 'extras' || cat.isExtra);
     const fallbackCat = isExtras
-      ? ((this.data.categories || []).find(c => c.id !== id && (c.type === 'extras' || c.isExtra)) || (this.data.categories || []).find(c => c.id !== id))
-      : ((this.data.categories || []).find(c => c.id !== id && (c.id === 'oro18k' || c.name.toLowerCase().includes('oro'))) || (this.data.categories || []).find(c => c.id !== id));
-    if (fallbackCat) {
-      const prodsToReassign = (this.data.products || []).filter(p => p.category === id || p.categoryName === catName);
-      if (prodsToReassign.length > 0) {
-        let movedGrams = 0;
-        prodsToReassign.forEach(p => {
-          p.category = fallbackCat.id;
-          p.categoryName = fallbackCat.name;
-          movedGrams += this.getGramsFromProduct(p);
-        });
-        if (!isExtras && fallbackCat.type !== 'extras' && !fallbackCat.isExtra) {
-          const catGrams = Number(cat?.availableGrams) || movedGrams;
-          fallbackCat.availableGrams = Math.round(((fallbackCat.availableGrams || 0) + catGrams) * 100) / 100;
-        }
-        this.showToast(`${prodsToReassign.length} productos reasignados a "${fallbackCat.name}"`, 'info');
+      ? ((this.data.categories || []).find(c => c.id !== id && (c.type === 'extras' || c.isExtra)))
+      : ((this.data.categories || []).find(c => c.id !== id && !(c.type === 'extras' || c.isExtra) && (c.id === 'oro18k' || c.name.toLowerCase().includes('oro')))
+        || (this.data.categories || []).find(c => c.id !== id && !(c.type === 'extras' || c.isExtra)));
+    const prodsToReassign = (this.data.products || []).filter(p => p.category === id || (!p.category && p.categoryName === catName));
+    if (prodsToReassign.length > 0 && !fallbackCat) {
+      this.showToast(`No se puede eliminar "${catName}" porque tiene productos y no hay otra categoría del mismo tipo para reasignarlos.`, 'warning');
+      return;
+    }
+    if (fallbackCat && prodsToReassign.length > 0) {
+      let movedGrams = 0;
+      prodsToReassign.forEach(p => {
+        p.category = fallbackCat.id;
+        p.categoryName = fallbackCat.name;
+        movedGrams += this.getGramsFromProduct(p);
+      });
+      if (!isExtras && fallbackCat.type !== 'extras' && !fallbackCat.isExtra) {
+        const catGrams = Number(cat?.availableGrams) || movedGrams;
+        fallbackCat.availableGrams = Math.round(((fallbackCat.availableGrams || 0) + catGrams) * 100) / 100;
       }
+      this.showToast(`${prodsToReassign.length} productos reasignados a "${fallbackCat.name}"`, 'info');
     }
 
     this.data.categories = (this.data.categories || []).filter(c => c.id !== id);
@@ -6170,18 +6296,27 @@ class NexusApp {
     this.syncSupplierCreditsState();
 
     if (cashToRefund > 0) {
-      const curShiftId = this.data.cashShiftLog?.shiftId;
-      if (po.shiftId && po.shiftId !== curShiftId && Array.isArray(this.data.cashShiftsHistory)) {
-        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === po.shiftId || s.id === po.shiftId);
-        if (histShift) {
-          histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - cashToRefund) * 100) / 100;
-          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses) * 100) / 100;
-          if (histShift.closingCash !== undefined) {
-            histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+      const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
+      const refundShifts = relatedAbonos.length > 0
+        ? Array.from(new Set(relatedAbonos.map(ab => ab.shiftId).filter(Boolean)))
+        : (po.shiftId ? [po.shiftId] : []);
+      refundShifts.forEach(rShiftId => {
+        if (rShiftId !== 'EXCLUIDO' && rShiftId !== openShiftId && Array.isArray(this.data.cashShiftsHistory)) {
+          const amtForShift = relatedAbonos.length > 0
+            ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && ((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
+            : cashToRefund;
+          const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === rShiftId || s.id === rShiftId);
+          if (histShift && amtForShift > 0) {
+            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amtForShift) * 100) / 100;
+            histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
+            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses) * 100) / 100;
+            if (histShift.closingCash !== undefined) {
+              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+            }
           }
         }
-      }
-      if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
+      });
+      if (this.calculateShiftTotals && openShiftId) {
         this.calculateShiftTotals();
       }
     }
@@ -6236,7 +6371,7 @@ class NexusApp {
       suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + amt) * 100) / 100;
     }
 
-    // Revertir pago en la OC específica o amortizar en reversa (LIFO) entre OCs pagadas del proveedor
+    // Revertir pago en la OC específica o amortizar en reversa (LIFO) entre OCs a crédito del proveedor
     if (Array.isArray(this.data.purchases)) {
       const directPo = ab.poId ? this.data.purchases.find(p => p.id === ab.poId) : null;
       if (directPo) {
@@ -6245,9 +6380,11 @@ class NexusApp {
           directPo.paymentStatus = 'Pendiente';
         }
       } else if (suppNorm) {
+        const linkedCredit = (this.data.supplierCredits || []).find(c => c.id === ab.poId || ((c.supplier || '').toLowerCase().trim() === suppNorm));
+        const linkedSet = new Set(Array.isArray(linkedCredit?.purchaseOrderIds) ? linkedCredit.purchaseOrderIds : []);
         let toRevert = amt;
         const paidPOs = this.data.purchases
-          .filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm && (Number(p.paidAmount) || 0) > 0 && p.paymentMethod !== 'Efectivo')
+          .filter(p => (linkedSet.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) && (Number(p.paidAmount) || 0) > 0 && (String(p.paymentMethod || '').toLowerCase().includes('crédito') || String(p.paymentMethod || '').toLowerCase().includes('credito') || linkedSet.has(p.id)))
           .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         for (const p of paidPOs) {
           if (toRevert <= 0) break;
@@ -6265,18 +6402,19 @@ class NexusApp {
     this.data.abonosCompras = (this.data.abonosCompras || []).filter(a => a.id !== id);
     this.syncSupplierCreditsState();
     if (isCash && amt > 0) {
-      const curShiftId = this.data.cashShiftLog?.shiftId;
-      if (ab.shiftId && ab.shiftId !== curShiftId && Array.isArray(this.data.cashShiftsHistory)) {
+      const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
+      if (ab.shiftId && ab.shiftId !== 'EXCLUIDO' && ab.shiftId !== openShiftId && Array.isArray(this.data.cashShiftsHistory)) {
         const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === ab.shiftId || s.id === ab.shiftId);
         if (histShift) {
           histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amt) * 100) / 100;
+          histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
           histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses) * 100) / 100;
           if (histShift.closingCash !== undefined) {
             histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
           }
         }
       }
-      if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
+      if (this.calculateShiftTotals && openShiftId) {
         this.calculateShiftTotals();
       }
     }
@@ -6285,7 +6423,7 @@ class NexusApp {
     this.renderAbonosComprasTable();
     this.renderCuadreCajaCard();
     this.renderCashStatusIndicator();
-    this.showToast(`Abono #${id} anulado y dinero reintegrado a caja`, 'warning');
+    this.showToast(`Abono #${id} anulado ${isCash ? 'y dinero reintegrado a caja' : 'y saldo bancario restablecido'}`, 'warning');
   }
 
   openAbonoModal(type, id) {
@@ -7017,8 +7155,7 @@ class NexusApp {
     const totalInvValue = (this.data.products || []).reduce((acc, p) => {
       const price = Number(p.price) || 0;
       if (price <= 0) return acc;
-      const grams = this.getGramsFromProduct(p);
-      return acc + (grams > 0 ? grams * price : (Number(p.stock) || 0) * price);
+      return acc + ((Number(p.stock) || 0) * price);
     }, 0);
     const marginPct = totalInvValue > 0 ? (((totalInvValue - totalCostValue) / totalInvValue) * 100).toFixed(1) : "0.0";
 
@@ -7126,7 +7263,7 @@ class NexusApp {
       if (!canEditUser && !canDeleteUser) {
         actionHtml = `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
       } else {
-        const isSuperAdmin = this.currentUser && this.currentUser.role === 'Super Admin';
+        const isSuperAdmin = this.currentUser && this.isSuperAdminRole(this.currentUser.role);
         const isGhostSession = this.currentUser && this.currentUser.id === this._ghost().id;
         const keyBtn = isSuperAdmin 
           ? `<button class="btn-action-key" title="Cambiar / Restablecer Contraseña" onclick="app.openAdminChangePasswordModal('${u.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Clave</button>` 
@@ -7164,9 +7301,9 @@ class NexusApp {
     const canDeleteCust = this.canPerformAction('delete', 'customer');
 
     tbody.innerHTML = this.data.customers.map(c => {
-      const abonoBtn = c.creditBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.openAbonoModalByEntity('customer', '${c.id}')">💳 Abonar</button>` : '';
-      const editBtn = canEditCust ? `<button class="btn-action-edit" onclick="app.openEditCustomerModal('${c.id}')">Editar</button>` : '';
-      const deleteBtn = canDeleteCust ? `<button class="btn-action-delete" onclick="app.deleteCustomer('${c.id}')">Eliminar</button>` : '';
+      const abonoBtn = c.creditBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.openAbonoModalByEntity('customer', '${this.escapeHtml(c.id)}')">💳 Abonar</button>` : '';
+      const editBtn = canEditCust ? `<button class="btn-action-edit" onclick="app.openEditCustomerModal('${this.escapeHtml(c.id)}')">Editar</button>` : '';
+      const deleteBtn = canDeleteCust ? `<button class="btn-action-delete" onclick="app.deleteCustomer('${this.escapeHtml(c.id)}')">Eliminar</button>` : '';
 
       const actions = `${abonoBtn}${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>`;
@@ -7178,7 +7315,7 @@ class NexusApp {
         if (m === 'Transferencia') { bg = 'rgba(59,130,246,0.12)'; color = '#3B82F6'; icon = '🏦'; }
         else if (m === 'Crédito') { bg = 'rgba(245,158,11,0.12)'; color = '#D97706'; icon = '💳'; }
         else if (m === 'Plan Separe') { bg = 'rgba(139,92,246,0.12)'; color = '#8B5CF6'; icon = '📑'; }
-        return `<span class="badge" style="background:${bg}; color:${color}; font-size:0.68rem; font-weight:700; padding:2px 6px; border-radius:4px; display:inline-flex; align-items:center; gap:3px;">${icon} ${m}</span>`;
+        return `<span class="badge" style="background:${bg}; color:${color}; font-size:0.68rem; font-weight:700; padding:2px 6px; border-radius:4px; display:inline-flex; align-items:center; gap:3px;">${icon} ${this.escapeHtml(m)}</span>`;
       }).join(' ');
 
       const docType = c.docType || (c.document && c.document.includes('-') ? 'NIT' : 'CC');
@@ -8590,7 +8727,7 @@ class NexusApp {
   renderPerfilesTable() {
     const tbody = document.getElementById('perfiles-tbody');
     if (!tbody) return;
-    const isSuperAdmin = this.currentUser?.role === 'Super Admin';
+    const isSuperAdmin = this.isSuperAdminRole(this.currentUser?.role);
 
     tbody.innerHTML = this.data.perfiles.map(p => {
       const activeUsers = this.data.users.filter(u => u.role?.toLowerCase() === p.name?.toLowerCase());
@@ -9395,10 +9532,33 @@ class NexusApp {
         });
       } else {
         const pmLower = String(tx.paymentMethod || '').toLowerCase();
-        if (pmLower.includes('crédito') || pmLower.includes('credito') || pmLower.includes('separe')) return;
-        const accKey = pmLower === 'efectivo' || pmLower.startsWith('efectivo')
+        if (pmLower.includes('separe')) {
+          const depAmt = Math.round(Number(tx.separeAbono) || 0);
+          if (depAmt > 0) {
+            addMovement('efectivo_caja', {
+              id: tx.id,
+              date: tx.date || '',
+              time: tx.time || '',
+              timestamp: tx.timestamp || 0,
+              category: 'Abono Plan Separe',
+              typeLabel: '🛒 Plan Separe (Abono Inicial)',
+              isIncome: true,
+              concept: txItemsDesc,
+              party: tx.customer || 'Cliente',
+              operator: tx.cashier || 'Cajero',
+              amount: depAmt,
+              rawAccountName: 'Caja Mostrador (Efectivo)'
+            });
+          }
+          return;
+        }
+        if (pmLower.includes('crédito') || pmLower.includes('credito')) return;
+        const defaultBankAccKey = this.resolveCanonicalAccountKey(this.data.cashShiftLog?.openingAccount, true) || 'cuenta_charles_joyas';
+        const isCashMethod = pmLower === 'efectivo' || pmLower.startsWith('efectivo');
+        const isCardOrTransfer = pmLower.includes('tarjeta') || pmLower.includes('transfer') || pmLower.includes('banco') || pmLower.includes('datafono') || pmLower.includes('datáfono');
+        const accKey = isCashMethod
           ? 'efectivo_caja'
-          : this.extractAccountKeyFromMovement(tx.targetAccount, tx.paymentMethod);
+          : (this.extractAccountKeyFromMovement(tx.targetAccount, tx.paymentMethod) || (isCardOrTransfer ? defaultBankAccKey : null));
         if (accKey) {
           addMovement(accKey, {
             id: tx.id,
@@ -9420,11 +9580,13 @@ class NexusApp {
 
     // 3. Abonos de Cartera Clientes / Plan Separe (abonosVentas)
     (this.data.abonosVentas || []).forEach(ab => {
-      if (!ab) return;
+      if (!ab || ab.status === 'Reversado' || ab.status === 'Reversada') return;
       const mLower = String(ab.method || 'Efectivo').toLowerCase();
+      const defaultBankAccKey = this.resolveCanonicalAccountKey(this.data.cashShiftLog?.openingAccount, true) || 'cuenta_charles_joyas';
+      const isCardOrTransfer = mLower.includes('tarjeta') || mLower.includes('transfer') || mLower.includes('banco');
       const accKey = mLower.includes('efectivo')
         ? 'efectivo_caja'
-        : this.extractAccountKeyFromMovement(ab.targetAccount, ab.method);
+        : (this.extractAccountKeyFromMovement(ab.targetAccount, ab.method) || (isCardOrTransfer ? defaultBankAccKey : null));
       if (accKey) {
         addMovement(accKey, {
           id: ab.id,
@@ -9529,8 +9691,20 @@ class NexusApp {
     });
 
     // 7. Ajustes Manuales / Transferencias entre Cuentas (accountAdjustments)
+    const curShift = this.data.cashShiftLog || {};
+    const curShiftOpen = curShift.status === 'Abierto';
+    let currentShiftCashAdjNet = 0;
     (this.data.accountAdjustments || []).forEach(adj => {
       if (!adj || !adj.accountKey) return;
+      if (adj.accountKey === 'efectivo_caja') {
+        const belongsToCurrentShift = curShiftOpen
+          ? (adj.shiftId === curShift.shiftId || (!adj.shiftId && curShift.openedTimestamp && Number(adj.timestamp) >= curShift.openedTimestamp))
+          : (curShift.closedTimestamp ? Number(adj.timestamp) > curShift.closedTimestamp : false);
+        if (belongsToCurrentShift) {
+          const signedAmt = Math.round(Math.abs(Number(adj.amount) || 0)) * (adj.isIncome ? 1 : -1);
+          currentShiftCashAdjNet += signedAmt;
+        }
+      }
       addMovement(adj.accountKey, {
         id: adj.id,
         date: adj.date || '',
@@ -9550,20 +9724,24 @@ class NexusApp {
 
     // 8. Calcular saldo final disponible por cada cuenta
     let activeShiftCash = null;
-    try {
-      if (this.calculateShiftTotals) {
-        const shiftTotals = this.calculateShiftTotals();
-        if (shiftTotals && typeof shiftTotals.expectedCashInDrawer === 'number') {
-          activeShiftCash = Math.round(shiftTotals.expectedCashInDrawer);
+    if (curShiftOpen) {
+      try {
+        if (this.calculateShiftTotals) {
+          const shiftTotals = this.calculateShiftTotals();
+          if (shiftTotals && typeof shiftTotals.expectedCashInDrawer === 'number') {
+            activeShiftCash = Math.round(shiftTotals.expectedCashInDrawer);
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    } else if (curShift && (curShift.closingCash !== undefined || curShift.expectedCashInDrawer !== undefined || this.data.store?.cashInBox !== undefined)) {
+      activeShiftCash = Math.round(Number(curShift.closingCash ?? curShift.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0));
+    }
 
     Object.values(accounts).forEach(acc => {
       if (acc.isCash && activeShiftCash !== null) {
-        // Para Efectivo en Caja, el saldo base operativo es el efectivo real esperado en gaveta del turno actual + ajustes manuales de efectivo
+        // Para Efectivo en Caja, usar el arqueo real + únicamente ajustes de caja del turno activo (no acumular ajustes de turnos pasados ya cerrados)
         acc.shiftDrawerBalance = activeShiftCash;
-        acc.balance = Math.round(activeShiftCash + acc.adjustmentsNet);
+        acc.balance = Math.round(activeShiftCash + currentShiftCashAdjNet);
       } else {
         acc.balance = Math.round(acc.initialBalance + acc.incomes - acc.expenses + acc.adjustmentsNet);
       }
@@ -9577,7 +9755,7 @@ class NexusApp {
   renderPaymentMethodsTable() {
     const tbody = document.getElementById('paymethods-tbody');
     const overviewEl = document.getElementById('accounts-balance-overview');
-    const isSuperAdmin = this.currentUser?.role === 'Super Admin';
+    const isSuperAdmin = this.isSuperAdminRole(this.currentUser?.role);
     const canAdjust = isSuperAdmin || this.isAdminUser() || (this.currentUser?.role || '').toLowerCase().includes('gerente');
 
     const accountsMap = this.getAccountsFinancialSummary();
@@ -9882,6 +10060,10 @@ class NexusApp {
   }
 
   async deleteAccountAdjustment(adjId, accountKey) {
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Solo Administradores pueden eliminar ajustes manuales.', 'danger');
+      return;
+    }
     if (!confirm('¿Estás seguro de eliminar este ajuste manual de cuenta?')) return;
     if (!Array.isArray(this.data.accountAdjustments)) return;
     // Eliminar ajuste y su par en caso de transferencia vinculada
@@ -10042,9 +10224,11 @@ class NexusApp {
     }
 
     const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10);
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const operator = this.currentUser?.name || 'Administrador';
+    const activeShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
 
     if (type === 'set_balance') {
       if (isNaN(rawVal) || rawVal < 0) {
@@ -10060,6 +10244,7 @@ class NexusApp {
       this.data.accountAdjustments.unshift({
         id: this.generateSequentialId('AJ-CTA', this.data.accountAdjustments),
         accountKey: acc.key,
+        shiftId: activeShiftId,
         date: dateStr,
         time: timeStr,
         timestamp: now.getTime(),
@@ -10088,6 +10273,7 @@ class NexusApp {
       this.data.accountAdjustments.unshift({
         id: this.generateSequentialId('AJ-CTA', this.data.accountAdjustments),
         accountKey: acc.key,
+        shiftId: activeShiftId,
         date: dateStr,
         time: timeStr,
         timestamp: now.getTime(),
@@ -10669,21 +10855,23 @@ class NexusApp {
     const items = tx.items || [];
     const restoredNames = [];
 
+    const now = new Date();
+    const txYear = now.getFullYear();
+    const txMonth = now.getMonth() + 1;
+    const txDay = now.getDate();
+
     items.forEach(item => {
-      const soldQty = Number(item.qty || item.quantity) || 1;
-      
-      // Búsqueda jerárquica estricta para evitar colisiones entre productos con el mismo nombre:
-      // 1. Prioridad Máxima: Coincidencia EXACTA por ID único
+      const soldQty = Number(item.qty || item.quantity) || 0;
+      if (soldQty <= 0) return;
+
       let prod = null;
       if (item.id) {
         prod = (this.data.products || []).find(p => p && p.id === item.id);
       }
-      // 2. Segunda Prioridad: Coincidencia EXACTA por Código / SKU
       if (!prod && item.sku) {
         const itemSku = String(item.sku).trim().toLowerCase();
         prod = (this.data.products || []).find(p => p && p.sku && String(p.sku).trim().toLowerCase() === itemSku);
       }
-      // 3. Fallback de emergencia si el registro carecía de ID y SKU: Coincidencia por Nombre + Categoría
       if (!prod && item.name) {
         const itemName = String(item.name).trim().toLowerCase();
         const itemCat = String(item.category || item.categoryName || '').trim().toLowerCase();
@@ -10701,16 +10889,16 @@ class NexusApp {
 
       if (prod) {
         const isPesaje = (prod.measureType || 'Pesaje') === 'Pesaje';
-        const pWeight = parseFloat(String(prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0)).replace(',', '.')) || 0;
+        const pWeight = parseFloat(String(item.pieceWeight || (prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0))).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const unitsToAdd = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 100) / 100) : soldQty;
+        const roundScale = (isPesaje && (prod.weightUnit || 'g').toLowerCase() === 'kg') ? 10000 : 1000;
+        const unitsToAdd = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
 
-        prod.stock = Math.round(((Number(prod.stock) || 0) + unitsToAdd) * 100) / 100;
+        prod.stock = Math.round(((Number(prod.stock) || 0) + unitsToAdd) * roundScale) / roundScale;
         const minStock = Number(prod.minStock) || 1;
         prod.status = prod.stock > minStock ? 'active' : (prod.stock > 0 ? 'low_stock' : 'out_of_stock');
         prod.sold30d = Math.max(0, (Number(prod.sold30d) || 0) - unitsToAdd);
 
-        // Descontar venta de monthlySales si estaba registrada
         if (prod.monthlySales) {
           let saleMonthKey, saleDay;
           if (tx.date && typeof tx.date === 'string' && tx.date.includes('/')) {
@@ -10725,21 +10913,19 @@ class NexusApp {
             saleDay = parseInt(parts[2], 10);
           }
           if (!saleMonthKey) {
-            const now = new Date();
-            saleDay = now.getDate();
-            saleMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            saleDay = txDay;
+            saleMonthKey = `${txYear}-${String(txMonth).padStart(2, '0')}`;
           }
           if (prod.monthlySales[saleMonthKey] && prod.monthlySales[saleMonthKey][saleDay]) {
             prod.monthlySales[saleMonthKey][saleDay] = Math.max(0, (Number(prod.monthlySales[saleMonthKey][saleDay]) || 0) - unitsToAdd);
           }
         }
 
-        restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id}, +${unitsToAdd} ${isPesaje ? 'g' : 'u.'})`);
+        restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id}, +${unitsToAdd} ${isPesaje ? (prod.weightUnit || 'g') : 'u.'})`);
       } else {
-        // Si el producto fue borrado, recrearlo en el inventario con su código y datos originales
         const isPesajeItem = (item.measureType || 'Pesaje') === 'Pesaje';
         const pWeightItem = Number(item.pieceWeight) || 0;
-        const unitsToAddItem = (!isPesajeItem && pWeightItem > 0) ? (Math.round((soldQty / pWeightItem) * 100) / 100) : soldQty;
+        const unitsToAddItem = (!isPesajeItem && pWeightItem > 0) ? (Math.round((soldQty / pWeightItem) * 10000) / 10000) : soldQty;
 
         const restoredProd = {
           id: item.id || this.generateUniqueId('PRD', this.data.products),
@@ -10792,23 +10978,34 @@ class NexusApp {
     } else if (payMethod.includes('tarjeta') || payMethod.includes('transfer') || payMethod.includes('banco')) {
       bankRefundAmount = grandTotal;
     } else if (payMethod.includes('crédito') || payMethod.includes('credito')) {
-      // Anular deuda de crédito al cliente
-      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
-      if (cust) {
-        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - grandTotal) * 100) / 100;
-      }
+      // Anular deuda y posibles abonos previos vinculados al crédito
+      let targetCreditId = null;
       if (Array.isArray(this.data.customerCredits)) {
         const cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id)
           || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado' && (Number(c.currentBalance) || 0) > 0)
           || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado');
         if (cred) {
+          targetCreditId = cred.id;
           cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
           cred.currentBalance = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - grandTotal) * 100) / 100;
           if (cred.currentBalance <= 0) cred.status = 'Anulado';
         }
       }
+      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
+      if (cust) {
+        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - grandTotal) * 100) / 100;
+      }
+      if (Array.isArray(this.data.abonosVentas) && targetCreditId) {
+        this.data.abonosVentas.forEach(ab => {
+          if (ab && ab.status !== 'Reversado' && (ab.creditId === targetCreditId || ab.invoiceId === tx.id)) {
+            ab.status = 'Reversado';
+            const abMeth = String(ab.method || '').toLowerCase();
+            if (abMeth.includes('efectivo') || abMeth.includes('caja')) cashRefundAmount += Number(ab.amount) || 0;
+            else bankRefundAmount += Number(ab.amount) || 0;
+          }
+        });
+      }
     } else if (payMethod.includes('separe')) {
-      // Plan separe: reversar abono inicial en caja Y saldo pendiente en cliente + crédito
       const sep = Array.isArray(this.data.customerCredits)
         ? (this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || (c.customer === tx.customer && c.status === 'Plan Separe')))
         : null;
@@ -10819,9 +11016,7 @@ class NexusApp {
         ? Number(tx.separeAbono)
         : Math.max(0, grandTotal - effPending);
 
-      if (effAbono > 0) {
-        cashRefundAmount = effAbono;
-      }
+      if (effAbono > 0) cashRefundAmount += effAbono;
       if (effPending > 0) {
         const cust = (this.data.customers || []).find(c => c.name === tx.customer);
         if (cust) {
@@ -10829,6 +11024,16 @@ class NexusApp {
         }
       }
       if (sep) {
+        if (Array.isArray(this.data.abonosVentas)) {
+          this.data.abonosVentas.forEach(ab => {
+            if (ab && ab.status !== 'Reversado' && (ab.creditId === sep.id || ab.invoiceId === tx.id)) {
+              ab.status = 'Reversado';
+              const abMeth = String(ab.method || '').toLowerCase();
+              if (abMeth.includes('efectivo') || abMeth.includes('caja')) cashRefundAmount += Number(ab.amount) || 0;
+              else bankRefundAmount += Number(ab.amount) || 0;
+            }
+          });
+        }
         sep.status = 'Anulado';
         sep.currentBalance = 0;
         sep.totalGranted = 0;
@@ -10841,44 +11046,50 @@ class NexusApp {
     tx.reversedBy = this.currentUser?.name || 'Administrador';
     tx.cashRefunded = cashRefundAmount;
 
-    const activeShiftId = this.data.cashShiftLog?.shiftId;
-    const isDifferentShift = Boolean(tx.shiftId && activeShiftId && tx.shiftId !== activeShiftId);
-    if (isDifferentShift && this.data.cashShiftLog?.status === 'Abierto' && cashRefundAmount > 0) {
-      // Si se devuelve dinero físico en turno posterior por una venta de un turno previo ya cerrado,
-      // asociar el egreso físico al turno abierto actual para no descuadrar la gaveta ni alterar turnos pasados
-      tx.refundShiftId = activeShiftId;
-    }
+    const isOpenShift = this.data.cashShiftLog?.status === 'Abierto';
+    const openShiftId = isOpenShift ? this.data.cashShiftLog.shiftId : null;
+    const isTxInCurrentOpenShift = Boolean(openShiftId && tx.shiftId === openShiftId);
 
-    // Si pertenecía a un turno anterior cerrado en historial, actualizar referencia histórica de ventas
-    if (tx.shiftId && tx.shiftId !== activeShiftId && Array.isArray(this.data.cashShiftsHistory)) {
-      const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === tx.shiftId || s.id === tx.shiftId);
-      if (histShift) {
+    if (!isTxInCurrentOpenShift) {
+      // Si el turno ya estaba cerrado (incluyendo el último turno recién cerrado), actualizar su registro en cashShiftsHistory
+      if (tx.shiftId && Array.isArray(this.data.cashShiftsHistory)) {
+        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === tx.shiftId || s.id === tx.shiftId);
+        if (histShift) {
+          if (cashRefundAmount > 0) {
+            histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - cashRefundAmount) * 100) / 100;
+          }
+          if (bankRefundAmount > 0) {
+            histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - bankRefundAmount) * 100) / 100;
+          }
+          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0)) * 100) / 100;
+          if (histShift.closingCash !== undefined) {
+            histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+          }
+        }
+      }
+      if (this.data.cashShiftLog?.status === 'Cerrado' && tx.shiftId === this.data.cashShiftLog.shiftId) {
         if (cashRefundAmount > 0) {
-          histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - cashRefundAmount) * 100) / 100;
+          this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - cashRefundAmount) * 100) / 100;
+          this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
+          if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
         }
         if (bankRefundAmount > 0) {
-          histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - bankRefundAmount) * 100) / 100;
+          this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - bankRefundAmount) * 100) / 100;
         }
       }
     }
 
-    // 4. SINCRONIZAR DINERO EN CAJA DE LA TIENDA Y TOTALES DE TURNO (CON tx.status = 'Reversada' YA APLICADO)
-    const totals = this.calculateShiftTotals ? this.calculateShiftTotals() : null;
-    if (totals && this.data.cashShiftLog) {
-      this.data.cashShiftLog.cashSales = totals.salesEfectivo;
-      this.data.cashShiftLog.expectedCashInDrawer = totals.expectedCashInDrawer;
-      this.data.cashShiftLog.cardSales = totals.salesTarjeta + totals.salesTransferencia;
-    } else if (this.data.cashShiftLog) {
-      if (cashRefundAmount > 0) {
-        this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - cashRefundAmount) * 100) / 100;
-        this.data.cashShiftLog.expectedCashInDrawer = Math.round(Math.max(0, (Number(this.data.cashShiftLog.expectedCashInDrawer) || 0) - cashRefundAmount) * 100) / 100;
+    // 4. SINCRONIZAR DINERO EN CAJA DEL TURNO ABIERTO (CON tx.status = 'Reversada' YA APLICADO)
+    if (isOpenShift) {
+      const totals = this.calculateShiftTotals ? this.calculateShiftTotals() : null;
+      if (totals && this.data.cashShiftLog) {
+        this.data.cashShiftLog.cashSales = totals.salesEfectivo;
+        this.data.cashShiftLog.expectedCashInDrawer = totals.expectedCashInDrawer;
+        this.data.cashShiftLog.cardSales = totals.salesTarjeta + totals.salesTransferencia;
       }
-      if (bankRefundAmount > 0) {
-        this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - bankRefundAmount) * 100) / 100;
+      if (this.data.store && this.data.cashShiftLog) {
+        this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
-    }
-    if (this.data.store && this.data.cashShiftLog) {
-      this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
     }
 
     if (this.data.kpis) {
@@ -11378,9 +11589,6 @@ class NexusApp {
     }
 
     const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === po.supplier?.toLowerCase().trim());
-    if (suppObj) {
-      suppObj.creditBalance = Math.round(Math.max(0, (Number(suppObj.creditBalance) || 0) - po.total) * 100) / 100;
-    }
 
     await this.savePersistence();
     this.syncAllModules();
@@ -11739,6 +11947,10 @@ class NexusApp {
      EDICIÓN DE ÓRDENES DE COMPRA Y SALDOS DE PROVEEDORES
      ========================================================================== */
   openEditPurchaseOrderModal(poId, fromSupplierCreditId = '') {
+    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar órdenes de compra.', 'danger');
+      return;
+    }
     const po = (this.data.purchases || []).find(p => p.id === poId);
     if (!po) {
       this.showToast(`No se encontró la orden de compra #${poId}`, 'warning');
@@ -12100,7 +12312,13 @@ class NexusApp {
     }
 
     this.syncSupplierCreditsState();
+    if (this.data.kpis) {
+      this.data.kpis.inventoryValue = Math.round((this.data.products || []).reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
+    }
     this.syncAllCategoryGrams();
+    if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
+      this.calculateShiftTotals();
+    }
     await this.savePersistence();
     this.syncAllModules();
     this.renderFinComprasTable();
@@ -12124,6 +12342,10 @@ class NexusApp {
   }
 
   openEditSupplierCreditModal(cpId) {
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Solo Administradores pueden editar saldos de créditos a proveedores.', 'danger');
+      return;
+    }
     const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
     if (!cp) {
       this.showToast('No se encontró el crédito del proveedor', 'warning');
@@ -12207,6 +12429,10 @@ class NexusApp {
 
   async saveEditedSupplierCredit(event) {
     if (event) event.preventDefault();
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Solo Administradores pueden modificar saldos de proveedores.', 'danger');
+      return;
+    }
 
     const cpId = document.getElementById('edit-sc-id')?.value;
     const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
@@ -12286,7 +12512,7 @@ class NexusApp {
     const canDeleteCategory = this.canPerformAction('delete', 'category');
 
     tbody.innerHTML = (this.data.categories || []).map(cat => {
-      const prodsInCat = (this.data.products || []).filter(p => p.category === cat.id || p.categoryName === cat.name);
+      const prodsInCat = (this.data.products || []).filter(p => p && (p.category === cat.id || (!p.category && p.categoryName === cat.name)));
       const count = prodsInCat.length;
       cat.itemsCount = count;
 
@@ -12295,7 +12521,7 @@ class NexusApp {
         .filter(p => p.measureType === 'Unidades')
         .reduce((sum, p) => sum + (parseFloat(String(p.stock || 0).replace(',', '.')) || 0), 0);
 
-      cat.availableGrams = Math.round(prodsGrams * 100) / 100;
+      cat.availableGrams = count > 0 ? Math.round(prodsGrams * 100) / 100 : (Number(cat.availableGrams) || 0);
       const formattedGrams = cat.availableGrams;
 
       const isExtras = cat.type === 'extras' || cat.isExtra;
@@ -12805,16 +13031,28 @@ class NexusApp {
           let itemCost = 0;
 
           if (isPesaje) {
-            itemGrams = qty;
+            const uLower = String(it.unit || p.weightUnit || 'g').toLowerCase();
+            let gFac = 1;
+            if (uLower === 'kg') gFac = 1000;
+            else if (uLower === 'mg') gFac = 0.001;
+            else if (uLower === 'oz') gFac = 28.3495;
+            itemGrams = qty * gFac;
             itemCost = qty * cost;
-          } else {
-            itemUnits = qty;
-            if (pWeight > 0) {
+          } else if (pWeight > 0) {
+            const itUnitLower = String(it.unit || '').toLowerCase();
+            const isQtyInGrams = itUnitLower === 'g' || !Number.isInteger(qty) || Math.abs(qty - pWeight) < 0.01;
+            if (isQtyInGrams) {
+              itemGrams = qty;
+              itemUnits = Math.round((qty / pWeight) * 100) / 100;
+              itemCost = qty * cost;
+            } else {
+              itemUnits = qty;
               itemGrams = qty * pWeight;
               itemCost = qty * pWeight * cost;
-            } else {
-              itemCost = qty * cost;
             }
+          } else {
+            itemUnits = qty;
+            itemCost = qty * cost;
           }
 
           entry.soldGrams += itemGrams;
@@ -13362,9 +13600,21 @@ class NexusApp {
     if (!p) return;
     if (!confirm(`¿Está seguro de eliminar el producto "${p.name}"? Esta acción no se puede deshacer.`)) return;
 
+    const oldCatId = p.category;
     const prodIdx = this.data.products.indexOf(p);
     if (prodIdx !== -1) {
       this.data.products.splice(prodIdx, 1);
+    }
+    if (oldCatId && Array.isArray(this.data.categories)) {
+      const remainingInCat = this.data.products.some(pr => pr && (pr.category === oldCatId || pr.categoryName === p.categoryName));
+      if (!remainingInCat) {
+        const catToZero = this.data.categories.find(c => c.id === oldCatId || c.name === p.categoryName);
+        if (catToZero) {
+          catToZero.availableGrams = 0;
+          catToZero.availableUnits = 0;
+          catToZero.totalValuation = 0;
+        }
+      }
     }
     if (this.data.kpis) {
       this.data.kpis.inventoryValue = Math.round(this.data.products.reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
@@ -13388,20 +13638,20 @@ class NexusApp {
     const canDeleteAsset = this.canPerformAction('delete', 'asset');
 
     tbody.innerHTML = this.data.assets.map(a => {
-      const editBtn = canEditAsset ? `<button class="btn-action-edit" onclick="app.openEditAssetModal('${a.id}')">Editar</button>` : '';
-      const deleteBtn = canDeleteAsset ? `<button class="btn-action-delete" onclick="app.deleteAsset('${a.id}')">Eliminar</button>` : '';
+      const editBtn = canEditAsset ? `<button class="btn-action-edit" onclick="app.openEditAssetModal('${this.escapeHtml(a.id)}')">Editar</button>` : '';
+      const deleteBtn = canDeleteAsset ? `<button class="btn-action-delete" onclick="app.deleteAsset('${this.escapeHtml(a.id)}')">Eliminar</button>` : '';
       const actions = `${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>`;
 
       return `
         <tr>
-          <td><b>${a.id}</b></td>
-          <td><span class="font-bold">${a.name}</span></td>
-          <td>${a.category}</td>
-          <td>${a.purchaseDate}</td>
+          <td><b>${this.escapeHtml(a.id)}</b></td>
+          <td><span class="font-bold">${this.escapeHtml(a.name)}</span></td>
+          <td>${this.escapeHtml(a.category)}</td>
+          <td>${this.escapeHtml(a.purchaseDate)}</td>
           <td>${this.formatCurrency(a.costValue)}</td>
           <td><span class="font-bold" style="color:var(--emerald-text);">${this.formatCurrency(a.currentVal)}</span></td>
-          <td><span class="badge badge-active">${a.status}</span></td>
+          <td><span class="badge badge-active">${this.escapeHtml(a.status)}</span></td>
           <td>${actionHtml}</td>
         </tr>
       `;
@@ -14095,21 +14345,26 @@ class NexusApp {
       openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
     }
 
-    // Set of closed shift IDs to strictly exclude previous shifts
-    const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
+    // Set of closed shift IDs (both TRN-* and TURNO-*) to strictly exclude previous shifts
+    const closedShiftIds = new Set();
+    (this.data.cashShiftsHistory || []).forEach(s => {
+      if (s?.id) closedShiftIds.add(s.id);
+      if (s?.shiftId) closedShiftIds.add(s.shiftId);
+    });
+    if (shift.status === 'Cerrado') return [];
 
     return (this.data.recentTransactions || []).filter(tx => {
-      if (!tx.date) return false;
+      if (!tx || !tx.date) return false;
       if (tx.status === 'Reversada' || tx.status === 'Anulada' || tx.status === 'reversada') return false;
 
-      // 1. Explicit shiftId match
-      if (tx.shiftId) {
-        return tx.shiftId === currentShiftId;
-      }
-
-      // 2. Exclude if marked as belonging to a closed shift
+      // 1. Exclude if marked as belonging to a closed shift
       if (tx.closedShiftId || (tx.shiftId && closedShiftIds.has(tx.shiftId))) {
         return false;
+      }
+
+      // 2. Explicit shiftId match
+      if (tx.shiftId) {
+        return tx.shiftId === currentShiftId;
       }
 
       // 3. Timestamp verification: must be on or after shift was opened
@@ -14136,14 +14391,19 @@ class NexusApp {
       openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
     }
 
-    const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
+    const closedShiftIds = new Set();
+    (this.data.cashShiftsHistory || []).forEach(s => {
+      if (s?.id) closedShiftIds.add(s.id);
+      if (s?.shiftId) closedShiftIds.add(s.shiftId);
+    });
+    if (shift.status === 'Cerrado') return [];
 
     return (this.data.abonosVentas || []).filter(a => {
-      if (!a.date) return false;
-      // 1. Coincidencia explícita con el turno activo
-      if (a.shiftId) return a.shiftId === shift.shiftId;
-      // 2. Si ya pertenece a un turno cerrado, descartar estrictamente
+      if (!a || !a.date || a.status === 'Reversado' || a.status === 'Reversada') return false;
+      // 1. Si ya pertenece a un turno cerrado, descartar estrictamente
       if (a.closedShiftId || (a.shiftId && closedShiftIds.has(a.shiftId))) return false;
+      // 2. Coincidencia explícita con el turno activo
+      if (a.shiftId) return a.shiftId === shift.shiftId;
       // 3. Validación temporal si no tiene shiftId
       if (openTimestamp > 0) {
         const pDate = a.date.includes(' ') ? a.date.split(' ')[0] : a.date;
@@ -14721,7 +14981,12 @@ class NexusApp {
     };
 
     const normShiftDate = normalizeDateStr(shiftDate);
-    const closedShiftIds = new Set((this.data.cashShiftsHistory || []).map(s => s.id || s.shiftId));
+    const closedShiftIds = new Set();
+    (this.data.cashShiftsHistory || []).forEach(s => {
+      if (s?.id) closedShiftIds.add(s.id);
+      if (s?.shiftId) closedShiftIds.add(s.shiftId);
+    });
+    if (shift.status === 'Cerrado') return [];
 
     // Helper: coincidencia estricta y segura con el turno activo
     const matchesShift = (dateStr, timeStr, itemShiftId, itemTimestamp = 0, closedShiftId = null, exclude = false) => {
@@ -16488,15 +16753,19 @@ class NexusApp {
     const datePattern = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : shift.date;
     const ddMm = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : '';
 
+    const targetShiftId = shift.shiftId || shift.id || null;
     const dayTxs = (this.data.recentTransactions || []).filter(tx => {
+      if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return false;
+      if (targetShiftId && tx.shiftId) return tx.shiftId === targetShiftId;
       if (!tx.date) return false;
       return tx.date === datePattern || tx.date.includes(datePattern) || (shift.date && tx.date.includes(shift.date)) || (ddMm && tx.date.includes(ddMm));
     });
 
     const dayExpenses = (this.data.expenses || []).filter(ex => {
+      if (!ex || !(ex.method || '').toLowerCase().includes('efectivo')) return false;
+      if (targetShiftId && ex.shiftId) return ex.shiftId === targetShiftId;
       if (!ex.date) return false;
-      const isDay = ex.date.includes(datePattern) || (shift.date && ex.date.includes(shift.date)) || (ddMm && ex.date.includes(ddMm));
-      return isDay && (ex.method || '').toLowerCase().includes('efectivo');
+      return ex.date.includes(datePattern) || (shift.date && ex.date.includes(shift.date)) || (ddMm && ex.date.includes(ddMm));
     });
 
     let txRowsXml = '';
@@ -16719,8 +16988,14 @@ class NexusApp {
      REPORTE DE FINANZAS INTEGRAL (P&L, GRÁFICAS & FLUJO DE CAJA)
      -------------------------------------------------------------------------- */
   parseDateSafe(dStr) {
-    if (!dStr) return null;
+    if (dStr === null || dStr === undefined || dStr === '') return null;
     if (dStr instanceof Date) return isNaN(dStr.getTime()) ? null : dStr;
+    if (typeof dStr === 'number' || /^\d{10,13}$/.test(String(dStr).trim())) {
+      const n = Number(dStr);
+      const ms = String(Math.trunc(n)).length <= 10 ? n * 1000 : n;
+      const dNum = new Date(ms);
+      return isNaN(dNum.getTime()) ? null : dNum;
+    }
     const str = String(dStr).trim();
     if (!str) return null;
 
@@ -16764,7 +17039,7 @@ class NexusApp {
   isDateInPeriod(dateStr, period) {
     if (!period || period === 'all') return true;
     const d = this.parseDateSafe(dateStr);
-    if (!d) return true;
+    if (!d) return false;
     const now = new Date();
     if (period === 'month') {
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
@@ -16796,10 +17071,14 @@ class NexusApp {
     const p = (this.data.products || []).find(prod => (it.id && prod.id === it.id) || (it.sku && prod.sku === it.sku) || (it.name && prod.name === it.name));
     const cat = p ? this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName) : null;
     const costPerGram = Number(p?.cost || it.cost || cat?.cost || 0);
-    const q = Number(it.quantity !== undefined ? it.quantity : it.qty) || 1;
+    const rawQ = it.quantity !== undefined ? it.quantity : it.qty;
+    const q = (rawQ !== undefined && rawQ !== null && !isNaN(Number(rawQ))) ? Number(rawQ) : 1;
+    if (q <= 0) return 0;
+    const isItService = Boolean(it.isService) || String(it.name || '').toLowerCase().includes('servicio') || String(it.category || '').toLowerCase().includes('servicio');
     const isPesaje = (p?.measureType || it.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p?.pieceWeight !== undefined && p?.pieceWeight !== null ? p.pieceWeight : (p?.weight || it.pieceWeight || 0)).replace(',', '.')) || 0;
     const itemTotal = Number(it.total !== undefined ? it.total : (Number(it.price) * q)) || 0;
+    if (isItService && costPerGram <= 0) return 0;
 
     let itemCOGS = 0;
     if (isPesaje) {
@@ -16976,8 +17255,8 @@ class NexusApp {
           grossServicesTaller += txTot;
         } else {
           grossSalesJoyería += txTot;
+          calculatedCOGS += Math.round(txTot * 0.65);
         }
-        calculatedCOGS += Math.round(txTot * 0.65);
       }
     });
 
@@ -17353,11 +17632,11 @@ class NexusApp {
 
       } else {
         const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-        const currentMonthIdx = new Date().getMonth();
+        const refNow = new Date();
         labels = [];
         for (let i = 5; i >= 0; i--) {
-          const mIdx = (currentMonthIdx - i + 12) % 12;
-          labels.push(monthNames[mIdx]);
+          const dt = new Date(refNow.getFullYear(), refNow.getMonth() - i, 1);
+          labels.push(`${monthNames[dt.getMonth()]} ${dt.getFullYear().toString().slice(-2)}`);
         }
         const mRev = labels.map(() => 0);
         const mCOGS = labels.map(() => 0);
@@ -17366,8 +17645,8 @@ class NexusApp {
         filteredTx.forEach(tx => {
           const d = this.parseDateSafe(tx.date);
           if (!d) return;
-          const mName = monthNames[d.getMonth()];
-          const idx = labels.indexOf(mName);
+          const mKey = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
+          const idx = labels.indexOf(mKey);
           if (idx !== -1) {
             mRev[idx] += (Number(tx.total) || 0);
             if (Array.isArray(tx.items)) {
@@ -17381,8 +17660,8 @@ class NexusApp {
         filteredExp.forEach(e => {
           const d = this.parseDateSafe(e.date);
           if (!d) return;
-          const mName = monthNames[d.getMonth()];
-          const idx = labels.indexOf(mName);
+          const mKey = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
+          const idx = labels.indexOf(mKey);
           if (idx !== -1) {
             mOpex[idx] += (Number(e.amount) || 0);
           }
@@ -18171,14 +18450,20 @@ class NexusApp {
 
     // 1. Calculate Period Purchases based on actual dates
     const now = new Date();
-    const currentYearMonth = now.toISOString().slice(0, 7); // e.g. "2026-09"
-    const cutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const cutoffDate30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    cutoffDate30.setHours(0, 0, 0, 0);
 
     let displayPurchases = [...rawPurchases];
     if (currentPeriod === 'month') {
-      displayPurchases = rawPurchases.filter(p => p.date && p.date.startsWith(currentYearMonth));
+      displayPurchases = rawPurchases.filter(p => {
+        const d = this.parseDateSafe(p.date);
+        return d && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      });
     } else if (currentPeriod === '30d') {
-      displayPurchases = rawPurchases.filter(p => p.date && p.date >= cutoff30d);
+      displayPurchases = rawPurchases.filter(p => {
+        const d = this.parseDateSafe(p.date);
+        return d && d >= cutoffDate30;
+      });
     } else {
       // 'all' / Histórico: all purchases
       displayPurchases = [...rawPurchases];
@@ -18275,21 +18560,21 @@ class NexusApp {
 
           return `
             <tr>
-              <td><span style="font-weight: 800; font-family: monospace; color: var(--primary-indigo);">${po.id}</span></td>
+              <td><span style="font-weight: 800; font-family: monospace; color: var(--primary-indigo);">${this.escapeHtml(po.id)}</span></td>
               <td>
-                <div style="font-weight: 700; color: var(--text-main);">${po.supplier}</div>
+                <div style="font-weight: 700; color: var(--text-main);">${this.escapeHtml(po.supplier)}</div>
               </td>
-              <td style="color: var(--text-muted); font-size: 0.82rem;">${po.date}</td>
-              <td><span class="font-bold">${po.itemsCount || 1} ítems</span></td>
+              <td style="color: var(--text-muted); font-size: 0.82rem;">${this.escapeHtml(po.date)}</td>
+              <td><span class="font-bold">${Number(po.itemsCount) || 1} ítems</span></td>
               <td><span style="font-weight: 800; color: var(--text-main);">$ ${Number(po.total).toLocaleString('es-CO')}</span></td>
               <td>
                 <span class="badge ${payBadgeClass}">
-                  <span class="badge-dot"></span>${po.paymentStatus || 'Pendiente'}
+                  <span class="badge-dot"></span>${this.escapeHtml(po.paymentStatus || 'Pendiente')}
                 </span>
               </td>
               <td>
                 <span class="badge ${deliverBadgeClass}">
-                  <span class="badge-dot"></span>${po.status || 'Recibido'}
+                  <span class="badge-dot"></span>${this.escapeHtml(po.status || 'Recibido')}
                 </span>
               </td>
               <td style="text-align: center;">
@@ -18298,7 +18583,7 @@ class NexusApp {
                     ✏️ Editar
                   </button>
                   ${pendingBalance > 0 ? `
-                    <button class="btn btn-primary text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openAbonoModalByEntity('supplier', '${po.supplier}')" title="Abonar a Proveedor">
+                    <button class="btn btn-primary text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openAbonoModalByEntity('supplier', '${this.escapeHtml(po.supplier)}')" title="Abonar a Proveedor">
                       💳 Pagar
                     </button>
                   ` : `
@@ -18447,7 +18732,12 @@ class NexusApp {
       p.status || 'Recibido'
     ]);
 
-    const csvContent = "\uFEFF" + [headers.join(';'), ...rows.map(r => r.map(c => `"${c}"`).join(';'))].join('\r\n');
+    const safeCsv = (v) => {
+      let s = String(v === undefined || v === null ? '' : v);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const csvContent = "\uFEFF" + [headers.join(';'), ...rows.map(r => r.map(safeCsv).join(';'))].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -20146,7 +20436,7 @@ class NexusApp {
   exportLibroCompletoComprasYAbonosExcel() {
     const purchases = this.data.purchases || [];
     const abonosCompras = this.data.abonosCompras || [];
-    const abonosVentas = this.data.abonosVentas || [];
+    const abonosVentas = (this.data.abonosVentas || []).filter(ab => ab && ab.status !== 'Reversado' && ab.status !== 'Anulado');
     const supplierCredits = this.data.supplierCredits || [];
     const now = new Date();
 
@@ -20840,7 +21130,7 @@ class NexusApp {
     const purchases = allPurchases.filter(p => isDateInRange(p.date));
 
     const allAbonosVentas = this.data.abonosVentas || [];
-    const abonosVentas = allAbonosVentas.filter(a => isDateInRange(a.date));
+    const abonosVentas = allAbonosVentas.filter(a => a && a.status !== 'Reversado' && a.status !== 'Anulado' && isDateInRange(a.date));
 
     const allAbonosCompras = this.data.abonosCompras || [];
     const abonosCompras = allAbonosCompras.filter(a => isDateInRange(a.date));
@@ -20862,7 +21152,7 @@ class NexusApp {
         });
       } else {
         const txTot = Number(tx.total) || 0;
-        calculatedCOGS += isTxService ? Math.round(txTot * 0.20) : Math.round(txTot * 0.65);
+        calculatedCOGS += isTxService ? 0 : Math.round(txTot * 0.65);
       }
     });
 
@@ -20880,8 +21170,14 @@ class NexusApp {
     const totalPagadoPurchases = purchases.reduce((acc, p) => acc + (Number(p.paidAmount) || 0), 0);
     const totalPendingPurchases = purchases.reduce((acc, p) => acc + ((Number(p.total) || 0) - (Number(p.paidAmount) || 0)), 0);
 
-    // Flujo neto de fondos estimado
-    const netCashFlow = (totalSales + totalAbonosVentas) - (totalExp + totalPagadoPurchases);
+    // Flujo neto de fondos real (evitando doble conteo de ventas a crédito cuyo cobro entra por abonosVentas)
+    const collectedSalesCashAndBank = validSalesTx.reduce((acc, tx) => {
+      const m = (tx.paymentMethod || '').toLowerCase();
+      if (m === 'crédito' || m === 'credito') return acc;
+      if (m.includes('separe')) return acc + (Number(tx.separeAbono) || 0);
+      return acc + (Number(tx.total) || 0);
+    }, 0);
+    const netCashFlow = (collectedSalesCashAndBank + totalAbonosVentas) - (totalExp + totalPagadoPurchases);
 
     // 2. Expense classification for P&L
     let expNomina = 0;
@@ -21331,13 +21627,15 @@ class NexusApp {
           const itName = it.name || it.product?.name || 'Joya';
           const itUnit = it.unit || (it.measureType === 'Pesaje' ? 'g' : 'u.');
           const itWeight = Number(it.pieceWeight || it.weight || 0);
-          
-          if (itUnit === 'g' || it.measureType === 'Pesaje') {
-            txGrams += (itQty * (itWeight > 0 ? itWeight : 1));
+          const uLower = String(itUnit).toLowerCase();
+
+          if (uLower === 'g' || uLower === 'kg' || uLower === 'mg' || uLower === 'oz' || uLower === 'µg' || uLower === 'ug' || (it.measureType === 'Pesaje' && uLower !== 'u.')) {
+            const uFactor = uLower === 'kg' ? 1000 : (uLower === 'mg' ? 0.001 : (uLower === 'oz' ? 28.3495 : ((uLower === 'µg' || uLower === 'ug') ? 0.000001 : 1)));
+            txGrams += (itQty * uFactor);
             txQty += 1;
           } else {
             txQty += itQty;
-            if (itWeight > 0) txGrams += (itQty * itWeight);
+            if (itWeight > 0) txGrams += (Math.abs(itQty - itWeight) < 0.01 && itQty !== 1 ? itQty : itQty * itWeight);
           }
           return `${itName} (${itQty}${itUnit})`;
         }).join('; ');
@@ -21899,13 +22197,15 @@ class NexusApp {
           const itName = it.name || it.product?.name || 'Joya';
           const itUnit = it.unit || (it.measureType === 'Pesaje' ? 'g' : 'u.');
           const itWeight = Number(it.pieceWeight || it.weight || 0);
-          
-          if (itUnit === 'g' || it.measureType === 'Pesaje') {
-            txGrams += (itQty * (itWeight > 0 ? itWeight : 1));
+          const uLower = String(itUnit).toLowerCase();
+
+          if (uLower === 'g' || uLower === 'kg' || uLower === 'mg' || uLower === 'oz' || uLower === 'µg' || uLower === 'ug' || (it.measureType === 'Pesaje' && uLower !== 'u.')) {
+            const uFactor = uLower === 'kg' ? 1000 : (uLower === 'mg' ? 0.001 : (uLower === 'oz' ? 28.3495 : ((uLower === 'µg' || uLower === 'ug') ? 0.000001 : 1)));
+            txGrams += (itQty * uFactor);
             txQty += 1;
           } else {
             txQty += itQty;
-            if (itWeight > 0) txGrams += (itQty * itWeight);
+            if (itWeight > 0) txGrams += (Math.abs(itQty - itWeight) < 0.01 && itQty !== 1 ? itQty : itQty * itWeight);
           }
           return `${itName} (${itQty}${itUnit})`;
         }).join('; ');
@@ -22460,7 +22760,9 @@ class NexusApp {
       subtotal: tx.subtotal || Math.abs(tx.total),
       tax: tx.tax || 0,
       total: Math.abs(tx.total),
-      paidAmount: Math.abs(tx.total),
+      paidAmount: (Number(tx.separeAbono) || 0) > 0
+        ? Number(tx.separeAbono)
+        : ((tx.paymentMethod || '') === 'Crédito' ? 0 : (tx.totalChargedToCustomer || Math.abs(tx.total))),
       changeAmount: 0,
       bankFeePercent: tx.bankFeePercent || 0,
       bankFeeAmount: tx.bankFeeAmount || 0,
@@ -22554,8 +22856,10 @@ class NexusApp {
 
     const invVal = (this.data.products || []).reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
     const fixedVal = (this.data.assets || []).reduce((acc, a) => acc + (Number(a.currentVal) || Number(a.costValue) || 0), 0);
-    const cashVal = Math.round(Number(this.data.cashShiftLog?.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0));
     const accountsSummary = this.getAccountsFinancialSummary ? this.getAccountsFinancialSummary() : {};
+    const cashVal = (accountsSummary['efectivo_caja'] && typeof accountsSummary['efectivo_caja'].balance === 'number')
+      ? accountsSummary['efectivo_caja'].balance
+      : Math.round(Number(this.data.cashShiftLog?.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0));
     const bankVal = Object.values(accountsSummary).reduce((acc, a) => acc + ((!a.isCash && a.key !== 'efectivo_caja') ? (Number(a.balance) || 0) : 0), 0);
     const clientDebtVal = (this.data.customers || []).reduce((acc, c) => acc + (Number(c.creditBalance) || 0), 0);
 
@@ -22705,8 +23009,10 @@ class NexusApp {
     const invVal = Math.round(products.reduce((acc, p) => acc + (this.getProductTotalCost(p) || 0), 0));
     const fixedAssets = this.data.assets || [];
     const fixedVal = Math.round(fixedAssets.reduce((acc, a) => acc + (Number(a.currentVal) || Number(a.costValue) || 0), 0));
-    const cashVal = Math.round(Number(this.data.cashShiftLog?.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0));
     const accountsSummary = this.getAccountsFinancialSummary ? this.getAccountsFinancialSummary() : {};
+    const cashVal = (accountsSummary['efectivo_caja'] && typeof accountsSummary['efectivo_caja'].balance === 'number')
+      ? Math.round(accountsSummary['efectivo_caja'].balance)
+      : Math.round(Number(this.data.cashShiftLog?.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0));
     const bankVal = Math.round(Object.values(accountsSummary).reduce((acc, a) => acc + ((!a.isCash && a.key !== 'efectivo_caja') ? (Number(a.balance) || 0) : 0), 0));
     const customers = this.data.customers || [];
     const clientDebtVal = Math.round(customers.reduce((acc, c) => acc + Math.max(0, Number(c.creditBalance) || 0), 0));
@@ -22759,7 +23065,7 @@ class NexusApp {
       catMap[catName].grams += g;
       catMap[catName].units += u;
       catMap[catName].cost += c;
-      catMap[catName].price += (g > 0 ? g * pr : u * pr);
+      catMap[catName].price += (u * pr);
     });
 
     let totalCatGrams = 0;
@@ -24095,7 +24401,7 @@ class NexusApp {
           entry.cogs += this.calculateTransactionItemCOGS(it);
         });
       } else {
-        entry.cogs += isTxService ? Math.round(total * 0.20) : Math.round(total * 0.65);
+        entry.cogs += isTxService ? 0 : Math.round(total * 0.65);
       }
     });
 
@@ -24575,13 +24881,15 @@ class NexusApp {
           const itName = it.name || it.product?.name || 'Joya';
           const itUnit = it.unit || (it.measureType === 'Pesaje' ? 'g' : 'u.');
           const itWeight = Number(it.pieceWeight || it.weight || 0);
+          const uLower = String(itUnit).toLowerCase();
 
-          if (itUnit === 'g' || it.measureType === 'Pesaje') {
-            txGrams += (itQty * (itWeight > 0 ? itWeight : 1));
+          if (uLower === 'g' || uLower === 'kg' || uLower === 'mg' || uLower === 'oz' || uLower === 'µg' || uLower === 'ug' || (it.measureType === 'Pesaje' && uLower !== 'u.')) {
+            const uFactor = uLower === 'kg' ? 1000 : (uLower === 'mg' ? 0.001 : (uLower === 'oz' ? 28.3495 : ((uLower === 'µg' || uLower === 'ug') ? 0.000001 : 1)));
+            txGrams += (itQty * uFactor);
             txPieces += 1;
           } else {
             txPieces += itQty;
-            if (itWeight > 0) txGrams += (itQty * itWeight);
+            if (itWeight > 0) txGrams += (Math.abs(itQty - itWeight) < 0.01 && itQty !== 1 ? itQty : itQty * itWeight);
           }
           return `${itName} (${itQty}${itUnit})`;
         }).join('; ');
@@ -25337,7 +25645,7 @@ class NexusApp {
     const now = new Date();
     const customers = this.data.customers || [];
     const customerCredits = this.data.customerCredits || [];
-    const abonosVentas = this.data.abonosVentas || [];
+    const abonosVentas = (this.data.abonosVentas || []).filter(ab => ab && ab.status !== 'Reversado' && ab.status !== 'Anulado');
 
     const creditMap = new Map();
 
@@ -25375,10 +25683,13 @@ class NexusApp {
       let isPaid = balance <= 0 || cc.status === 'Saldado';
 
       if (cc.dueDate && !isPaid) {
-        const due = new Date(cc.dueDate + 'T23:59:59');
-        diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) isOverdue = true;
-        else if (diffDays <= 7) isNearDue = true;
+        const due = this.parseDateSafe(cc.dueDate);
+        if (due) {
+          due.setHours(23, 59, 59, 999);
+          diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) isOverdue = true;
+          else if (diffDays <= 7) isNearDue = true;
+        }
       }
 
       const daysOverdue = isOverdue ? Math.abs(diffDays) : 0;
@@ -26560,7 +26871,7 @@ class NexusApp {
         const totalQty = soldItems.reduce((acc, it) => acc + it.qty, 0);
         const rawAvgPrice = totalQty > 0 ? Math.round(totalRev / totalQty) : soldItems[soldItems.length - 1].price;
 
-        if (isUnitWithWeight && rawAvgPrice < directUnitCost / 2 && directUnitCost > 1000000) {
+        if (isUnitWithWeight && directUnitCost > 0 && rawAvgPrice < directUnitCost * 0.75) {
           // Cashier sold entered price per gram in POS (e.g. 500.000/g for 100g piece)
           effectivePrice = Math.round(rawAvgPrice * pWeight);
           profit = effectivePrice - directUnitCost;
@@ -26692,10 +27003,8 @@ class NexusApp {
     }
 
     p.price = Math.round(cleanVal);
-    this.saveDataLocally();
-    if (typeof this.saveDataRemotely === 'function') {
-      await this.saveDataRemotely();
-    }
+    await this.savePersistence();
+    this.syncAllModules();
     this.renderInformesMargenReal();
     this.showToast(`Precio de venta de "${p.name}" fijado en ${this.formatCurrency(p.price)} / ${unit}`, 'success');
   }
@@ -26711,6 +27020,7 @@ class NexusApp {
     } else {
       if (this.data.recentTransactions && Array.isArray(this.data.recentTransactions)) {
         this.data.recentTransactions.forEach(tx => {
+          if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return;
           if (tx.items && Array.isArray(tx.items)) {
             tx.items.forEach(it => {
               if (it.id === p.id || (it.name && p.name && it.name.toLowerCase() === p.name.toLowerCase())) {
@@ -27450,6 +27760,10 @@ class NexusApp {
       let totalRevenue = 0;
       let totalCost = 0;
 
+      const isUnitWithWeight = matchedProduct.measureType === 'Unidades' && !matchedProduct.isExtra && (parseFloat(matchedProduct.pieceWeight || matchedProduct.weight || 0) || 0) > 0;
+      const pWeight = isUnitWithWeight ? (parseFloat(matchedProduct.pieceWeight || matchedProduct.weight || 0) || 0) : 0;
+      const usesMonthlySalesUnits = Boolean(matchedProduct.monthlySales?.[monthKey]);
+
       for (let day = 1; day <= daysInMonth; day++) {
         const u = Number(salesMap[day]) || 0;
         const rev = Number(revMap[day]) > 0 ? Number(revMap[day]) : (u * (matchedProduct.price || 0));
@@ -27457,7 +27771,11 @@ class NexusApp {
         revenueData[day - 1] = rev;
         totalUnits += u;
         totalRevenue += rev;
-        totalCost += u * (matchedProduct.cost || 0);
+        if (isUnitWithWeight) {
+          totalCost += (usesMonthlySalesUnits ? (u * pWeight) : u) * (matchedProduct.cost || 0);
+        } else {
+          totalCost += u * (matchedProduct.cost || 0);
+        }
       }
 
       const totalProfit = totalRevenue - totalCost;
@@ -27796,13 +28114,13 @@ class NexusApp {
 
     const editBtn = document.getElementById('btn-edit-metal-rates');
     if (editBtn) {
-      const isSuperAdmin = this.currentUser?.role === 'Super Admin';
+      const isSuperAdmin = this.isSuperAdminRole(this.currentUser?.role);
       editBtn.style.display = isSuperAdmin ? 'inline-flex' : 'none';
     }
   }
 
   openEditMetalRatesModal() {
-    if (this.currentUser?.role !== 'Super Admin') {
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
       this.showToast('Acceso Denegado: Solo el Super Administrador puede modificar las cotizaciones del día.', 'danger');
       return;
     }
@@ -27829,7 +28147,7 @@ class NexusApp {
   }
 
   async saveMetalRates() {
-    if (this.currentUser?.role !== 'Super Admin') {
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
       this.showToast('Acceso Denegado: Solo el Super Administrador puede guardar las cotizaciones del día.', 'danger');
       return;
     }
@@ -27970,15 +28288,13 @@ class NexusApp {
       return Number(item.customPrice);
     }
     if (item.product?.price && Number(item.product.price) > 0) {
-      return Number(item.product.price);
-    }
-    const p = item.product;
-    if (p) {
-      // Para Unidades con peso (pieceWeight > 0), item.qty ya está expresado en gramos y p.cost también está por gramo,
-      // por lo que NO se debe volver a multiplicar por pieceWeight (evita doble ponderación por peso).
-      const cat = this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName);
-      const baseCost = Number(p.cost || cat?.cost || 0);
-      if (baseCost > 0) return baseCost;
+      const p = item.product;
+      const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
+      const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
+      if (!isPesaje && pWeight > 0) {
+        return Math.round((Number(p.price) / pWeight) * 100) / 100;
+      }
+      return Number(p.price);
     }
     return 0;
   }
@@ -28006,7 +28322,7 @@ class NexusApp {
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const unit = (isPesaje || isUnitWithWeight) ? 'g' : (p.weightUnit || 'u.');
+    const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxAvailableQty = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
 
     const elId = document.getElementById('pos-add-product-id');
@@ -28202,7 +28518,7 @@ class NexusApp {
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const unit = (isPesaje || isUnitWithWeight) ? 'g' : (p.weightUnit || 'u.');
+    const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
 
     const elTotalWeightVal = document.getElementById('pos-add-total-piece-weight-val');
     if (elTotalWeightVal && isUnitWithWeight) {
@@ -28369,9 +28685,12 @@ class NexusApp {
     const p = this.data.products.find(item => item.id === pId);
     const input = document.getElementById('pos-add-custom-price-input');
     if (p && input) {
+      const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
+      const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
+      const isUnitWithWeight = !isPesaje && pWeight > 0;
       let suggestedPrice = 0;
       if (p.price && Number(p.price) > 0) {
-        suggestedPrice = Number(p.price);
+        suggestedPrice = isUnitWithWeight ? Math.round((Number(p.price) / pWeight) * 100) / 100 : Number(p.price);
       } else {
         const cat = this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName);
         const costPerGram = Number(p.cost || cat?.cost || 0);
@@ -28455,15 +28774,26 @@ class NexusApp {
     const isPesaje = (product.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(product.pieceWeight !== undefined && product.pieceWeight !== null ? product.pieceWeight : (product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const unit = (isPesaje || isUnitWithWeight) ? 'g' : (product.weightUnit || 'u.');
+    const unit = isPesaje ? (product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStock = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
     const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
 
     const existing = this.cart.find(item => item.product.id === productId);
     const hasCustomPrice = customPrice !== null && customPrice !== undefined && !isNaN(Number(customPrice)) && Number(customPrice) > 0;
+    const catalogUnitPrice = Number(product.price) > 0
+      ? (isUnitWithWeight ? Math.round((Number(product.price) / pWeight) * 100) / 100 : Number(product.price))
+      : undefined;
     const resolvedPrice = hasCustomPrice
       ? Number(customPrice)
-      : (existing?.customPrice !== undefined ? existing.customPrice : (Number(product.price) > 0 ? Number(product.price) : undefined));
+      : (existing?.customPrice !== undefined ? existing.customPrice : catalogUnitPrice);
+
+    if (resolvedPrice === undefined || isNaN(resolvedPrice) || resolvedPrice <= 0) {
+      this.showToast(`Define un precio de venta para "${product.name}" antes de agregarlo al carrito.`, 'warning');
+      if (typeof document !== 'undefined' && document.getElementById('pos-add-to-cart-modal')) {
+        this.openAddToCartModal(productId);
+      }
+      return false;
+    }
 
     if (existing) {
       if (qty !== null) {
@@ -28598,7 +28928,7 @@ class NexusApp {
       const isPesaje = (item.product.measureType || 'Pesaje') === 'Pesaje';
       const pWeight = parseFloat(String(item.product.pieceWeight !== undefined && item.product.pieceWeight !== null ? item.product.pieceWeight : (item.product.weight || 0)).replace(',', '.')) || 0;
       const isUnitWithWeight = !isPesaje && pWeight > 0;
-      const unit = (isPesaje || isUnitWithWeight) ? 'g' : (item.product.weightUnit || 'u.');
+      const unit = isPesaje ? (item.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
       const effectivePrice = this.getCartItemPrice(item);
       const itemTotal = effectivePrice * item.qty;
       subtotal += itemTotal;
@@ -28705,7 +29035,7 @@ class NexusApp {
       const isPesaje = (item.product.measureType || 'Pesaje') === 'Pesaje';
       const pWeight = parseFloat(String(item.product.pieceWeight !== undefined && item.product.pieceWeight !== null ? item.product.pieceWeight : (item.product.weight || 0)).replace(',', '.')) || 0;
       const isUnitWithWeight = !isPesaje && pWeight > 0;
-      const unit = (isPesaje || isUnitWithWeight) ? 'g' : (item.product.weightUnit || 'u.');
+      const unit = isPesaje ? (item.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
       const qtyNum = Number(item.qty) || 0;
       if (isPesaje) {
         let factor = 1;
@@ -28804,8 +29134,7 @@ class NexusApp {
     const separeInput = document.getElementById('separe-abono-input');
     if (separeInput) {
       separeInput.addEventListener('input', () => {
-        const subtotal = this.getCartSubtotal();
-        const grandTotal = subtotal * (1 + this.data.store.taxRate / 100);
+        const grandTotal = this.getCartGrandTotal();
         const abono = this.parseCleanNumber(separeInput.value);
         const pending = Math.max(0, grandTotal - abono);
         const pendingEl = document.getElementById('separe-pending-balance');
@@ -28955,8 +29284,7 @@ class NexusApp {
   }
 
   updateCheckoutPaymentPanels() {
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = subtotal * (1 + this.data.store.taxRate / 100);
+    const grandTotal = this.getCartGrandTotal();
     const selectedCustomerName = document.getElementById('checkout-customer-select')?.value || 'Cliente Mostrador';
     const cust = this.data.customers.find(c => c.name === selectedCustomerName);
 
@@ -29028,8 +29356,7 @@ class NexusApp {
   }
 
   updateCashChange() {
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = subtotal * (1 + this.data.store.taxRate / 100);
+    const grandTotal = this.getCartGrandTotal();
     const cashVal = this.parseCleanNumber(document.getElementById('cash-received-input')?.value);
     const changeDue = Math.max(0, cashVal - grandTotal);
     const changeEl = document.getElementById('cash-change-due');
@@ -29656,7 +29983,9 @@ class NexusApp {
     } else if (this.selectedPayMethod === 'credit') {
       if (cust) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + grandTotal) * 100) / 100;
-        let existing = (this.data.customerCredits || []).find(cr => cr.customer === cust.name);
+        let existing = (this.data.customerCredits || []).find(cr =>
+          cr.customer === cust.name && cr.status !== 'Plan Separe' && cr.status !== 'Anulado'
+        );
         if (existing) {
           existing.totalGranted = Math.round(((Number(existing.totalGranted) || 0) + grandTotal) * 100) / 100;
           existing.currentBalance = Math.round(((Number(existing.currentBalance) || 0) + grandTotal) * 100) / 100;
@@ -29774,18 +30103,22 @@ class NexusApp {
       };
     });
 
-    let cashReceived = grandTotal;
+    let cashReceived = totalChargedToCustomer || grandTotal;
     let changeVal = 0;
     if (this.selectedPayMethod === 'cash') {
       cashReceived = this.parseCleanNumber(document.getElementById('cash-received-input')?.value) || grandTotal;
       changeVal = Math.max(0, cashReceived - grandTotal);
+    } else if (this.selectedPayMethod === 'credit') {
+      cashReceived = 0;
+    } else if (this.selectedPayMethod === 'separe') {
+      cashReceived = separeAbono;
     } else if (this.selectedPayMethod === 'mixed' && mixedPaymentsData) {
       const cashPart = mixedPaymentsData.find(p => p.method === 'Efectivo');
       if (cashPart) {
         const cashRecEl = document.getElementById('mixed-cash-received-input');
         const cr = cashRecEl && cashRecEl.value ? this.parseCleanNumber(cashRecEl.value) : cashPart.amount;
-        cashReceived = grandTotal + Math.max(0, cr - cashPart.amount);
         changeVal = Math.max(0, cr - cashPart.amount);
+        cashReceived = (totalChargedToCustomer || grandTotal) + changeVal;
       }
     }
 
