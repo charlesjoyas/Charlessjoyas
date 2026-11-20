@@ -48,7 +48,8 @@ app.use(express.json({ limit: '10mb' }));
 // Security Middleware: Strict restriction on internal database, config and server files
 app.use((req, res, next) => {
   const blockedPatterns = [
-    /^\/db\.json(\.tmp)?$/i,
+    /^\/db\.json(\.tmp(\.[^/]*)?)?$/i,
+    /^\/backups(\/|$)/i,
     /^\/server\.js$/i,
     /^\/package(-lock)?\.json$/i,
     /^\/scratch(\/|$)/i,
@@ -78,6 +79,19 @@ app.get(['/', '/index.html'], (req, res) => {
 let mongoConnected = false;
 let connectingPromise = null;
 let lastMongoError = null;
+let writeQueue = Promise.resolve();
+
+mongoose.connection.on('connected', () => {
+  mongoConnected = true;
+  lastMongoError = null;
+});
+mongoose.connection.on('disconnected', () => {
+  mongoConnected = false;
+});
+mongoose.connection.on('error', (err) => {
+  mongoConnected = false;
+  lastMongoError = err?.message || 'Mongo error';
+});
 
 // Mongoose Schema for general state
 const DataSchema = new mongoose.Schema({
@@ -187,37 +201,41 @@ app.get('/api/data', async (req, res) => {
     if (!mongoConnected) {
       await ensureDbConnected();
     }
+    const localData = process.env.VERCEL ? null : loadLocalDb();
+    let mongoContent = null;
     if (mongoConnected) {
       const doc = await DataModel.findOne({ key: 'main_store' });
       if (doc && doc.content) {
-        return res.json(doc.content);
+        mongoContent = doc.content;
       }
     }
-    const localData = loadLocalDb();
-    if (localData) {
-      return res.json(localData);
+    if (mongoContent && localData && localData.updatedAt && mongoContent.updatedAt) {
+      const mTime = new Date(mongoContent.updatedAt).getTime() || 0;
+      const lTime = new Date(localData.updatedAt).getTime() || 0;
+      return res.json(lTime > mTime ? localData : mongoContent);
     }
+    if (mongoContent) return res.json(mongoContent);
+    if (localData) return res.json(localData);
     return res.json({ status: 'empty' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/data - Sync full state
+// POST /api/data - Sync full state (serialized write queue prevents out-of-order overwrites)
 app.post('/api/data', async (req, res) => {
-  try {
-    // 1. Authorization check: must have a valid role header from active session
+  const runWrite = async () => {
+    // 1. Authorization check: must have a recognized role header from active session
     const rawRole = String(req.headers['x-nexus-role'] || '').trim();
     const userId = String(req.headers['x-nexus-user-id'] || '').trim();
     const roleLower = rawRole.toLowerCase();
-    const isAllowed = 
-      roleLower.includes('admin') || 
-      roleLower.includes('cajer') || 
-      roleLower.includes('gerente') || 
-      roleLower.includes('supervisor') || 
-      roleLower.includes('contad') || 
-      roleLower.includes('inventario') ||
-      userId.startsWith('USR-');
+    const isAllowed =
+      roleLower.includes('admin') ||
+      roleLower.includes('cajer') ||
+      roleLower.includes('gerente') ||
+      roleLower.includes('supervisor') ||
+      roleLower.includes('contad') ||
+      roleLower.includes('inventario');
 
     if (!rawRole || !userId || !isAllowed) {
       return res.status(403).json({ error: 'No autorizado: Se requiere una sesión válida para sincronizar datos.' });
@@ -226,17 +244,18 @@ app.post('/api/data', async (req, res) => {
     // 2. Strict multi-property schema validation to prevent DB corruption
     const data = req.body;
     if (
-      !data || 
-      typeof data !== 'object' || 
-      !Array.isArray(data.products) || 
-      !Array.isArray(data.users) || 
-      !Array.isArray(data.perfiles) || 
+      !data ||
+      typeof data !== 'object' ||
+      !Array.isArray(data.products) ||
+      !Array.isArray(data.users) ||
+      !Array.isArray(data.perfiles) ||
       !data.store
     ) {
       return res.status(400).json({ error: 'Payload de datos inválido o incompleto: estructura requerida ausente' });
     }
 
-    data.updatedAt = new Date().toISOString();
+    const savedAt = new Date().toISOString();
+    data.updatedAt = savedAt;
 
     // Filter out decommissioned legacy products by unique ID if synced from old client cache
     if (Array.isArray(data.products)) {
@@ -257,8 +276,6 @@ app.post('/api/data', async (req, res) => {
       });
     }
 
-    saveLocalDb(data);
-
     if (!mongoConnected) {
       await ensureDbConnected();
     }
@@ -266,16 +283,26 @@ app.post('/api/data', async (req, res) => {
     if (mongoConnected) {
       await DataModel.findOneAndUpdate(
         { key: 'main_store' },
-        { content: data, updatedAt: new Date() },
+        { content: data, updatedAt: new Date(savedAt) },
         { upsert: true, new: true }
       );
     } else if (process.env.VERCEL) {
       return res.status(503).json({ error: 'Error de persistencia: No se pudo conectar a MongoDB Atlas en Vercel.' });
     }
 
-    res.json({ success: true, mode: mongoConnected ? 'MongoDB' : 'Local JSON', timestamp: new Date() });
+    saveLocalDb(data);
+
+    res.json({ success: true, mode: mongoConnected ? 'MongoDB' : 'Local JSON', updatedAt: savedAt, timestamp: new Date() });
+  };
+
+  try {
+    const task = writeQueue.then(runWrite, runWrite);
+    writeQueue = task.catch(() => {});
+    await task;
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 
@@ -303,8 +330,9 @@ function generateLocalAiFallback(action, prompt, context = {}) {
   const invCostStr = '$ ' + Math.round(invCostVal).toLocaleString('es-CO');
 
   if (action === 'whatsapp_cobro' || action === 'cartera' || (prompt && /cobro|deuda|moros|whatsapp/i.test(prompt)) || (action && /cobro|whatsapp/i.test(action))) {
-    const debtorName = context.cliente || debts.topDebtors?.[0]?.customer || 'Estimado/a Cliente';
-    const rawAmount = context.saldoPendiente || debts.topDebtors?.[0]?.balance || debtTotalVal || 0;
+    const firstDebtor = context.deudoresPrincipales?.[0] || debts.topDebtors?.[0];
+    const debtorName = context.cliente || firstDebtor?.cliente || firstDebtor?.customer || 'Estimado/a Cliente';
+    const rawAmount = context.saldoPendiente ?? firstDebtor?.saldo ?? firstDebtor?.balance ?? debtTotalVal ?? 0;
     const debtorAmount = '$ ' + Math.round(Number(rawAmount)).toLocaleString('es-CO');
     const storeName = context.empresa || store.name || 'Charles Joyas SAS';
     const dueDateStr = context.fechaVencimiento ? ` (Vence: ${context.fechaVencimiento})` : '';
@@ -370,9 +398,11 @@ function generateLocalAiFallback(action, prompt, context = {}) {
   }
 
   if (action === 'caja' || (prompt && /caja|turno|arqueo|descuadr|fuga/i.test(prompt))) {
+    const shiftStatus = context.turno?.estado || shift.status || 'Activo';
+    const shiftOp = context.turno?.operador || shift.operator || 'Cajero en turno';
     return `### 🚨 Auditoría de Turno de Caja & Fugas
 
-* **Estado del Turno:** **${shift.status || 'Activo'}** (Operador: ${shift.operator || 'Cajero en turno'})
+* **Estado del Turno:** **${shiftStatus}** (Operador: ${shiftOp})
 * **Efectivo Físico Esperado en Cajón:** **${cashStr} COP**
 * **Ventas Realizadas Hoy:** **${salesTodayStr} COP** en **${txCount} transacciones**
 
@@ -390,21 +420,32 @@ function generateLocalAiFallback(action, prompt, context = {}) {
 * 💰 **Ventas Facturadas Hoy:** **${salesTodayStr} COP** (${txCount} tickets)
 * 💵 **Efectivo en Caja:** **${cashStr} COP**
 * 📉 **Cartera Pendiente por Cobrar:** **${debtTotalStr} COP**
-* 📦 **Inventario Activo:** **${inventory.skusCount || kpis.skusCount || 0} referencias** ($ ${Math.round(Number(kpis.inventoryValue || 0)).toLocaleString('es-CO')} COP)
+* 📦 **Inventario Activo:** **${skusCount} referencias** (${invCostStr} COP)
 
 #### 🚀 3 Recomendaciones del Día:
 1. **Gestión de Cartera Activa:** Tienes **${debtTotalStr} COP** en créditos de clientes. Enviar recordatorios cordiales por WhatsApp hoy mismo aumentará la liquidez inmediata.
-2. **Impulso de Ticket Promedio:** Las transacciones de hoy promedian **$ ${txCount > 0 ? Math.round(Number(kpis.salesToday || 0) / txCount).toLocaleString('es-CO') : '0'} COP**. Capacita a los vendedores para ofrecer artículos complementarios.
+2. **Impulso de Ticket Promedio:** Las transacciones de hoy promedian **$ ${txCount > 0 ? Math.round(salesTodayVal / txCount).toLocaleString('es-CO') : '0'} COP**. Capacita a los vendedores para ofrecer artículos complementarios.
 3. **Cierre de Turno Riguroso:** Realiza el arqueo ciego al terminar la jornada para garantizar 0 descuadres entre efectivo físico y libro contable.
 
 > 💡 **Nota:** Este análisis inicial fue procesado con el motor analítico interno. Para activar análisis predictivo en tiempo real con **DeepSeek-V3**, ingresa tu API Key en el botón ⚙️ de la parte superior.`;
 }
 
+async function getStoredAiKey() {
+  if (mongoConnected) {
+    try {
+      const doc = await DataModel.findOne({ key: 'main_store' });
+      const k = doc?.content?.store?.deepseekApiKey;
+      if (k) return String(k).trim();
+    } catch (_) {}
+  }
+  const localKey = loadLocalDb()?.store?.deepseekApiKey;
+  return localKey ? String(localKey).trim() : '';
+}
+
 // GET /api/ai/status - Check DeepSeek status
-app.get('/api/ai/status', (req, res) => {
-  const localStore = loadLocalDb()?.store || {};
+app.get('/api/ai/status', async (req, res) => {
   const hasEnvKey = !!process.env.DEEPSEEK_API_KEY;
-  const hasStoreKey = !!localStore.deepseekApiKey;
+  const hasStoreKey = !!(await getStoredAiKey());
   res.json({
     status: 'ok',
     hasApiKey: hasEnvKey || hasStoreKey,
@@ -418,10 +459,10 @@ app.get('/api/ai/status', (req, res) => {
 app.post('/api/ai/copilot', async (req, res) => {
   try {
     const { prompt, action = 'chat', context = {}, apiKey: clientApiKey } = req.body || {};
-    
-    // Resolve DeepSeek API Key: Client Key -> ENV -> Store in DB
-    const localStore = loadLocalDb()?.store || {};
-    const resolvedApiKey = (clientApiKey || process.env.DEEPSEEK_API_KEY || localStore.deepseekApiKey || '').trim();
+
+    // Resolve DeepSeek API Key: Client Key -> ENV -> Store in DB (MongoDB or local)
+    const storeKey = await getStoredAiKey();
+    const resolvedApiKey = (clientApiKey || process.env.DEEPSEEK_API_KEY || storeKey || '').trim();
 
     if (!resolvedApiKey) {
       const simulatedReply = generateLocalAiFallback(action, prompt, context);
