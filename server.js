@@ -58,6 +58,7 @@ app.use((req, res, next) => {
     /^\/db\.json(\.tmp(\.[^/]*)?)?$/i,
     /^\/backups(\/|$)/i,
     /^\/server\.js$/i,
+    /^\/api\/index\.js$/i,
     /^\/package(-lock)?\.json$/i,
     /^\/vercel\.json$/i,
     /^\/node_modules(\/|$)/i,
@@ -243,6 +244,7 @@ app.post('/api/data', async (req, res) => {
     const userId = String(req.headers['x-nexus-user-id'] || '').trim();
     const roleLower = rawRole.toLowerCase();
     let isKnownActiveUser = false;
+    let isKnownInactiveUser = false;
     try {
       let refUsers = null;
       if (mongoConnected) {
@@ -253,12 +255,19 @@ app.post('/api/data', async (req, res) => {
         if (Array.isArray(refLocal?.users)) refUsers = refLocal.users;
       }
       if (refUsers && userId) {
-        const matchedUser = refUsers.find(u => u && String(u.id) === userId && u.status === 'Active');
-        if (matchedUser && String(matchedUser.role || '').trim().toLowerCase() === roleLower) {
-          isKnownActiveUser = true;
+        const matchedUser = refUsers.find(u => u && String(u.id) === userId);
+        if (matchedUser) {
+          if (matchedUser.status !== 'Active') {
+            isKnownInactiveUser = true;
+          } else if (String(matchedUser.role || '').trim().toLowerCase() === roleLower) {
+            isKnownActiveUser = true;
+          }
         }
       }
     } catch (_) {}
+    if (isKnownInactiveUser) {
+      return res.status(403).json({ error: 'Cuenta desactivada: No tienes permisos para sincronizar datos.' });
+    }
     const isAllowedRole =
       roleLower.includes('admin') ||
       roleLower.includes('cajer') ||

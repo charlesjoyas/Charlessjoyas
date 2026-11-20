@@ -2,7 +2,7 @@
 
 class NexusApp {
   constructor() {
-    this.data = INITIAL_DATA;
+    this.data = (typeof INITIAL_DATA !== 'undefined') ? JSON.parse(JSON.stringify(INITIAL_DATA)) : {};
     this.cart = [];
     this.currentParentView = null;
     this.currentSubView = null;
@@ -196,7 +196,14 @@ class NexusApp {
 
   formatNumberWithCommas(val, allowDecimals = false) {
     if (val === null || val === undefined || val === '') return '';
-    const str = String(val).replace(/,/g, '').trim();
+    let raw = String(val).trim();
+    if (allowDecimals && !raw.includes('.') && raw.includes(',')) {
+      const commaParts = raw.split(',');
+      if (commaParts.length === 2 && (commaParts[1].length !== 3 || commaParts[0] === '0' || commaParts[1] === '')) {
+        raw = `${commaParts[0]}.${commaParts[1]}`;
+      }
+    }
+    const str = raw.replace(/,/g, '').trim();
     if (str === '') return '';
     
     if (allowDecimals) {
@@ -255,7 +262,12 @@ class NexusApp {
         str = str.replace(/\./g, '').replace(',', '.');
       }
     } else if (str.includes(',')) {
-      str = str.replace(/,/g, '');
+      const cParts = str.split(',');
+      if (cParts.length === 2 && (cParts[1].length !== 3 || cParts[0] === '0')) {
+        str = `${cParts[0]}.${cParts[1]}`;
+      } else {
+        str = str.replace(/,/g, '');
+      }
     }
     const n = parseFloat(str);
     return isNaN(n) ? 0 : n;
@@ -961,21 +973,36 @@ class NexusApp {
       } else {
         const totalGrams = prodsInCat.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
         cat.availableGrams = prodsInCat.length > 0 ? (Math.round(totalGrams * 100) / 100) : (Math.max(0, Number(cat.availableGrams) || 0));
-        cat.totalValuation = Math.round((prodsInCat.length > 0 ? totalCost : (cat.availableGrams * (Number(cat.cost) || 0))) * 100) / 100;
-
         if (isUnidades) {
           const totalUnits = prodsInCat.reduce((sum, p) => sum + Math.max(0, (parseFloat(String(p.stock || 0).replace(',', '.')) || 0)), 0);
+          cat.availableUnits = prodsInCat.length > 0 ? totalUnits : (Number(cat.availableUnits) || 0);
           if (totalUnits > 0 && totalCost > 0) {
             cat.cost = Math.round((totalCost / totalUnits) * 100) / 100;
           }
-        } else if (cat.availableGrams > 0 && totalCost > 0) {
-          cat.cost = Math.round((totalCost / cat.availableGrams) * 100) / 100;
+          cat.totalValuation = Math.round((prodsInCat.length > 0 ? totalCost : ((cat.availableUnits || 0) * (Number(cat.cost) || 0))) * 100) / 100;
+        } else {
+          cat.totalValuation = Math.round((prodsInCat.length > 0 ? totalCost : (cat.availableGrams * (Number(cat.cost) || 0))) * 100) / 100;
+          if (cat.availableGrams > 0 && totalCost > 0) {
+            cat.cost = Math.round((totalCost / cat.availableGrams) * 100) / 100;
+          }
         }
       }
     });
     if (this.data.kpis) {
       const totalGlobalGrams = this.data.products.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
-      this.data.kpis.totalGrams = Math.round(totalGlobalGrams * 100) / 100;
+      const totalGlobalCost = this.data.products.reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
+      const pesajeProducts = this.data.products.filter(p => {
+        if (!p || p.isExtra) return false;
+        const c = (this.data.categories || []).find(cat => cat.id === p.category || cat.name === p.categoryName);
+        if (c && (c.type === 'extras' || c.isExtra)) return false;
+        return (p.measureType || 'Pesaje') === 'Pesaje' || (this.getGramsFromProduct(p) > 0);
+      });
+      const pesajeCost = pesajeProducts.reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
+      const roundedGrams = Math.round(totalGlobalGrams * 100) / 100;
+      this.data.kpis.totalGrams = roundedGrams;
+      this.data.kpis.inventoryValue = Math.round(totalGlobalCost * 100) / 100;
+      this.data.kpis.avgCostGrams = roundedGrams;
+      this.data.kpis.avgCostPerGram = roundedGrams > 0 ? Math.round(pesajeCost / roundedGrams) : 0;
     }
   }
 
@@ -1044,8 +1071,8 @@ class NexusApp {
     const groups = {};
     this.data.supplierCredits.forEach(sc => {
       if (!sc) return;
-      const suppName = (sc.supplier || '').toLowerCase().trim();
-      if (!suppName) return;
+      if (!sc.supplier || !String(sc.supplier).trim()) sc.supplier = 'Proveedor General';
+      const suppName = String(sc.supplier).toLowerCase().trim();
       if (!groups[suppName]) groups[suppName] = [];
       groups[suppName].push(sc);
     });
@@ -1081,23 +1108,42 @@ class NexusApp {
         if (Array.isArray(c.purchaseOrderIds)) c.purchaseOrderIds.forEach(id => allPOIds.add(id));
       });
 
-      const pendingList = credList.filter(c => (Number(c.pendingAmount) || 0) > 0 || c.status !== 'Pagado Total');
-      const paidList = credList.filter(c => (Number(c.pendingAmount) || 0) <= 0 || c.status === 'Pagado Total');
+      const pendingList = credList.filter(c => (Number(c.pendingAmount) || 0) > 0 || ((Number(c.pendingAmount) || 0) > 0 && c.status !== 'Pagado Total') || (c.pendingAmount === undefined && c.status !== 'Pagado Total'));
+      const paidList = credList.filter(c => !pendingList.includes(c));
+
+      const pendingPOIds = new Set();
+      const paidPOIds = new Set();
+      credList.forEach(c => {
+        const targetSet = pendingList.includes(c) ? pendingPOIds : paidPOIds;
+        if (c.poId) targetSet.add(c.poId);
+        if (Array.isArray(c.purchaseOrderIds)) c.purchaseOrderIds.forEach(id => targetSet.add(id));
+      });
+      suppPOs.forEach(p => {
+        if (p.paymentStatus === 'Pagado Total' || (Number(p.paidAmount) || 0) >= (Number(p.total) || 0) - 0.01) {
+          if (!pendingPOIds.has(p.id)) paidPOIds.add(p.id);
+        } else {
+          pendingPOIds.add(p.id);
+        }
+      });
 
       const totalOwedSum = pendingList.reduce((sum, c) => sum + (Number(c.totalOwed) || 0), 0);
       // Respetar creditBalance explícito (incluso cuando es 0) para no resucitar deudas ya saldadas
       const pendingVal = hasExplicitSuppBal
         ? suppCreditBalance
         : pendingList.reduce((sum, c) => sum + (Number(c.pendingAmount) || 0), 0);
-      const paidVal = Math.max(0, totalOwedSum - pendingVal);
+      const explicitPaidSum = pendingList.reduce((sum, c) => sum + (Number(c.paidAmount) || 0), 0);
+      const computedPaidVal = Math.max(0, totalOwedSum - pendingVal);
+      const paidVal = (pendingList.length === 1 && pendingList[0].paidAmount !== undefined && Number(pendingList[0].pendingAmount) === pendingVal)
+        ? Math.max(0, Number(pendingList[0].paidAmount) || 0)
+        : (explicitPaidSum > 0 && pendingVal > totalOwedSum ? explicitPaidSum : computedPaidVal);
 
       const allDates = credList.map(c => c.date).filter(Boolean).sort();
       const earliest = allDates[0] || new Date().toISOString().slice(0, 10);
       const latest = allDates[allDates.length - 1] || earliest;
       const existingDueDate = pendingList.map(c => c.dueDate).filter(Boolean).sort().pop();
-      const mergedHistory = [];
-      credList.forEach(c => {
-        if (Array.isArray(c.history)) mergedHistory.push(...c.history);
+      const pendingHistory = [];
+      pendingList.forEach(c => {
+        if (Array.isArray(c.history)) pendingHistory.push(...c.history);
       });
 
       // 1 registro consolidado pendiente si existe deuda (preservando su ID CP-xxx original para no romper abonosCompras.poId)
@@ -1107,35 +1153,36 @@ class NexusApp {
           id: allocCreditId(prefPendingId),
           supplier: realName,
           supplierId: suppId,
-          totalOwed: totalOwedSum > pendingVal ? totalOwedSum : pendingVal,
+          totalOwed: totalOwedSum > pendingVal ? totalOwedSum : (pendingVal + paidVal),
           paidAmount: paidVal,
           pendingAmount: pendingVal,
           date: earliest,
           lastPurchaseDate: latest,
           dueDate: existingDueDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
           status: 'Pendiente',
-          purchaseOrderIds: Array.from(allPOIds),
-          ...(mergedHistory.length > 0 ? { history: mergedHistory } : {})
+          purchaseOrderIds: Array.from(pendingPOIds),
+          ...(pendingHistory.length > 0 ? { history: pendingHistory } : {})
         });
       }
 
       // 1 registro consolidado saldado si tiene historial pagado (mantener también si volvió a tener compras pendientes)
       if (paidList.length > 0) {
         const prefPaidId = paidList.find(c => /^CP-\d+$/i.test(c.id || ''))?.id;
-        const totalPaidHist = paidList.reduce((sum, c) => sum + (Number(c.totalOwed) || Number(c.paidAmount) || 0), 0);
+        const totalOwedPaidHist = paidList.reduce((sum, c) => sum + (Number(c.totalOwed) || Number(c.paidAmount) || 0), 0);
+        const totalPaidHist = paidList.reduce((sum, c) => sum + (c.paidAmount !== undefined ? (Number(c.paidAmount) || 0) : (Number(c.totalOwed) || 0)), 0);
         const paidHistEntries = paidList.flatMap(c => Array.isArray(c.history) ? c.history : []);
         consolidated.push({
           id: allocCreditId(prefPaidId),
           supplier: realName,
           supplierId: suppId,
-          totalOwed: totalPaidHist,
+          totalOwed: totalOwedPaidHist,
           paidAmount: totalPaidHist,
           pendingAmount: 0,
           date: earliest,
           lastPurchaseDate: latest,
           dueDate: latest,
           status: 'Pagado Total',
-          purchaseOrderIds: Array.from(allPOIds),
+          purchaseOrderIds: Array.from(paidPOIds),
           ...(paidHistEntries.length > 0 ? { history: paidHistEntries } : {})
         });
       }
@@ -1269,6 +1316,12 @@ class NexusApp {
   setupRealtimeSync() {
     // 1. Cross-Tab Live Sync via LocalStorage storage events
     window.addEventListener('storage', async (e) => {
+      if (e.key === 'nexus_pos_user') {
+        if (!e.newValue && this.currentUser) {
+          this.logout();
+        }
+        return;
+      }
       if (e.key === 'nexus_pos_data' && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
@@ -1279,6 +1332,7 @@ class NexusApp {
             this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, parsed.cashShiftLog || {});
             this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, parsed.balanceSheet || {});
             this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, parsed.stockRadarData || {});
+            if (parsed.updatedAt) this._lastServerUpdatedAt = parsed.updatedAt;
             this.sanitizeLoadedData();
             if (Array.isArray(this.cart) && this.cart.length > 0) {
               this.cart = this.cart.map(ci => {
@@ -1286,6 +1340,15 @@ class NexusApp {
                 return fresh ? { ...ci, product: fresh } : null;
               }).filter(Boolean);
             }
+            if (this.currentUser) {
+              const myAccount = (this.data.users || []).find(u => u.id === this.currentUser.id);
+              if (myAccount && myAccount.status !== 'Active') {
+                this.logout();
+                this.showToast('Tu cuenta ha sido desactivada por el Administrador.', 'danger');
+                return;
+              }
+            }
+            this.syncAllModules();
             this.renderAllTables();
             if (this.currentParentView === 'pos') {
               this.renderCategoryPills();
@@ -1294,6 +1357,8 @@ class NexusApp {
             }
             this.renderCart();
             this.renderCashStatusIndicator();
+            if (this.currentSubView === 'cuadre_caja') this.renderCuadreCajaCard();
+            if (this.currentSubView === 'productos') this.renderInventoryTable();
             if (this.currentSubView === 'rep_compras') this.renderRepCompras();
             if (this.currentSubView === 'rep_finanzas') this.renderRepFinanzas();
             if (this.currentSubView === 'inf_tendencia') this.consultarTendencia();
@@ -1328,8 +1393,10 @@ class NexusApp {
 
   async syncRemoteDataIfChanged() {
     if (this._isSaving || this._pendingSave) return;
-    if (this._hasUnsavedLocalChanges && this.currentUser) {
-      await this.savePersistence();
+    if (this._hasUnsavedLocalChanges) {
+      if (this.currentUser) {
+        await this.savePersistence();
+      }
       if (this._hasUnsavedLocalChanges) return;
     }
     try {
@@ -1344,27 +1411,33 @@ class NexusApp {
 
           const remoteTime = new Date(remote.updatedAt || 0).getTime();
           const localTime = new Date(this._lastServerUpdatedAt || this.data.updatedAt || 0).getTime();
-          // If local data matches or exceeds remote server timestamp, preserve local state
-          if (remoteTime > 0 && localTime >= remoteTime && remote.updatedAt === this._lastServerUpdatedAt) {
+          // Preserve local state whenever local timestamp is strictly newer or matches the already-applied snapshot
+          if (remoteTime > 0 && localTime > remoteTime) {
+            return;
+          }
+          if (remoteTime > 0 && localTime === remoteTime && remote.updatedAt === this._lastServerUpdatedAt) {
             return;
           }
 
           // Structural fingerprint covering all transactional, credit, catalog & config collections
           const buildFingerprint = (d) => {
             const pFp = (d.products || []).map(p => `${p.id}:${p.sku}:${p.name}:${p.stock}:${p.cost}:${p.price}:${p.status}:${p.category}:${p.measureType || ''}:${p.pieceWeight || 0}:${p.weightUnit || ''}`).join('|');
-            const cFp = (d.customers || []).map(c => `${c.id}:${c.name}:${c.creditBalance}`).join('|');
-            const sFp = (d.suppliers || []).map(s => `${s.id}:${s.name}:${s.creditBalance}`).join('|');
-            const uFp = (d.users || []).map(u => `${u.id}:${u.name}:${u.status}:${u.role}:${(u.customPermissions || []).length}`).join('|');
-            const prfFp = (d.perfiles || []).map(pr => `${pr.id}:${pr.name}:${(pr.allowedModules || []).length}`).join('|');
-            const cashFp = `${d.cashShiftLog?.status || ''}:${d.cashShiftLog?.expectedCashInDrawer || 0}:${d.cashShiftLog?.cashSales || 0}:${d.cashShiftLog?.cashExpenses || 0}`;
+            const cFp = (d.customers || []).map(c => `${c.id}:${c.name}:${c.creditBalance}:${c.creditLimit || 0}:${c.phone || ''}:${c.document || ''}:${(c.allowedPaymentMethods || []).join(',')}`).join('|');
+            const sFp = (d.suppliers || []).map(s => `${s.id}:${s.name}:${s.creditBalance}:${s.status || ''}`).join('|');
+            const uFp = (d.users || []).map(u => `${u.id}:${u.name}:${u.email || ''}:${u.password || ''}:${u.status}:${u.role}:${(u.customPermissions || []).join(',')}`).join('|');
+            const prfFp = (d.perfiles || []).map(pr => `${pr.id}:${pr.name}:${(pr.allowedModules || []).join(',')}`).join('|');
+            const cashFp = `${d.cashShiftLog?.shiftId || ''}:${d.cashShiftLog?.status || ''}:${d.cashShiftLog?.expectedCashInDrawer || 0}:${d.cashShiftLog?.cashSales || 0}:${d.cashShiftLog?.cardSales || 0}:${d.cashShiftLog?.cashExpenses || 0}:${d.cashShiftLog?.bankExpenses || 0}:${d.cashShiftLog?.openingCard || 0}`;
             const txFp = (d.recentTransactions || []).map(t => `${t.id}:${t.total}:${t.status || ''}`).join('|');
             const poFp = (d.purchases || []).map(po => `${po.id}:${po.total}:${po.paidAmount || 0}:${po.paymentStatus || ''}`).join('|');
-            const expFp = (d.expenses || []).map(e => `${e.id}:${e.amount}`).join('|');
-            const abFp = `${(d.abonosVentas || []).length}:${(d.abonosCompras || []).length}:${(d.customerCredits || []).reduce((a,c)=>a+(Number(c.currentBalance)||0),0)}:${(d.supplierCredits || []).reduce((a,c)=>a+(Number(c.pendingAmount)||0),0)}`;
+            const expFp = (d.expenses || []).map(e => `${e.id}:${e.amount}:${e.method || ''}:${e.targetAccount || ''}:${e.isBank ? 1 : 0}`).join('|');
+            const abFp = `${(d.abonosVentas || []).map(a => `${a.id}:${a.amount}:${a.status || ''}`).join('|')};${(d.abonosCompras || []).map(a => `${a.id}:${a.amount}:${a.method || ''}`).join('|')};${(d.customerCredits || []).map(c => `${c.id}:${c.currentBalance}:${c.status || ''}`).join('|')};${(d.supplierCredits || []).map(c => `${c.id}:${c.pendingAmount}:${c.status || ''}`).join('|')}`;
             const catFp = (d.categories || []).map(c => `${c.id}:${c.cost || 0}:${c.availableGrams || 0}:${c.availableUnits || 0}`).join('|');
-            const adjFp = `${(d.accountAdjustments || []).length}:${JSON.stringify(d.accountInitialBalances || {})}:${JSON.stringify(d.store?.metalRates || {})}:${d.store?.taxRate || 0}`;
-            const miscFp = `${catFp}:${(d.paymentMethods || []).length}:${(d.services || []).length}:${(d.assets || []).length}:${(d.cashShiftsHistory || []).length}:${d.store?.name || ''}:${adjFp}`;
-            return `${pFp};${cFp};${sFp};${uFp};${prfFp};${cashFp};${txFp};${poFp};${expFp};${abFp};${miscFp}`;
+            const adjFp = `${(d.accountAdjustments || []).map(a => `${a.id}:${a.amount}:${a.accountKey}`).join('|')}:${JSON.stringify(d.accountInitialBalances || {})}:${JSON.stringify(d.store?.metalRates || {})}:${d.store?.taxRate || 0}:${JSON.stringify(d.store?.branding || {})}`;
+            const pmFp = (d.paymentMethods || []).map(pm => `${pm.id}:${pm.name}:${pm.status || ''}`).join('|');
+            const srvFp = (d.services || []).map(sv => `${sv.id}:${sv.name}:${sv.price || 0}`).join('|');
+            const astFp = (d.assets || []).map(as => `${as.id}:${as.currentVal || 0}:${as.status || ''}`).join('|');
+            const histFp = (d.cashShiftsHistory || []).map(h => `${h.id}:${h.cashSales || 0}:${h.cashExpenses || 0}:${h.bankExpenses || 0}:${h.closingCash ?? ''}`).join('|');
+            return `${pFp};${cFp};${sFp};${uFp};${prfFp};${cashFp};${txFp};${poFp};${expFp};${abFp};${catFp};${pmFp};${srvFp};${astFp};${histFp};${d.store?.name || ''};${adjFp}`;
           };
 
           const localFp = buildFingerprint(this.data);
@@ -1755,6 +1828,9 @@ class NexusApp {
           this.renderCashStatusIndicator();
           this.attachGlobalNumberMasks();
           this.ensurePermittedView();
+          if (this._hasUnsavedLocalChanges && typeof this.savePersistence === 'function') {
+            this.savePersistence().catch(() => {});
+          }
           return;
         }
       } catch(e) {}
@@ -1892,6 +1968,7 @@ class NexusApp {
     } else {
       await this.syncRemoteDataIfChanged();
     }
+    if (!this.currentUser) return;
     this.syncAllModules();
 
     const landing = this.getUserInitialView();
@@ -1916,10 +1993,14 @@ class NexusApp {
     this.currentUser = null;
     this.currentParentView = null;
     this.currentSubView = null;
+    this.cart = [];
+    delete this._adminTargetUserPassword;
     localStorage.removeItem('nexus_pos_user');
     document.body.classList.add('not-authenticated');
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.modal-backdrop.open, .modal.open').forEach(el => el.classList.remove('open', 'active'));
+    if (typeof this.closeAiDrawer === 'function') this.closeAiDrawer();
     const loginOverlay = document.getElementById('login-screen');
     if (loginOverlay) {
       loginOverlay.classList.add('active');
@@ -2010,14 +2091,11 @@ class NexusApp {
 
   isAdminUser() {
     if (!this.currentUser) return false;
+    if (this.isSuperAdminRole(this.currentUser.role)) return true;
     const role = (this.currentUser.role || '').toLowerCase().trim();
-    return role === 'super admin' || 
-           role === 'administrador' || 
-           role === 'admin' || 
-           role.includes('super admin') || 
-           role.includes('super administrador') || 
-           role.includes('administrador') ||
-           (this.currentUser.role === 'Super Admin');
+    return role.includes('admin') ||
+           role.includes('gerente') ||
+           role.includes('supervisor');
   }
 
   canPerformAction(action, entity) {
@@ -2025,7 +2103,7 @@ class NexusApp {
     const role = (this.currentUser.role || '').toLowerCase();
     if (this.isSuperAdminRole(this.currentUser.role)) return true;
 
-    // Role and permission profile management is strictly Super Admin
+    // Role, permission profile & AI Key management is strictly Super Admin (unless config perm for ai_key)
     if (action === 'manage_roles' || entity === 'profile') {
       return false;
     }
@@ -2041,15 +2119,11 @@ class NexusApp {
       return false;
     }
 
-    const isSuperAdmin = this.isSuperAdminRole(this.currentUser?.role);
     const isAdmin = role.includes('admin') || role.includes('gerente') || role.includes('supervisor');
     const isVendedor = role.includes('vendedor') || role.includes('operad');
+    const isInventario = role.includes('inventario');
 
-    if (entity === 'expense' && (action === 'create' || action === 'edit')) {
-      if (isCajero || isAdmin || isVendedor) return true;
-    }
-
-    // Check custom granular permissions if assigned to this specific user (strict override of role profile)
+    // Check custom granular permissions FIRST if assigned to this specific user (strict override of role profile)
     if (this.currentUser.customPermissions && Array.isArray(this.currentUser.customPermissions)) {
       const perms = this.currentUser.customPermissions;
       if (perms.includes('*')) return true;
@@ -2061,13 +2135,20 @@ class NexusApp {
         supplier: 'proveedores',
         expense: 'gastos',
         asset: 'activos',
-        purchase: 'comprar'
+        purchase: 'comprar',
+        cuadre_caja: 'cuadre_caja',
+        paymethod: 'formas_pago',
+        customer_payment: 'creditos_clientes',
+        supplier_payment: 'creditos_proveedores'
       };
       const requiredMod = entityModuleMap[entity];
       if (requiredMod) {
         if (action === 'edit' || action === 'create') {
           if (perms.includes(requiredMod)) return true;
           if (entity === 'expense' && (perms.includes('gastos') || perms.includes('pos') || perms.includes('cuadre_caja') || perms.includes('finanzas'))) {
+            return true;
+          }
+          if (entity === 'customer_payment' && (perms.includes('pos') || perms.includes('ventas'))) {
             return true;
           }
           return false;
@@ -2078,17 +2159,19 @@ class NexusApp {
       }
     }
 
-    // Cashier restrictions
-    if (isCajero) {
-      // Cashiers can NEVER delete any database entity
+    if (entity === 'expense' && (action === 'create' || action === 'edit')) {
+      if (isCajero || isAdmin || isVendedor) return true;
+    }
+
+    // Cashier & Vendedor restrictions
+    if (isCajero || isVendedor) {
       if (action === 'delete') return false;
-      // Cashiers can only perform sales and abonos; cannot create or edit catalog, suppliers, assets, payment methods, categories, etc.
       if (action === 'edit' || action === 'create') {
-        if (['product', 'supplier', 'asset', 'category', 'service', 'paymethod', 'user', 'profile'].includes(entity)) {
+        if (['product', 'supplier', 'asset', 'category', 'service', 'paymethod', 'user', 'profile', 'supplier_payment'].includes(entity)) {
           return false;
         }
         if (action === 'edit' && entity === 'customer') {
-          return false; // Cashiers cannot alter customer credit limits
+          return false; // Cashiers/vendedores cannot alter customer credit limits
         }
       }
       return true;
@@ -2096,16 +2179,20 @@ class NexusApp {
 
     // Admin / Manager / Supervisor permissions
     if (isAdmin) {
-      // Admin cannot delete or edit user accounts or system profiles (reserved for Super Admin)
       if (entity === 'user' || entity === 'profile') return false;
-      // Admin can manage operational entities
       return true;
     }
 
-    // Accountant / Auditor permissions
+    // Inventory role permissions
+    if (isInventario) {
+      if (action === 'delete') return false;
+      return ['product', 'category', 'service', 'asset', 'purchase', 'supplier'].includes(entity);
+    }
+
+    // Accountant / Auditor permissions (read-only on cash/credit payments/prices)
     if (role.includes('contad') || role.includes('auditor')) {
       if (action === 'delete') return false;
-      if (['user', 'profile', 'product', 'supplier', 'asset', 'paymethod'].includes(entity)) return false;
+      if (['user', 'profile', 'product', 'supplier', 'asset', 'paymethod', 'cuadre_caja', 'customer_payment', 'supplier_payment'].includes(entity)) return false;
       return true;
     }
 
@@ -3294,6 +3381,10 @@ class NexusApp {
         const desc = document.getElementById('exp-desc-input').value;
         const cat = document.getElementById('exp-cat-select').value;
         const amount = this.parseCleanNumber(document.getElementById('exp-amount-input')?.value);
+        if (isNaN(amount) || amount <= 0) {
+          this.showToast('El monto del gasto debe ser mayor a $0.', 'warning');
+          return;
+        }
         const rawMethod = document.getElementById('exp-method-select')?.value || 'Efectivo';
         const accountSelectVal = document.getElementById('exp-account-select')?.value?.trim() || '';
 
@@ -3368,17 +3459,34 @@ class NexusApp {
           const oldAccL = String(exp.targetAccount || '').toLowerCase();
           const oldIsExplicitCash = !exp.isBank && (oldMethodL.includes('efectivo') || oldAccL.includes('efectivo') || oldAccL.includes('caja'));
           const oldWasBank = Boolean(exp.isBank || (!oldIsExplicitCash && (oldMethodL.includes('transfer') || oldMethodL.includes('banco') || oldMethodL.includes('tarjeta') || oldMethodL.includes('cuenta') || (!!exp.targetAccount && !oldAccL.includes('caja')))));
-          exp.description = document.getElementById('edit-exp-desc').value;
-          exp.category = document.getElementById('edit-exp-cat').value;
-          exp.amount = Math.max(0, this.parseCleanNumber(document.getElementById('edit-exp-amount')?.value) || 0);
+          const newExpAmount = Math.max(0, this.parseCleanNumber(document.getElementById('edit-exp-amount')?.value) || 0);
+          if (isNaN(newExpAmount) || newExpAmount <= 0) {
+            this.showToast('El monto del gasto debe ser mayor a $0.', 'warning');
+            return;
+          }
           const editMethodRaw = document.getElementById('edit-exp-method')?.value || '';
           const editAccountVal = document.getElementById('edit-exp-account-select')?.value?.trim() || '';
           const isBank = editMethodRaw.toLowerCase().includes('transfer') || editMethodRaw.toLowerCase().includes('banco') || editMethodRaw.toLowerCase().includes('tarjeta') || editMethodRaw.toLowerCase().includes('cuenta');
+          const curOpenShift = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog : null;
+          if (!isBank && (exp.shiftId === 'EXCLUIDO' || !exp.shiftId) && !curOpenShift) {
+            this.showToast('El turno de caja está CERRADO. No puedes pasar un egreso excluido/bancario a Efectivo sin turno abierto.', 'warning');
+            return;
+          }
+          if (!isBank && !curOpenShift && oldWasBank) {
+            this.showToast('La caja actual está cerrada; mantén este gasto en método bancario para no alterar cierres anteriores.', 'warning');
+            return;
+          }
+          exp.description = document.getElementById('edit-exp-desc').value;
+          exp.category = document.getElementById('edit-exp-cat').value;
+          exp.amount = newExpAmount;
           const finalTargetAccount = isBank ? (editAccountVal || 'Cuenta Sharick') : 'Caja Mostrador (Efectivo)';
           const finalMethod = isBank ? `Transferencia (${finalTargetAccount})` : editMethodRaw;
           exp.method = finalMethod;
           exp.targetAccount = finalTargetAccount;
           exp.isBank = isBank;
+          if (!isBank && exp.shiftId === 'EXCLUIDO' && curOpenShift) {
+            exp.shiftId = curOpenShift.shiftId;
+          }
 
           const isOpenShift = this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId && exp.shiftId === this.data.cashShiftLog.shiftId;
           if (exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift && Array.isArray(this.data.cashShiftsHistory)) {
@@ -3472,7 +3580,12 @@ class NexusApp {
         const isExtras = catType === 'extras';
         const name = document.getElementById('cat-name-input').value.trim();
         const color = document.getElementById('cat-color-input').value;
-        const id = name.toLowerCase().replace(/[^a-z0-9]/g, '') || `cat_${Date.now()}`;
+        const baseId = name.toLowerCase().replace(/[^a-z0-9]/g, '') || `cat_${Date.now()}`;
+        let id = baseId;
+        let idIdx = 2;
+        while ((this.data.categories || []).some(c => c.id === id)) {
+          id = `${baseId}_${idIdx++}`;
+        }
 
         let newCat;
         if (isExtras) {
@@ -3757,10 +3870,14 @@ class NexusApp {
             } else if (!targetProd.supplier) {
               targetProd.supplier = 'Proveedor General';
             }
+            const poWu = String(targetProd.weightUnit || 'g').toLowerCase();
+            const unitToGramsFac = poWu === 'kg' ? 1000 : (poWu === 'mg' ? 0.001 : ((poWu === 'µg' || poWu === 'ug') ? 0.000001 : (poWu === 'oz' ? 28.3495 : 1)));
+            const stockDelta = effIsPesaje ? (quantity / unitToGramsFac) : quantity;
+            const stockPrecScale = (effIsPesaje && ['kg', 'mg', 'µg', 'ug'].includes(poWu)) ? 10000 : 100;
             const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-            targetProd.stock = Math.round((currentStock + quantity) * 100) / 100;
+            targetProd.stock = Math.round((currentStock + stockDelta) * stockPrecScale) / stockPrecScale;
             if (unitCost > 0) {
-              targetProd.cost = unitCost;
+              targetProd.cost = effIsPesaje && unitToGramsFac !== 1 ? Math.round(unitCost * unitToGramsFac * 100) / 100 : unitCost;
             }
             if (effIsUnidades && effProductGrams > 0 && !effIsExtras) {
               targetProd.pieceWeight = effProductGrams;
@@ -3770,20 +3887,11 @@ class NexusApp {
             targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
           }
 
-          // Si la categoría es de extras/manillas, no suma gramos de metal a la categoría ni a inventario
-          const poUnitFactor = effIsPesaje ? (() => {
-            const wu = String(targetProd?.weightUnit || document.getElementById('po-weight-unit')?.value || 'g').toLowerCase();
-            if (wu === 'kg') return 1000;
-            if (wu === 'mg') return 0.001;
-            if (wu === 'µg' || wu === 'ug') return 0.000001;
-            if (wu === 'oz') return 28.3495;
-            return 1;
-          })() : 1;
+          // po-quantity siempre se captura en gramos para Pesaje (ver UI de purchase-modal)
           const totalGramsAdded = effIsExtras
             ? 0
-            : (effIsPesaje ? (Math.round(quantity * poUnitFactor * 100) / 100) : (effProductGrams > 0 ? Math.round(quantity * effProductGrams * 100) / 100 : 0));
-          // En joyería fina, si el lote tiene gramaje, el costo unitario ingresado corresponde al gramo ($/g) o a la unidad ingresada si es kg/oz
-          const totalCost = effIsPesaje ? Math.round(quantity * unitCost) : (totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost));
+            : (effIsPesaje ? Math.round(quantity * 100) / 100 : (effProductGrams > 0 ? Math.round(quantity * effProductGrams * 100) / 100 : 0));
+          const totalCost = totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost);
 
           // 2. Sincronizar disponibilidad de gramos y valuación de categorías & KPIs
           if (!this.data.kpis) this.data.kpis = {};
@@ -5044,7 +5152,7 @@ class NexusApp {
     }
 
     this.onMeasureTypeChange(prefix);
-    if (cat.cost) {
+    if (cat.cost && !(cat.measureType === 'Unidades' || cat.id === 'relojes' || cat.id === 'accesorios')) {
       if (costInput && !costInput.value.trim()) {
         costInput.value = this.formatNumberWithCommas(cat.cost);
         this.updateProductCostProfitPreview(prefix);
@@ -5120,7 +5228,10 @@ class NexusApp {
       pieceWeightInput.value = pW !== '' ? this.formatNumberWithCommas(pW, true) : '';
     }
 
-    this.populateProductCategorySelect('edit-prod-cat', p.category);
+    const resolvedCatId = (this.data.categories || []).find(c =>
+      c.id === p.category || (p.categoryName && c.name?.toLowerCase().trim() === p.categoryName.toLowerCase().trim())
+    )?.id || p.category;
+    this.populateProductCategorySelect('edit-prod-cat', resolvedCatId);
     this.populateProductSupplierSelect('edit-prod-supplier', p.supplier || 'ANONIMO');
     this.onProductCategoryChange('edit');
 
@@ -6063,7 +6174,7 @@ class NexusApp {
     if (!confirm(`¿Estás seguro de eliminar al proveedor "${supp ? supp.name : id}"?`)) return;
     this.data.suppliers = this.data.suppliers.filter(s => s.id !== id);
     if (Array.isArray(this.data.supplierCredits)) {
-      this.data.supplierCredits = this.data.supplierCredits.filter(sc => !((sc.supplier || '').toLowerCase().trim() === suppNorm && (Number(sc.pendingAmount) || 0) <= 0));
+      this.data.supplierCredits = this.data.supplierCredits.filter(sc => !((sc.supplierId === id || (suppNorm && (sc.supplier || '').toLowerCase().trim() === suppNorm)) && (Number(sc.pendingAmount) || 0) <= 0));
     }
     await this.savePersistence();
     this.syncAllModules();
@@ -6225,9 +6336,14 @@ class NexusApp {
 
     if (!confirm(`¿Estás seguro de eliminar la orden de compra #${id}? Si se pagó en efectivo o tuvo abonos en efectivo, el dinero se reintegrará automáticamente a la caja, se revertirá el stock y se cancelarán deudas vinculadas.`)) return;
 
-    // 1. ELIMINAR ORDEN Y ABONOS DIRECTOS + SINCRONIZAR CAJA DEL TURNO CORRESPONDIENTE
+    // 1. ELIMINAR ORDEN Y ABONOS DIRECTOS (O VIA CREDITO EXCLUSIVO DE ESA OC) + SINCRONIZAR CAJA DEL TURNO CORRESPONDIENTE
     let cashToRefund = 0;
-    const relatedAbonos = (this.data.abonosCompras || []).filter(ab => ab.poId === po.id);
+    const exclusiveCreditIds = new Set(
+      (this.data.supplierCredits || [])
+        .filter(c => c && (c.poId === po.id || (Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.length === 1 && c.purchaseOrderIds[0] === po.id)))
+        .map(c => c.id)
+    );
+    const relatedAbonos = (this.data.abonosCompras || []).filter(ab => ab.poId === po.id || exclusiveCreditIds.has(ab.poId));
     let cashFromAbonos = 0;
     relatedAbonos.forEach(ab => {
       const meth = (ab.method || '').toLowerCase();
@@ -6238,7 +6354,8 @@ class NexusApp {
 
     if (relatedAbonos.length > 0) {
       cashToRefund = cashFromAbonos;
-      this.data.abonosCompras = (this.data.abonosCompras || []).filter(ab => ab.poId !== po.id);
+      const abIdsToRemove = new Set(relatedAbonos.map(a => a.id));
+      this.data.abonosCompras = (this.data.abonosCompras || []).filter(ab => !abIdsToRemove.has(ab.id));
     } else {
       const poMethod = (po.paymentMethod || '').toLowerCase();
       const isCash = poMethod.includes('efectivo') || poMethod.includes('caja');
@@ -6353,9 +6470,11 @@ class NexusApp {
 
     const suppNorm = (ab.supplier || '').toLowerCase().trim();
 
-    // Revertir deuda en supplierCredits si existe el crédito (por poId/CP o por proveedor)
+    // Revertir deuda en supplierCredits si existe el crédito (priorizando crédito Pendiente si la búsqueda es por proveedor)
     if (Array.isArray(this.data.supplierCredits)) {
-      const cred = this.data.supplierCredits.find(c => (ab.poId && (c.id === ab.poId || c.poId === ab.poId)) || (suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm));
+      const cred = (ab.poId && this.data.supplierCredits.find(c => c.id === ab.poId || c.poId === ab.poId))
+        || this.data.supplierCredits.find(c => suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm && c.status !== 'Pagado Total')
+        || this.data.supplierCredits.find(c => suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm);
       if (cred) {
         cred.pendingAmount = Math.round(((Number(cred.pendingAmount) || 0) + amt) * 100) / 100;
         cred.paidAmount = Math.round(Math.max(0, (Number(cred.paidAmount) || 0) - amt) * 100) / 100;
@@ -6427,6 +6546,11 @@ class NexusApp {
   }
 
   openAbonoModal(type, id) {
+    const abonoEntity = type === 'supplier' ? 'supplier_payment' : 'customer_payment';
+    if (!this.isAdminUser() && !this.canPerformAction('create', abonoEntity)) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar pagos o abonos.', 'danger');
+      return;
+    }
     this.currentAbonoContext = { type, id };
     const typeInput = document.getElementById('abono-credit-type');
     const idInput = document.getElementById('abono-credit-id');
@@ -6626,6 +6750,11 @@ class NexusApp {
   async submitAbono() {
     if (this._isSubmittingAbono) return;
     const type = document.getElementById('abono-credit-type')?.value;
+    const abonoEntity = type === 'supplier' ? 'supplier_payment' : 'customer_payment';
+    if (!this.isAdminUser() && !this.canPerformAction('create', abonoEntity)) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar pagos o abonos.', 'danger');
+      return;
+    }
     const id = document.getElementById('abono-credit-id')?.value;
     const amountInput = document.getElementById('abono-amount-input');
     const methodSelect = document.getElementById('abono-method-select');
@@ -6686,7 +6815,7 @@ class NexusApp {
           date: `${localDate} ${localTime}`,
           isoDate: localDate,
           timestamp: now.getTime(),
-          shiftId: activeShift ? activeShift.shiftId : null,
+          shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
           customer: cred.customer,
           invoiceId: cred.txId || cred.id,
           amount: actualPay,
@@ -6851,7 +6980,7 @@ class NexusApp {
         date: localDate,
         time: localTime,
         timestamp: now.getTime(),
-        shiftId: activeShift ? activeShift.shiftId : null,
+        shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
         supplier: cp.supplier,
         poId: cp.id || this.generateUniqueId('OC', this.data.purchases),
         amount: actualPay,
@@ -7266,13 +7395,13 @@ class NexusApp {
         const isSuperAdmin = this.currentUser && this.isSuperAdminRole(this.currentUser.role);
         const isGhostSession = this.currentUser && this.currentUser.id === this._ghost().id;
         const keyBtn = isSuperAdmin 
-          ? `<button class="btn-action-key" title="Cambiar / Restablecer Contraseña" onclick="app.openAdminChangePasswordModal('${u.id}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Clave</button>` 
+          ? `<button class="btn-action-key" title="Cambiar / Restablecer Contraseña" onclick="app.openAdminChangePasswordModal('${this.escapeHtml(u.id)}')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Clave</button>` 
           : '';
-        const editBtn = canEditUser ? `<button class="btn-action-edit" onclick="app.openEditUserModal('${u.id}')">Editar</button>` : '';
+        const editBtn = canEditUser ? `<button class="btn-action-edit" onclick="app.openEditUserModal('${this.escapeHtml(u.id)}')">Editar</button>` : '';
         // Ghost owner can delete any user including Super Admins; regular sessions see root badge
         const deleteBtn = (isRootUser && !isGhostSession)
           ? `<span class="badge" style="background:#EEF2FF; color:#4F46E5; font-size:0.72rem; font-weight:700;">Raíz</span>`
-          : (canDeleteUser ? `<button class="btn-action-delete" onclick="app.deleteUser('${u.id}')">Eliminar</button>` : '');
+          : (canDeleteUser ? `<button class="btn-action-delete" onclick="app.deleteUser('${this.escapeHtml(u.id)}')">Eliminar</button>` : '');
         actionHtml = `<div class="action-btn-group">${keyBtn}${editBtn}${deleteBtn}</div>`;
       }
 
@@ -8043,9 +8172,9 @@ class NexusApp {
     const canDeleteSupp = this.canPerformAction('delete', 'supplier');
 
     tbody.innerHTML = this.data.suppliers.map(s => {
-      const pagarBtn = s.creditBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.openAbonoModalByEntity('supplier', '${s.id}')">💳 Pagar</button>` : '';
-      const editBtn = canEditSupp ? `<button class="btn-action-edit" onclick="app.openEditSupplierModal('${s.id}')">Editar</button>` : '';
-      const deleteBtn = canDeleteSupp ? `<button class="btn-action-delete" onclick="app.deleteSupplier('${s.id}')">Eliminar</button>` : '';
+      const pagarBtn = s.creditBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.openAbonoModalByEntity('supplier', '${this.escapeHtml(s.id)}')">💳 Pagar</button>` : '';
+      const editBtn = canEditSupp ? `<button class="btn-action-edit" onclick="app.openEditSupplierModal('${this.escapeHtml(s.id)}')">Editar</button>` : '';
+      const deleteBtn = canDeleteSupp ? `<button class="btn-action-delete" onclick="app.deleteSupplier('${this.escapeHtml(s.id)}')">Eliminar</button>` : '';
 
       const actions = `${pagarBtn}${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>`;
@@ -8745,8 +8874,8 @@ class NexusApp {
       } else {
         actionHtml = `
           <div class="action-btn-group">
-            <button class="btn-action-edit" onclick="app.openEditProfileModal('${p.id}')">Editar Permisos</button>
-            <button class="btn-action-delete" onclick="app.deleteProfile('${p.id}')">Eliminar</button>
+            <button class="btn-action-edit" onclick="app.openEditProfileModal('${this.escapeHtml(p.id)}')">Editar Permisos</button>
+            <button class="btn-action-delete" onclick="app.deleteProfile('${this.escapeHtml(p.id)}')">Eliminar</button>
           </div>
         `;
       }
@@ -8777,8 +8906,8 @@ class NexusApp {
     const canDeleteExp = this.canPerformAction('delete', 'expense');
 
     tbody.innerHTML = this.data.expenses.map(e => {
-      const editBtn = canEditExp ? `<button class="btn-action-edit" onclick="app.openEditExpenseModal('${e.id}')">Editar</button>` : '';
-      const deleteBtn = canDeleteExp ? `<button class="btn-action-delete" onclick="app.deleteExpense('${e.id}')">Eliminar</button>` : '';
+      const editBtn = canEditExp ? `<button class="btn-action-edit" onclick="app.openEditExpenseModal('${this.escapeHtml(e.id)}')">Editar</button>` : '';
+      const deleteBtn = canDeleteExp ? `<button class="btn-action-delete" onclick="app.deleteExpense('${this.escapeHtml(e.id)}')">Eliminar</button>` : '';
       const actions = `${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
 
@@ -9883,8 +10012,8 @@ class NexusApp {
       const adjustBtn = (accObj && canAdjust)
         ? `<button class="btn-action-edit" onclick="app.openAccountAdjustmentModal('${this.escapeHtml(accObj.key)}')" title="Ajustar saldo de esta cuenta" style="color:#4338CA;">⚖️ Saldo</button>`
         : '';
-      const editBtn = isSuperAdmin ? `<button class="btn-action-edit" onclick="app.openEditPaymethodModal('${pm.id}')">Editar</button>` : '';
-      const deleteBtn = isSuperAdmin ? `<button class="btn-action-delete" onclick="app.deletePaymethod('${pm.id}')">Eliminar</button>` : '';
+      const editBtn = isSuperAdmin ? `<button class="btn-action-edit" onclick="app.openEditPaymethodModal('${this.escapeHtml(pm.id)}')">Editar</button>` : '';
+      const deleteBtn = isSuperAdmin ? `<button class="btn-action-delete" onclick="app.deletePaymethod('${this.escapeHtml(pm.id)}')">Eliminar</button>` : '';
       const actions = `${extractBtn}${adjustBtn}${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group" style="flex-wrap:wrap; gap:4px;">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
 
@@ -10079,6 +10208,10 @@ class NexusApp {
   }
 
   openAccountAdjustmentModal(defaultAccountKey = 'cuenta_sharick') {
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Solo Administradores o Gerentes pueden ajustar o transferir saldos de cuentas.', 'danger');
+      return;
+    }
     const accountsMap = this.getAccountsFinancialSummary();
     const accountsList = Object.values(accountsMap);
 
@@ -10209,6 +10342,10 @@ class NexusApp {
   }
 
   async submitAccountAdjustment() {
+    if (!this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Solo Administradores o Gerentes pueden ejecutar ajustes de cuentas.', 'danger');
+      return;
+    }
     const accountsMap = this.getAccountsFinancialSummary();
     const type = document.getElementById('acc-adj-type')?.value || 'set_balance';
     const accKey = document.getElementById('acc-adj-account-select')?.value;
@@ -10228,7 +10365,7 @@ class NexusApp {
     const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const operator = this.currentUser?.name || 'Administrador';
-    const activeShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
+    const activeShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : 'EXCLUIDO';
 
     if (type === 'set_balance') {
       if (isNaN(rawVal) || rawVal < 0) {
@@ -10306,6 +10443,7 @@ class NexusApp {
           id: `${pairId}-IN`,
           linkedTransferId: pairId,
           accountKey: destAcc.key,
+          shiftId: activeShiftId,
           date: dateStr,
           time: timeStr,
           timestamp: now.getTime(),
@@ -10321,6 +10459,7 @@ class NexusApp {
           id: `${pairId}-OUT`,
           linkedTransferId: pairId,
           accountKey: acc.key,
+          shiftId: activeShiftId,
           date: dateStr,
           time: timeStr,
           timestamp: now.getTime(),
@@ -10960,8 +11099,13 @@ class NexusApp {
     // 2. DEVOLVER EL DINERO SEGÚN EL MÉTODO DE PAGO Y MARCAR ESTADO REVERSADA ANTES DE RECALCULAR TURNO
     const payMethod = (tx.paymentMethod || '').toLowerCase();
     const grandTotal = Math.abs(Number(tx.total) || 0);
+    const isOpenShift = this.data.cashShiftLog?.status === 'Abierto';
+    const openShiftId = isOpenShift ? this.data.cashShiftLog.shiftId : null;
+    const isTxInCurrentOpenShift = Boolean(openShiftId && tx.shiftId === openShiftId);
     let cashRefundAmount = 0;
     let bankRefundAmount = 0;
+    let histCashRefundAmount = 0;
+    let histBankRefundAmount = 0;
 
     if (tx.mixedPayments && Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
       tx.mixedPayments.forEach(mp => {
@@ -10969,23 +11113,32 @@ class NexusApp {
         const mpMethod = (mp.method || '').toLowerCase();
         if (mpMethod.includes('efectivo') || mpMethod.includes('cash')) {
           cashRefundAmount += mpAmt;
+          histCashRefundAmount += mpAmt;
         } else {
           bankRefundAmount += mpAmt;
+          histBankRefundAmount += mpAmt;
         }
       });
     } else if (payMethod.includes('efectivo') || payMethod.includes('cash')) {
       cashRefundAmount = grandTotal;
+      histCashRefundAmount = grandTotal;
     } else if (payMethod.includes('tarjeta') || payMethod.includes('transfer') || payMethod.includes('banco')) {
       bankRefundAmount = grandTotal;
+      histBankRefundAmount = grandTotal;
     } else if (payMethod.includes('crédito') || payMethod.includes('credito')) {
-      // Anular deuda y posibles abonos previos vinculados al crédito
+      // Anular deuda y posibles abonos previos vinculados exclusivamente a esta factura
       let targetCreditId = null;
+      let hasMergedCredits = false;
       if (Array.isArray(this.data.customerCredits)) {
-        const cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id)
+        const cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id || (Array.isArray(c.mergedTxIds) && c.mergedTxIds.includes(tx.id)))
           || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado' && (Number(c.currentBalance) || 0) > 0)
           || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado');
         if (cred) {
           targetCreditId = cred.id;
+          if (Array.isArray(cred.mergedTxIds)) {
+            cred.mergedTxIds = cred.mergedTxIds.filter(tid => tid !== tx.id);
+            hasMergedCredits = cred.mergedTxIds.length > 0;
+          }
           cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
           cred.currentBalance = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - grandTotal) * 100) / 100;
           if (cred.currentBalance <= 0) cred.status = 'Anulado';
@@ -10997,11 +11150,19 @@ class NexusApp {
       }
       if (Array.isArray(this.data.abonosVentas) && targetCreditId) {
         this.data.abonosVentas.forEach(ab => {
-          if (ab && ab.status !== 'Reversado' && (ab.creditId === targetCreditId || ab.invoiceId === tx.id)) {
+          const directInvoiceMatch = ab.invoiceId && ab.invoiceId === tx.id;
+          const exclusiveCreditMatch = !hasMergedCredits && ab.creditId === targetCreditId;
+          if (ab && ab.status !== 'Reversado' && (directInvoiceMatch || exclusiveCreditMatch)) {
             ab.status = 'Reversado';
+            const abAmt = Number(ab.amount) || 0;
             const abMeth = String(ab.method || '').toLowerCase();
-            if (abMeth.includes('efectivo') || abMeth.includes('caja')) cashRefundAmount += Number(ab.amount) || 0;
-            else bankRefundAmount += Number(ab.amount) || 0;
+            const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
+            if (isAbCash) cashRefundAmount += abAmt;
+            else bankRefundAmount += abAmt;
+            if (tx.shiftId && ab.shiftId === tx.shiftId) {
+              if (isAbCash) histCashRefundAmount += abAmt;
+              else histBankRefundAmount += abAmt;
+            }
           }
         });
       }
@@ -11016,7 +11177,10 @@ class NexusApp {
         ? Number(tx.separeAbono)
         : Math.max(0, grandTotal - effPending);
 
-      if (effAbono > 0) cashRefundAmount += effAbono;
+      if (effAbono > 0) {
+        cashRefundAmount += effAbono;
+        histCashRefundAmount += effAbono;
+      }
       if (effPending > 0) {
         const cust = (this.data.customers || []).find(c => c.name === tx.customer);
         if (cust) {
@@ -11028,9 +11192,15 @@ class NexusApp {
           this.data.abonosVentas.forEach(ab => {
             if (ab && ab.status !== 'Reversado' && (ab.creditId === sep.id || ab.invoiceId === tx.id)) {
               ab.status = 'Reversado';
+              const abAmt = Number(ab.amount) || 0;
               const abMeth = String(ab.method || '').toLowerCase();
-              if (abMeth.includes('efectivo') || abMeth.includes('caja')) cashRefundAmount += Number(ab.amount) || 0;
-              else bankRefundAmount += Number(ab.amount) || 0;
+              const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
+              if (isAbCash) cashRefundAmount += abAmt;
+              else bankRefundAmount += abAmt;
+              if (tx.shiftId && ab.shiftId === tx.shiftId) {
+                if (isAbCash) histCashRefundAmount += abAmt;
+                else histBankRefundAmount += abAmt;
+              }
             }
           });
         }
@@ -11045,21 +11215,18 @@ class NexusApp {
     tx.reversedAt = new Date().toISOString();
     tx.reversedBy = this.currentUser?.name || 'Administrador';
     tx.cashRefunded = cashRefundAmount;
-
-    const isOpenShift = this.data.cashShiftLog?.status === 'Abierto';
-    const openShiftId = isOpenShift ? this.data.cashShiftLog.shiftId : null;
-    const isTxInCurrentOpenShift = Boolean(openShiftId && tx.shiftId === openShiftId);
+    tx.refundShiftId = (!isTxInCurrentOpenShift && openShiftId) ? openShiftId : null;
 
     if (!isTxInCurrentOpenShift) {
-      // Si el turno ya estaba cerrado (incluyendo el último turno recién cerrado), actualizar su registro en cashShiftsHistory
+      // Si el turno ya estaba cerrado (incluyendo el último turno recién cerrado), actualizar su registro en cashShiftsHistory solo por los montos que ingresaron en ese turno
       if (tx.shiftId && Array.isArray(this.data.cashShiftsHistory)) {
         const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === tx.shiftId || s.id === tx.shiftId);
         if (histShift) {
-          if (cashRefundAmount > 0) {
-            histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - cashRefundAmount) * 100) / 100;
+          if (histCashRefundAmount > 0) {
+            histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - histCashRefundAmount) * 100) / 100;
           }
-          if (bankRefundAmount > 0) {
-            histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - bankRefundAmount) * 100) / 100;
+          if (histBankRefundAmount > 0) {
+            histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
           }
           histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0)) * 100) / 100;
           if (histShift.closingCash !== undefined) {
@@ -11068,13 +11235,13 @@ class NexusApp {
         }
       }
       if (this.data.cashShiftLog?.status === 'Cerrado' && tx.shiftId === this.data.cashShiftLog.shiftId) {
-        if (cashRefundAmount > 0) {
-          this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - cashRefundAmount) * 100) / 100;
+        if (histCashRefundAmount > 0) {
+          this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - histCashRefundAmount) * 100) / 100;
           this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
           if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
         }
-        if (bankRefundAmount > 0) {
-          this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - bankRefundAmount) * 100) / 100;
+        if (histBankRefundAmount > 0) {
+          this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
         }
       }
     }
@@ -11547,7 +11714,7 @@ class NexusApp {
         date: localDate,
         time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         timestamp: now.getTime(),
-        shiftId: activeShift ? activeShift.shiftId : null,
+        shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
         supplier: po.supplier,
         poId: po.id,
         amount: remainingToPay,
@@ -11594,7 +11761,8 @@ class NexusApp {
     this.syncAllModules();
     this.renderCuadreCajaCard();
     this.renderCashStatusIndicator();
-    this.showToast(`Orden #${po.id} marcada como Pagada Total y descontada de caja`, 'success');
+    const payDesc = isCash ? 'y descontada de caja' : `por ${selectedAccount}`;
+    this.showToast(`Orden #${po.id} marcada como Pagada Total ${payDesc}`, 'success');
     this.showPurchaseReceiptModal(po.id);
   }
 
@@ -11626,8 +11794,8 @@ class NexusApp {
           <td><span class="badge ${badgeClass}" ${badgeStyle}>${statusLabel}</span></td>
           <td>
             <div class="action-btn-group">
-              ${cc.currentBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.payCustomerCredit('${cc.id}')">💳 Registrar Abono</button>
-                <button type="button" class="btn text-xs" style="padding:3px 8px; background:linear-gradient(135deg, #10B981, #059669); color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" onclick="app.generateAiCollectionMessage('${cc.id}')" title="Generar Mensaje WhatsApp Persuasivo con Nexus AI">✨ Cobro IA</button>` : `<span class="text-xs" style="color:var(--emerald-text);">Saldado</span>`}
+              ${cc.currentBalance > 0 ? `<button class="btn btn-primary text-xs" style="padding:3px 10px;" onclick="app.payCustomerCredit('${this.escapeHtml(cc.id)}')">💳 Registrar Abono</button>
+                <button type="button" class="btn text-xs" style="padding:3px 8px; background:linear-gradient(135deg, #10B981, #059669); color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" onclick="app.generateAiCollectionMessage('${this.escapeHtml(cc.id)}')" title="Generar Mensaje WhatsApp Persuasivo con Nexus AI">✨ Cobro IA</button>` : `<span class="text-xs" style="color:var(--emerald-text);">Saldado</span>`}
             </div>
           </td>
         </tr>
@@ -11791,7 +11959,7 @@ class NexusApp {
               <button class="btn-action-edit text-xs" style="padding:4px 10px; font-weight:700;" onclick="app.openEditSupplierCreditModal('${this.escapeHtml(cp.id)}')" title="Ajustar o corregir el saldo que se debe a este proveedor">
                 ✏️ Editar Saldo
               </button>
-              ${!isPaid ? `<button class="btn btn-primary text-xs" style="padding:4px 12px; font-weight:700;" onclick="app.paySupplierCredit('${this.escapeHtml(cp.id)}')">💳 Pagar</button>` : ''}
+              ${(!isPaid && (this.isAdminUser() || this.canPerformAction('create', 'supplier_payment'))) ? `<button class="btn btn-primary text-xs" style="padding:4px 12px; font-weight:700;" onclick="app.paySupplierCredit('${this.escapeHtml(cp.id)}')">💳 Pagar</button>` : ''}
               ${this.isAdminUser() ? `<button class="btn-action-delete" style="padding:4px 8px; font-size:0.72rem;" onclick="app.deleteSupplierCredit('${this.escapeHtml(cp.id)}')">🗑️</button>` : ''}
             </div>
           </td>
@@ -12149,6 +12317,10 @@ class NexusApp {
 
   async saveEditedPurchaseOrder(event) {
     if (event) event.preventDefault();
+    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar órdenes de compra.', 'danger');
+      return;
+    }
 
     const poId = document.getElementById('edit-po-id')?.value;
     const fromCpId = document.getElementById('edit-po-from-cp-id')?.value;
@@ -12194,10 +12366,13 @@ class NexusApp {
       );
       if (targetProd) {
         const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
-        const deltaStock = isPesaje ? (newGrams - oldGrams) : (newQty - oldQty);
-        if (Math.abs(deltaStock) > 0.0001) {
+        const wu = String(targetProd.weightUnit || 'g').toLowerCase();
+        const uFac = !isPesaje ? 1 : (wu === 'kg' ? 1000 : (wu === 'mg' ? 0.001 : ((wu === 'µg' || wu === 'ug') ? 0.000001 : (wu === 'oz' ? 28.3495 : 1))));
+        const deltaStock = isPesaje ? ((newGrams - oldGrams) / uFac) : (newQty - oldQty);
+        if (Math.abs(deltaStock) > 0.00001) {
           const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-          targetProd.stock = Math.round(Math.max(0, currentStock + deltaStock) * 100) / 100;
+          const precScale = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes(wu)) ? 10000 : 100;
+          targetProd.stock = Math.round(Math.max(0, currentStock + deltaStock) * precScale) / precScale;
           const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
           targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
         }
@@ -12276,7 +12451,7 @@ class NexusApp {
 
       if (credList.length > 0) {
         const primary = credList[0];
-        primary.supplier = suppObj ? suppObj.name : newSupplier;
+        primary.supplier = suppObj ? suppObj.name : (primary.supplier || oldSupplier || newSupplier);
         primary.totalOwed = targetTotalOwed;
         primary.paidAmount = targetPaid;
         primary.pendingAmount = targetPending;
@@ -12353,7 +12528,12 @@ class NexusApp {
     }
 
     const suppNorm = (cp.supplier || '').toLowerCase().trim();
-    const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
+    const linkedSet = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
+    const suppPOs = (this.data.purchases || []).filter(p =>
+      linkedSet.size > 0
+        ? linkedSet.has(p.id)
+        : ((p.supplier || '').toLowerCase().trim() === suppNorm && (cp.status === 'Pagado Total' || p.paymentStatus !== 'Pagado Total'))
+    );
     let posTotal = 0;
     let posPending = 0;
     suppPOs.forEach(p => {
@@ -12388,7 +12568,12 @@ class NexusApp {
     if (!cp) return;
 
     const suppNorm = (cp.supplier || '').toLowerCase().trim();
-    const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
+    const linkedSet = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
+    const suppPOs = (this.data.purchases || []).filter(p =>
+      linkedSet.size > 0
+        ? linkedSet.has(p.id)
+        : ((p.supplier || '').toLowerCase().trim() === suppNorm && (cp.status === 'Pagado Total' || p.paymentStatus !== 'Pagado Total'))
+    );
     let posTotal = 0;
     let posPaid = 0;
     let posPending = 0;
@@ -12957,8 +13142,12 @@ class NexusApp {
     });
 
     allProds.forEach(p => {
-      const rawCatId = (p.category || p.categoryName || 'general').trim();
-      const catKey = rawCatId.toLowerCase();
+          const rawCatId = (p.category || '').trim() || (p.categoryName || 'general').trim();
+          let catKey = rawCatId.toLowerCase();
+          if (!catMap.has(catKey) && p.categoryName) {
+            const byName = cats.find(c => String(c.name || '').toLowerCase().trim() === String(p.categoryName || '').toLowerCase().trim());
+            if (byName) catKey = String(byName.id || byName.name).toLowerCase().trim();
+          }
       if (!catMap.has(catKey)) {
         catMap.set(catKey, {
           id: rawCatId,
@@ -13035,9 +13224,10 @@ class NexusApp {
             let gFac = 1;
             if (uLower === 'kg') gFac = 1000;
             else if (uLower === 'mg') gFac = 0.001;
+            else if (uLower === 'µg' || uLower === 'ug') gFac = 0.000001;
             else if (uLower === 'oz') gFac = 28.3495;
             itemGrams = qty * gFac;
-            itemCost = qty * cost;
+            itemCost = this.calculateTransactionItemCOGS ? this.calculateTransactionItemCOGS(it) : (qty * cost);
           } else if (pWeight > 0) {
             const itUnitLower = String(it.unit || '').toLowerCase();
             const isQtyInGrams = itUnitLower === 'g' || !Number.isInteger(qty) || Math.abs(qty - pWeight) < 0.01;
@@ -13190,10 +13380,10 @@ class NexusApp {
       const soldU = Math.round(p.soldUnits);
       const soldCop = Math.round(p.soldTotalCop);
       const stockG = (p.measureType === 'Pesaje' || p.pieceWeight > 0)
-        ? `${parseNum(p.stock).toLocaleString('es-CO')} g`
+        ? `${this.getGramsFromProduct(p).toLocaleString('es-CO')} g`
         : `${parseNum(p.stock).toLocaleString('es-CO')} u.`;
       const totG = (p.measureType === 'Pesaje' || p.pieceWeight > 0)
-        ? Math.round((parseNum(p.stock) + p.soldGrams) * 100) / 100
+        ? Math.round((this.getGramsFromProduct(p) + p.soldGrams) * 100) / 100
         : soldG;
       const isAgotado = parseNum(p.stock) <= 0;
       const estadoBadge = isAgotado ? 'BadgeRose' : 'BadgeGreen';
@@ -13493,7 +13683,7 @@ class NexusApp {
     if (filtered.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="10" style="text-align:center; padding:3rem 1rem; color:var(--text-subtle);">
+          <td colspan="9" style="text-align:center; padding:3rem 1rem; color:var(--text-subtle);">
             <div style="font-size:1.75rem; margin-bottom:0.5rem;">🔍</div>
             <div style="font-weight:600; color:var(--text-muted);">No se encontraron productos coincidentes</div>
             <div style="font-size:0.8rem; margin-top:0.25rem;">Intenta cambiando el filtro de existencias o la búsqueda.</div>
@@ -15504,7 +15694,7 @@ class NexusApp {
                 ${accKey ? `
                 <div style="margin-top:6px; display:flex; gap:6px;">
                   <button type="button" class="btn btn-secondary text-xs" onclick="app.openAccountMovementsModal('${this.escapeHtml(accKey)}')" style="flex:1; padding:3px 6px; font-size:0.71rem; justify-content:center;">📋 Extracto</button>
-                  <button type="button" class="btn btn-secondary text-xs" onclick="app.openAccountAdjustmentModal('${this.escapeHtml(accKey)}')" style="flex:1; padding:3px 6px; font-size:0.71rem; justify-content:center;">⚖️ Ajustar</button>
+                  ${this.isAdminUser() ? `<button type="button" class="btn btn-secondary text-xs" onclick="app.openAccountAdjustmentModal('${this.escapeHtml(accKey)}')" style="flex:1; padding:3px 6px; font-size:0.71rem; justify-content:center;">⚖️ Ajustar</button>` : ''}
                 </div>
                 ` : ''}
               </div>
@@ -15666,6 +15856,10 @@ class NexusApp {
   }
 
   openCashCloseModal() {
+    if (!this.isAdminUser() && !this.canPerformAction('create', 'cuadre_caja')) {
+      this.showToast('Acceso Denegado: Tu rol es de solo lectura en Arqueo de Caja.', 'danger');
+      return;
+    }
     const shift = this.data.cashShiftLog || { expectedCashInDrawer: 0, cashSales: 0 };
     const totals = this.calculateShiftTotals();
     const totalCash = totals.totalEfectivo;
@@ -15745,7 +15939,7 @@ class NexusApp {
     }
 
     const bankExpensesRowEl = document.getElementById('cash-shift-bank-expenses-row');
-    const bankExpensesEl = document.getElementById('cash-shift-bank-expenses');
+    const bankExpensesEl = document.getElementById('cash-shift-expenses-bank') || document.getElementById('cash-shift-bank-expenses');
     if (bankExpensesRowEl && bankExpensesEl) {
       if (totals.bankExpenses > 0) {
         bankExpensesRowEl.style.display = 'flex';
@@ -15820,6 +16014,17 @@ class NexusApp {
   }
 
   async finalizeCashClose() {
+    if (!this.isAdminUser() && !this.canPerformAction('create', 'cuadre_caja')) {
+      this.showToast('Acceso Denegado: No tienes permisos para cerrar el turno de caja.', 'danger');
+      return;
+    }
+    if (!this.data.cashShiftLog || this.data.cashShiftLog.status !== 'Abierto') {
+      this.showToast('El turno de caja ya se encuentra cerrado.', 'warning');
+      return;
+    }
+    if (this._isClosingShift) return;
+    this._isClosingShift = true;
+    try {
     const counted = this.parseCleanNumber(document.getElementById('cash-physical-counted')?.value);
     const totals = this.calculateShiftTotals();
     const expected = totals.expectedCashInDrawer;
@@ -15887,11 +16092,15 @@ class NexusApp {
     this.data.cashShiftLog.closingCash = counted;
     this.data.cashShiftLog.closedBy = currentOperator;
     this.data.cashShiftLog.closedAt = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    this.data.cashShiftLog.closedTimestamp = now.getTime();
 
     this.closeModal('close-cash-modal');
     await this.savePersistence();
     this.syncAllModules();
     this.showToast(`Cierre de caja completado por ${currentOperator}. Arqueo: ${this.formatCurrency(counted)} (Diferencia: ${this.formatCurrency(diff)})`, 'success');
+    } finally {
+      this._isClosingShift = false;
+    }
   }
 
   renderCashStatusIndicator() {
@@ -16762,11 +16971,31 @@ class NexusApp {
     });
 
     const dayExpenses = (this.data.expenses || []).filter(ex => {
-      if (!ex || !(ex.method || '').toLowerCase().includes('efectivo')) return false;
+      if (!ex || ex.isBank || ex.excludeFromCashShift || !(ex.method || '').toLowerCase().includes('efectivo')) return false;
       if (targetShiftId && ex.shiftId) return ex.shiftId === targetShiftId;
       if (!ex.date) return false;
       return ex.date.includes(datePattern) || (shift.date && ex.date.includes(shift.date)) || (ddMm && ex.date.includes(ddMm));
     });
+    const shiftCashAbonos = (this.data.abonosCompras || []).filter(ab => {
+      if (!ab || !((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))) return false;
+      if (targetShiftId && ab.shiftId) return ab.shiftId === targetShiftId;
+      if (!ab.date) return false;
+      return ab.date.includes(datePattern) || (shift.date && ab.date.includes(shift.date)) || (ddMm && ab.date.includes(ddMm));
+    });
+    const abonoPoSet = new Set((this.data.abonosCompras || []).map(a => a?.poId).filter(Boolean));
+    const shiftCashPurchases = (this.data.purchases || []).filter(po => {
+      if (!po || po.excludeFromCashShift || abonoPoSet.has(po.id)) return false;
+      if (!(po.paymentMethod || '').toLowerCase().includes('efectivo')) return false;
+      if (po.paymentStatus !== 'Pagado Total' && !po.paymentStatus) return false;
+      if (targetShiftId && po.shiftId) return po.shiftId === targetShiftId;
+      if (!po.date) return false;
+      return po.date.includes(datePattern) || (shift.date && po.date.includes(shift.date)) || (ddMm && po.date.includes(ddMm));
+    });
+    const allShiftCashOutflows = [
+      ...dayExpenses.map(ex => ({ id: ex.id, category: ex.category || 'Gasto Operativo', description: ex.description || '', amount: ex.amount })),
+      ...shiftCashAbonos.map(ab => ({ id: ab.id, category: 'Abono Proveedor', description: `${ab.supplier || ''} (${ab.poId || ''})`, amount: ab.amount })),
+      ...shiftCashPurchases.map(po => ({ id: po.id, category: 'Compra Contado', description: `${po.supplier || ''} (${po.productName || ''})`, amount: po.paidAmount || po.total }))
+    ];
 
     let txRowsXml = '';
     dayTxs.forEach(t => {
@@ -16781,12 +17010,12 @@ class NexusApp {
     });
 
     let expRowsXml = '';
-    dayExpenses.forEach(ex => {
+    allShiftCashOutflows.forEach(ex => {
       expRowsXml += `
       <Row>
         <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.id || '')}</Data></Cell>
         <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.category || 'Gasto Operativo')}</Data></Cell>
-        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.description || '')}</Data></Cell>
+        <Cell ss:MergeAcross="1" ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ex.description || '')}</Data></Cell>
         <Cell ss:StyleID="Currency"><Data ss:Type="Number">${Math.round(Number(ex.amount) || 0)}</Data></Cell>
       </Row>`;
     });
@@ -16978,7 +17207,7 @@ class NexusApp {
         <td>${this.escapeHtml(ab.method)}</td>
         <td><span class="badge badge-active">${this.escapeHtml(ab.status || 'Confirmado')}</span></td>
         <td style="text-align:center;">
-          ${canDelete ? `<button class="btn-action-delete" onclick="app.deleteAbonoCompra('${ab.id}')" title="Anular abono y devolver a caja" style="padding:2px 8px; font-size:0.75rem;">Anular</button>` : '<span style="color:var(--text-muted); font-size:0.75rem;">—</span>'}
+          ${canDelete ? `<button class="btn-action-delete" onclick="app.deleteAbonoCompra('${this.escapeHtml(ab.id)}')" title="Anular abono y devolver a caja" style="padding:2px 8px; font-size:0.75rem;">Anular</button>` : '<span style="color:var(--text-muted); font-size:0.75rem;">—</span>'}
         </td>
       </tr>
     `).join('');
@@ -17082,20 +17311,19 @@ class NexusApp {
 
     let itemCOGS = 0;
     if (isPesaje) {
-      const unit = String(it.unit || p?.weightUnit || 'g').toLowerCase();
-      let gramsFactor = 1;
-      if (unit === 'kg') gramsFactor = 1000;
-      else if (unit === 'mg') gramsFactor = 0.001;
-      else if (unit === 'µg' || unit === 'ug') gramsFactor = 0.000001;
-      else if (unit === 'oz') gramsFactor = 28.3495;
-      const gramsSold = q * gramsFactor;
-      itemCOGS = costPerGram > 0 ? (costPerGram * gramsSold) : (itemTotal * 0.65);
+      const unitToGrams = (u) => u === 'kg' ? 1000 : (u === 'mg' ? 0.001 : ((u === 'µg' || u === 'ug') ? 0.000001 : (u === 'oz' ? 28.3495 : 1)));
+      const itUnit = String(it.unit || p?.weightUnit || 'g').toLowerCase();
+      const prodUnit = String(p?.weightUnit || it.unit || 'g').toLowerCase();
+      const unitFactor = unitToGrams(itUnit) / unitToGrams(prodUnit);
+      const effectiveQty = q * unitFactor;
+      itemCOGS = costPerGram > 0 ? (costPerGram * effectiveQty) : (itemTotal * 0.65);
     } else if (pWeight > 0) {
+      const itUnitLower = String(it.unit || '').toLowerCase();
       if (q >= pWeight && Math.abs(q - pWeight) < 0.01) {
         itemCOGS = costPerGram > 0 ? (costPerGram * pWeight) : (itemTotal * 0.65);
-      } else if (costPerGram > 0 && String(it.unit || '').toLowerCase() === 'g') {
+      } else if (costPerGram > 0 && itUnitLower === 'g') {
         itemCOGS = costPerGram * q;
-      } else if (costPerGram > 0 && (costPerGram * q) <= itemTotal * 1.15) {
+      } else if (costPerGram > 0 && itUnitLower !== 'u.' && (costPerGram * q) <= itemTotal * 1.15) {
         itemCOGS = costPerGram * q;
       } else if (costPerGram > 0) {
         itemCOGS = pWeight * costPerGram * q;
@@ -17238,7 +17466,7 @@ class NexusApp {
 
     validSalesTx.forEach(tx => {
       const isTxService = String(tx.type || '').toLowerCase().includes('servicio');
-      if (Array.isArray(tx.items) && tx.items.length > 0) {
+    if (Array.isArray(tx.items) && tx.items.length > 0) {
         tx.items.forEach(it => {
           const itTot = Number(it.total !== undefined ? it.total : (Number(it.price) * (Number(it.qty) || 1))) || 0;
           const isItService = isTxService || String(it.name || '').toLowerCase().includes('servicio') || String(it.category || '').toLowerCase().includes('servicio');
@@ -17249,6 +17477,7 @@ class NexusApp {
           }
           calculatedCOGS += this.calculateTransactionItemCOGS(it);
         });
+        // Si hay impuesto incluido en tx.total pero el P&L debe reflejar el neto facturado consistente con gráficas
       } else {
         const txTot = Number(tx.total) || 0;
         if (isTxService) {
@@ -17423,6 +17652,19 @@ class NexusApp {
       let expenseData = [];
       let netProfitData = [];
 
+      const txNetRev = (tx) => {
+        if (Array.isArray(tx.items) && tx.items.length > 0) {
+          return tx.items.reduce((s, it) => s + (Number(it.total !== undefined ? it.total : (Number(it.price) * (Number(it.qty) || 1))) || 0), 0);
+        }
+        return (tx.subtotal !== undefined && tx.subtotal !== null && Number(tx.subtotal) > 0) ? Number(tx.subtotal) : (Number(tx.total) || 0);
+      };
+      const txCogs = (tx) => {
+        if (Array.isArray(tx.items) && tx.items.length > 0) {
+          return tx.items.reduce((s, it) => s + this.calculateTransactionItemCOGS(it), 0);
+        }
+        return String(tx.type || '').toLowerCase().includes('servicio') ? 0 : Math.round((Number(tx.total) || 0) * 0.65);
+      };
+
       const filteredTx = (this.data.recentTransactions || []).filter(tx => {
         if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return false;
         const tot = Number(tx.total) || 0;
@@ -17440,12 +17682,8 @@ class NexusApp {
           const d = this.parseDateSafe(tx.date);
           const day = d ? d.getDate() : 10;
           const weekIdx = Math.min(3, Math.floor((day - 1) / 7));
-          weeklyRev[weekIdx] += (Number(tx.total) || 0);
-          if (Array.isArray(tx.items)) {
-            tx.items.forEach(it => {
-              weeklyCOGS[weekIdx] += this.calculateTransactionItemCOGS(it);
-            });
-          }
+          weeklyRev[weekIdx] += txNetRev(tx);
+          weeklyCOGS[weekIdx] += txCogs(tx);
         });
 
         filteredExp.forEach(e => {
@@ -17471,12 +17709,8 @@ class NexusApp {
           if (!d) return;
           const diffDays = Math.floor((now.getTime() - d.getTime()) / (86400000));
           const idx = Math.min(3, Math.max(0, 3 - Math.floor(diffDays / 7)));
-          bRev[idx] += (Number(tx.total) || 0);
-          if (Array.isArray(tx.items)) {
-            tx.items.forEach(it => {
-              bCOGS[idx] += this.calculateTransactionItemCOGS(it);
-            });
-          }
+          bRev[idx] += txNetRev(tx);
+          bCOGS[idx] += txCogs(tx);
         });
 
         filteredExp.forEach(e => {
@@ -17522,12 +17756,8 @@ class NexusApp {
             const iso = `${y}-${m}-${day}`;
             const idx = dayKeys.indexOf(iso);
             if (idx !== -1) {
-              cRev[idx] += (Number(tx.total) || 0);
-              if (Array.isArray(tx.items)) {
-                tx.items.forEach(it => {
-                  cCOGS[idx] += this.calculateTransactionItemCOGS(it);
-                });
-              }
+              cRev[idx] += txNetRev(tx);
+              cCOGS[idx] += txCogs(tx);
             }
           });
 
@@ -17566,12 +17796,8 @@ class NexusApp {
             if (!d) return;
             const dayOffset = Math.floor((d.getTime() - startD.getTime()) / 86400000);
             const idx = Math.min(numBuckets - 1, Math.max(0, Math.floor(dayOffset / bucketSpan)));
-            bRev[idx] += (Number(tx.total) || 0);
-            if (Array.isArray(tx.items)) {
-              tx.items.forEach(it => {
-                bCOGS[idx] += this.calculateTransactionItemCOGS(it);
-              });
-            }
+            bRev[idx] += txNetRev(tx);
+            bCOGS[idx] += txCogs(tx);
           });
 
           filteredExp.forEach(e => {
@@ -17606,12 +17832,8 @@ class NexusApp {
             const key = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
             const idx = labels.indexOf(key);
             if (idx !== -1) {
-              mRev[idx] += (Number(tx.total) || 0);
-              if (Array.isArray(tx.items)) {
-                tx.items.forEach(it => {
-                  mCOGS[idx] += this.calculateTransactionItemCOGS(it);
-                });
-              }
+              mRev[idx] += txNetRev(tx);
+              mCOGS[idx] += txCogs(tx);
             }
           });
 
@@ -17648,12 +17870,8 @@ class NexusApp {
           const mKey = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
           const idx = labels.indexOf(mKey);
           if (idx !== -1) {
-            mRev[idx] += (Number(tx.total) || 0);
-            if (Array.isArray(tx.items)) {
-              tx.items.forEach(it => {
-                mCOGS[idx] += this.calculateTransactionItemCOGS(it);
-              });
-            }
+            mRev[idx] += txNetRev(tx);
+            mCOGS[idx] += txCogs(tx);
           }
         });
 
@@ -19014,8 +19232,8 @@ class NexusApp {
   }
 
   exportCreditosProveedoresExcel() {
-    this.syncSupplierCreditsState();
     this.normalizeSupplierCreditCodes();
+    this.syncSupplierCreditsState();
     const rawCredits = this.data.supplierCredits || [];
     const credits = [...rawCredits].sort((a, b) => {
       const numA = parseInt((String(a.id).match(/\d+/) || [0])[0], 10);
@@ -19561,7 +19779,6 @@ class NexusApp {
     <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GENERAL ABONADO A PROVEEDORES</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalAbonosEfectuados}</Data></Cell>
     <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">${abonos.length} abonos confirmados</Data></Cell>
-    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
    </Row>
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
@@ -20276,7 +20493,7 @@ class NexusApp {
 
    <!-- Tabla Resumen Proveedores -->
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="5" ss:StyleID="SectionHeader"><Data ss:Type="String">  CARTERA Y VOLUMEN POR CASA PROVEEDORA</Data></Cell>
+    <Cell ss:MergeAcross="7" ss:StyleID="SectionHeader"><Data ss:Type="String">  CARTERA Y VOLUMEN POR CASA PROVEEDORA</Data></Cell>
    </Row>
    <Row ss:Height="24">
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PROVEEDOR</Data></Cell>
@@ -20284,6 +20501,8 @@ class NexusApp {
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TELÉFONO</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">N° OC</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">TOTAL COMPRADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PAGADO</Data></Cell>
+    <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">PENDIENTE</Data></Cell>
     <Cell ss:StyleID="TableColHeader"><Data ss:Type="String">% PART.</Data></Cell>
    </Row>
    ${rowsSuppSummary}
@@ -20606,7 +20825,7 @@ class NexusApp {
       const supp = findSupplier(cr.supplier);
       const owed = Number(cr.totalOwed) || 0;
       const pending = Number(cr.pendingAmount) || 0;
-      const paid = Math.max(0, owed - pending);
+      const paid = cr.paidAmount !== undefined ? (Number(cr.paidAmount) || 0) : Math.max(0, owed - pending);
       const isPaid = pending <= 0;
 
       rowsCredits += `
@@ -20769,8 +20988,8 @@ class NexusApp {
    <Row ss:Height="24">
     <Cell ss:MergeAcross="12" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL GENERAL COMPRAS</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalInversionCompras}</Data></Cell>
-    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${purchases.reduce((acc, p) => acc + (Number(p.paidAmount) || 0), 0)}</Data></Cell>
-    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${purchases.reduce((acc, p) => acc + Math.max(0, (Number(p.total) || 0) - (Number(p.paidAmount) || 0)), 0)}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${purchases.reduce((acc, p) => acc + (p.paymentStatus === 'Pagado Total' ? (Number(p.total) || 0) : Math.min(Number(p.total) || 0, Math.max(0, Number(p.paidAmount) || 0))), 0)}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${purchases.reduce((acc, p) => { const t = Number(p.total) || 0; const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Number(p.paidAmount) || 0)); return acc + Math.max(0, t - pd); }, 0)}</Data></Cell>
     <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">${purchases.length} órdenes</Data></Cell>
    </Row>
   </Table>
@@ -21173,7 +21392,7 @@ class NexusApp {
     // Flujo neto de fondos real (evitando doble conteo de ventas a crédito cuyo cobro entra por abonosVentas)
     const collectedSalesCashAndBank = validSalesTx.reduce((acc, tx) => {
       const m = (tx.paymentMethod || '').toLowerCase();
-      if (m === 'crédito' || m === 'credito') return acc;
+      if (m.includes('crédito') || m.includes('credito')) return acc;
       if (m.includes('separe')) return acc + (Number(tx.separeAbono) || 0);
       return acc + (Number(tx.total) || 0);
     }, 0);
@@ -22507,7 +22726,9 @@ class NexusApp {
     const agentLabel = type === 'compra' ? 'Comprador' : 'Vendedor';
     const footerLabel = type === 'compra' ? 'Recibo de compra' : 'Recibo de venta';
 
-    const logoHtml = store.branding?.logoUrl ? `<img class="ticket-logo" src="${store.branding.logoUrl}" style="max-height:48px; max-width:150px; margin-bottom:4px; object-fit:contain;">` : '';
+    const rawTicketLogo = store.branding?.logoUrl ? String(store.branding.logoUrl).trim() : '';
+    const safeTicketLogo = (/^(https?:\/\/|data:image\/(png|jpe?g|webp|gif);base64,|\/|\.\/)/i.test(rawTicketLogo)) ? this.escapeHtml(rawTicketLogo) : '';
+    const logoHtml = safeTicketLogo ? `<img class="ticket-logo" src="${safeTicketLogo}" style="max-height:48px; max-width:150px; margin-bottom:4px; object-fit:contain;">` : '';
 
     const isVenta = type === 'venta';
 
@@ -22796,14 +23017,17 @@ class NexusApp {
 
     const hasGrams = (Number(po.totalGrams) || 0) > 0;
     const isPesaje = (po.measureType || prod?.measureType || (hasGrams && (!po.quantity || po.quantity === po.totalGrams) ? 'Pesaje' : 'Unidades')) === 'Pesaje';
-    const unitLabel = isPesaje ? 'g' : (prod?.weightUnit || 'u.');
+    const unitLabel = isPesaje ? 'g' : 'u.';
     const qtyVal = isPesaje ? (po.totalGrams || po.quantity || 1) : (po.quantity || po.itemsCount || 1);
     const formattedQty = (hasGrams && !isPesaje)
       ? `${this.formatNumberWithCommas(qtyVal, false)} u. (${this.formatNumberWithCommas(po.totalGrams, true)} g)`
       : `${this.formatNumberWithCommas(qtyVal, isPesaje)} ${unitLabel}`;
+    const effUnitPrice = (hasGrams || isPesaje)
+      ? ((qtyVal > 0 && (Number(po.total) || 0) > 0) ? Math.round(Number(po.total) / qtyVal) : (po.unitCost || 0))
+      : (po.unitCost || 0);
     const formattedUnitPrice = (hasGrams || isPesaje)
-      ? `${this.formatCurrency(po.unitCost || 0)}/g`
-      : `${this.formatCurrency(po.unitCost || 0)}/u`;
+      ? `${this.formatCurrency(effUnitPrice)}/g`
+      : `${this.formatCurrency(effUnitPrice)}/u`;
     const formattedTotal = this.formatCurrency(po.total || 0);
 
     const ticketItems = [{
@@ -26128,7 +26352,9 @@ class NexusApp {
       }
 
       const cleanCustomer = this.escapeHtml(c.customer);
-      const safeCustomerForJs = c.customer.replace(/'/g, "\\'");
+      const escapeJsHtmlAttr = (val) => this.escapeHtml(String(val || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+      const safeCustomerForJs = escapeJsHtmlAttr(c.customer);
+      const safePhoneForJs = escapeJsHtmlAttr(c.phone);
 
       return `
         <tr>
@@ -26172,7 +26398,7 @@ class NexusApp {
               <button type="button" class="btn btn-primary text-xs" style="padding:4px 10px; font-weight:700;" onclick="app.openAbonoModalByEntity('customer', '${safeCustomerForJs}')" title="Registrar Abono">
                 💳 Abonar
               </button>
-              <button type="button" class="btn btn-secondary text-xs" style="padding:4px 8px; font-weight:600;" onclick="app.sendCobranzaWhatsApp('${c.phone}', '${safeCustomerForJs}', ${c.balance}, ${c.daysOverdue})" title="Contactar por WhatsApp">
+              <button type="button" class="btn btn-secondary text-xs" style="padding:4px 8px; font-weight:600;" onclick="app.sendCobranzaWhatsApp('${safePhoneForJs}', '${safeCustomerForJs}', ${Number(c.balance) || 0}, ${Number(c.daysOverdue) || 0})" title="Contactar por WhatsApp">
                 💬 Cobro
               </button>
             </div>
@@ -26853,7 +27079,7 @@ class NexusApp {
             const itPrice = Number(it.price) || 0;
             const itQty = Number(it.qty !== undefined ? it.qty : (it.quantity || 1)) || 0;
             if (itPrice > 0 && itQty > 0) {
-              soldItems.push({ price: itPrice, qty: itQty, total: itPrice * itQty });
+              soldItems.push({ price: itPrice, qty: itQty, total: itPrice * itQty, unit: String(it.unit || '').toLowerCase() });
             }
           }
         });
@@ -26870,8 +27096,9 @@ class NexusApp {
         const totalRev = soldItems.reduce((acc, it) => acc + it.total, 0);
         const totalQty = soldItems.reduce((acc, it) => acc + it.qty, 0);
         const rawAvgPrice = totalQty > 0 ? Math.round(totalRev / totalQty) : soldItems[soldItems.length - 1].price;
+        const soldInGrams = isUnitWithWeight && (soldItems.every(it => it.unit === 'g') || (soldItems.some(it => it.unit !== 'u.') && directUnitCost > 0 && rawAvgPrice < directUnitCost * 0.75));
 
-        if (isUnitWithWeight && directUnitCost > 0 && rawAvgPrice < directUnitCost * 0.75) {
+        if (soldInGrams) {
           // Cashier sold entered price per gram in POS (e.g. 500.000/g for 100g piece)
           effectivePrice = Math.round(rawAvgPrice * pWeight);
           profit = effectivePrice - directUnitCost;
@@ -26984,6 +27211,10 @@ class NexusApp {
   }
 
   async promptSetProductPrice(productId) {
+    if (!this.canPerformAction('edit', 'product') && !this.isAdminUser()) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar precios de productos.', 'danger');
+      return;
+    }
     const p = this.data.products.find(x => x.id === productId);
     if (!p) return;
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
@@ -27024,7 +27255,14 @@ class NexusApp {
           if (tx.items && Array.isArray(tx.items)) {
             tx.items.forEach(it => {
               if (it.id === p.id || (it.name && p.name && it.name.toLowerCase() === p.name.toLowerCase())) {
-                sold30d += Number(it.qty) || 0;
+                const rawQ = Number(it.qty !== undefined ? it.qty : it.quantity) || 0;
+                const isPesajeP = (p.measureType || 'Pesaje') === 'Pesaje';
+                const pWeightP = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
+                if (!isPesajeP && pWeightP > 0 && !p.isExtra && (String(it.unit || '').toLowerCase() === 'g' || Math.abs(rawQ - pWeightP) < 0.01 || !Number.isInteger(rawQ))) {
+                  sold30d += Math.round((rawQ / pWeightP) * 100) / 100;
+                } else {
+                  sold30d += rawQ;
+                }
               }
             });
           }
@@ -27366,7 +27604,9 @@ class NexusApp {
       
       let stockText = '';
       if (isPesaje) {
-        stockText = `${this.formatNumberWithDots(stock, 2)} g`;
+        const wu = p.weightUnit || 'g';
+        const dec = ['kg', 'mg', 'µg', 'ug'].includes(wu.toLowerCase()) ? 4 : 2;
+        stockText = `${this.formatNumberWithDots(stock, dec)} ${wu}`;
       } else {
         const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || p.unitWeight || 0)).replace(',', '.')) || 0;
         if (pWeight > 0) {
@@ -27425,9 +27665,8 @@ class NexusApp {
       }
       const entry = catMap.get(catKey);
       const grams = this.getGramsFromProduct(p);
-      const cost = Number(p.cost) || 0;
       entry.totalGrams += grams;
-      entry.totalCostVal += (grams * cost);
+      entry.totalCostVal += this.getProductTotalCost(p);
     });
 
     const rowsHoja2 = Array.from(catMap.values())
@@ -28363,9 +28602,9 @@ class NexusApp {
 
     if (elQtyLabel) {
       if (isUnitWithWeight) {
-        elQtyLabel.textContent = `📦 Cantidad de Unidades a Vender (Peso: ${pWeight} g/u) *`;
+        elQtyLabel.textContent = `⚖️ Gramos / Peso a Vender (${pWeight} g/u) *`;
       } else if (isPesaje) {
-        elQtyLabel.textContent = '⚖️ Cantidad / Gramos a Vender *';
+        elQtyLabel.textContent = `⚖️ Cantidad / ${unit} a Vender *`;
       } else {
         elQtyLabel.textContent = '📦 Cantidad de Unidades a Vender *';
       }
@@ -28381,11 +28620,14 @@ class NexusApp {
     }
 
     const basePrice = Number(p.price || 0);
+    const catalogUnitSuffix = isUnitWithWeight ? 'u.' : unit;
     if (elBasePrice) {
       if (basePrice > 0) {
-        elBasePrice.textContent = `${this.formatCurrency(basePrice)} / ${unit}`;
+        elBasePrice.textContent = `${this.formatCurrency(basePrice)} / ${catalogUnitSuffix}`;
         elBasePrice.style.color = 'var(--brand-primary)';
-        if (elBaseSub) elBaseSub.textContent = 'Precio sugerido de lista';
+        if (elBaseSub) elBaseSub.textContent = isUnitWithWeight
+          ? `Precio por pieza (${this.formatCurrency(Math.round(basePrice / pWeight))}/g)`
+          : 'Precio sugerido de lista';
       } else {
         elBasePrice.textContent = 'Sin precio base ($ 0)';
         elBasePrice.style.color = 'var(--text-subtle)';
@@ -28723,7 +28965,7 @@ class NexusApp {
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const maxStock = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
-    const unit = (isPesaje || isUnitWithWeight) ? 'g' : 'u.';
+    const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
 
     if (qty <= 0) {
       this.showToast('Ingrese una cantidad válida mayor a 0', 'warning');
@@ -28838,7 +29080,7 @@ class NexusApp {
     const isPesaje = (cartItem.product.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(cartItem.product.pieceWeight !== undefined && cartItem.product.pieceWeight !== null ? cartItem.product.pieceWeight : (cartItem.product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const unit = (isPesaje || isUnitWithWeight) ? (cartItem.product.weightUnit || 'g') : 'u.';
+    const unit = isPesaje ? (cartItem.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStockUnits = parseFloat(String(cartItem.product.stock || 0).replace(',', '.')) || 0;
     const maxStock = isUnitWithWeight ? Math.round(maxStockUnits * pWeight * 100) / 100 : maxStockUnits;
     const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((cartItem.product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
@@ -28871,7 +29113,7 @@ class NexusApp {
     const isPesaje = (cartItem.product.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(cartItem.product.pieceWeight !== undefined && cartItem.product.pieceWeight !== null ? cartItem.product.pieceWeight : (cartItem.product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const unit = (isPesaje || isUnitWithWeight) ? (cartItem.product.weightUnit || 'g') : 'u.';
+    const unit = isPesaje ? (cartItem.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStockUnits = parseFloat(String(cartItem.product.stock || 0).replace(',', '.')) || 0;
     const maxStock = isUnitWithWeight ? Math.round(maxStockUnits * pWeight * 100) / 100 : maxStockUnits;
     const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((cartItem.product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
@@ -28936,12 +29178,15 @@ class NexusApp {
       const basePrice = Number(item.basePrice !== undefined ? item.basePrice : item.product.price) || 0;
       const unitsCount = isUnitWithWeight ? Math.round((item.qty / pWeight) * 100) / 100 : item.qty;
 
+      const safePid = this.escapeHtml(String(item.product.id || '').replace(/'/g, "\\'"));
+      const baseUnitLabel = isUnitWithWeight ? 'u.' : unit;
+
       return `
         <div class="cart-item">
           <!-- FILA 1: CABECERA CON NOMBRE, BADGE Y BOTÓN ELIMINAR -->
           <div class="cart-item-header">
             <div class="cart-item-title-col">
-              <div class="cart-item-title" title="${this.escapeHtml(item.product.name)}" style="cursor:pointer;" onclick="app.openAddToCartModal('${item.product.id}')">
+              <div class="cart-item-title" title="${this.escapeHtml(item.product.name)}" style="cursor:pointer;" onclick="app.openAddToCartModal('${safePid}')">
                 ${this.escapeHtml(item.product.name)}
               </div>
               <div class="cart-item-sku">
@@ -28957,7 +29202,7 @@ class NexusApp {
               <span class="badge" style="background:${isPesaje ? '#FEF3C7' : '#E0E7FF'}; color:${isPesaje ? '#D97706' : '#4F46E5'}; font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:4px; white-space:nowrap;">
                 ${isPesaje ? '⚖️ Pesaje' : '📦 Unidad'}
               </span>
-              <button type="button" class="cart-remove-btn" onclick="app.removeCartItem('${item.product.id}')" title="Quitar del carrito">
+              <button type="button" class="cart-remove-btn" onclick="app.removeCartItem('${safePid}')" title="Quitar del carrito">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
@@ -28970,21 +29215,21 @@ class NexusApp {
               <span style="font-weight:800; color:var(--brand-primary);">$</span>
               <input type="text" inputmode="numeric" value="${this.formatNumberWithCommas(effectivePrice)}"
                      class="cart-custom-price-input"
-                     onchange="app.setCartItemPrice('${item.product.id}', this.value)"
+                     onchange="app.setCartItemPrice('${safePid}', this.value)"
                      title="Precio de venta manual pactado">
               <span class="label" style="font-size:0.7rem;">/${unit}</span>
             </div>
             <div style="display:flex; align-items:center; gap:4px;">
               ${basePrice > 0 ? `
                 <span class="cart-base-pill" title="Precio base de catálogo sugerido">
-                  Base: ${this.formatCurrency(basePrice)}
+                  Base: ${this.formatCurrency(basePrice)}/${baseUnitLabel}
                 </span>
               ` : `
                 <span class="cart-base-pill" title="Sin precio base en catálogo">
                   Sin Base
                 </span>
               `}
-              <button type="button" class="badge" style="background:transparent; border:none; color:var(--brand-primary); cursor:pointer; font-size:0.75rem; padding:0 2px;" onclick="app.openAddToCartModal('${item.product.id}')" title="Ajustar precio y margen en modal">
+              <button type="button" class="badge" style="background:transparent; border:none; color:var(--brand-primary); cursor:pointer; font-size:0.75rem; padding:0 2px;" onclick="app.openAddToCartModal('${safePid}')" title="Ajustar precio y margen en modal">
                 ✏️
               </button>
             </div>
@@ -28993,16 +29238,16 @@ class NexusApp {
           <!-- FILA 3: SELECTOR DE GRAMOS / UNIDADES Y SUBTOTAL -->
           <div class="cart-item-bottom-row">
             <div class="cart-qty-controls">
-              <button type="button" class="qty-btn" onclick="app.updateCartQty('${item.product.id}', -${step})" title="Restar">-</button>
+              <button type="button" class="qty-btn" onclick="app.updateCartQty('${safePid}', -${step})" title="Restar">-</button>
               <div class="cart-qty-input-wrap">
                 <input type="text" inputmode="decimal"
                        value="${this.formatNumberWithCommas(item.qty, isPesaje || isUnitWithWeight)}"
                        class="cart-qty-input"
-                       onchange="app.setCartQty('${item.product.id}', this.value)"
+                       onchange="app.setCartQty('${safePid}', this.value)"
                        title="Cantidad en ${unit} a vender">
                 <span class="cart-unit-label" style="color:${isPesaje ? '#D97706' : '#4F46E5'};">${unit}</span>
               </div>
-              <button type="button" class="qty-btn" onclick="app.updateCartQty('${item.product.id}', ${step})" title="Sumar">+</button>
+              <button type="button" class="qty-btn" onclick="app.updateCartQty('${safePid}', ${step})" title="Sumar">+</button>
             </div>
 
             <div class="cart-subtotal-block">
@@ -29097,6 +29342,10 @@ class NexusApp {
     if (openBtn && modal) {
       openBtn.addEventListener('click', () => {
         if (this.cart.length === 0) return;
+        const cardFeeInput = document.getElementById('checkout-card-fee-percent');
+        if (cardFeeInput) cardFeeInput.value = '0';
+        const mixedFeeInput = document.getElementById('checkout-mixed-card-fee-percent');
+        if (mixedFeeInput) mixedFeeInput.value = '0';
         this.populateCheckoutCustomerSelect();
         this.populateCardAccountSelect();
         this.populateTransferAccountSelect();
@@ -29378,8 +29627,7 @@ class NexusApp {
     const input = document.getElementById('checkout-card-fee-percent');
     const pct = Math.max(0, parseFloat(input?.value) || 0);
 
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const grandTotal = this.getCartGrandTotal();
     const feeAmount = Math.round(grandTotal * (pct / 100));
     const totalCharged = grandTotal + feeAmount;
 
@@ -29436,6 +29684,15 @@ class NexusApp {
 
     if (!hasCard) {
       if (feeSection) feeSection.style.display = 'none';
+      if (this.selectedPayMethod === 'mixed') {
+        const grandTotal = this.getCartGrandTotal();
+        const totalHeader = document.getElementById('modal-checkout-total');
+        const subtitleHeader = document.getElementById('modal-checkout-total-subtitle');
+        const noticeHeader = document.getElementById('modal-checkout-fee-notice');
+        if (totalHeader) totalHeader.innerText = this.formatCurrency(grandTotal);
+        if (subtitleHeader) subtitleHeader.innerText = 'Total Cobro Recibo';
+        if (noticeHeader) noticeHeader.style.display = 'none';
+      }
       return;
     }
 
@@ -29455,8 +29712,7 @@ class NexusApp {
     const feeAmount = Math.round(cardBase * (pct / 100));
     const cardCharged = cardBase + feeAmount;
 
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const grandTotal = this.getCartGrandTotal();
     const totalChargedToCustomer = grandTotal + feeAmount;
 
     const baseLabel = document.getElementById('mixed-card-fee-base-label');
@@ -29504,8 +29760,7 @@ class NexusApp {
      PAGO MIXTO CONTROLS & HELPERS
      -------------------------------------------------------------------------- */
   initMixedPaymentPanel() {
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const grandTotal = this.getCartGrandTotal();
 
     const totalLabel = document.getElementById('mixed-grand-total-label');
     if (totalLabel) totalLabel.innerText = this.formatCurrency(grandTotal);
@@ -29616,8 +29871,7 @@ class NexusApp {
   }
 
   quickSplitMixedFifty() {
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const grandTotal = this.getCartGrandTotal();
     const half = Math.round(grandTotal / 2);
     const input1 = document.getElementById('mixed-amount-1');
     const input2 = document.getElementById('mixed-amount-2');
@@ -29628,8 +29882,7 @@ class NexusApp {
   }
 
   quickFillMixedRemainder() {
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const grandTotal = this.getCartGrandTotal();
     const val1 = this.parseCleanNumber(document.getElementById('mixed-amount-1')?.value);
     const remainder = Math.max(0, grandTotal - val1);
     const input2 = document.getElementById('mixed-amount-2');
@@ -29638,8 +29891,7 @@ class NexusApp {
   }
 
   updateMixedBalanceStatus() {
-    const subtotal = this.getCartSubtotal();
-    const grandTotal = Math.round(subtotal * (1 + this.data.store.taxRate / 100));
+    const grandTotal = this.getCartGrandTotal();
     const val1 = this.parseCleanNumber(document.getElementById('mixed-amount-1')?.value);
     const val2 = this.parseCleanNumber(document.getElementById('mixed-amount-2')?.value);
     const assigned = Math.round(val1 + val2);
@@ -29987,6 +30239,10 @@ class NexusApp {
           cr.customer === cust.name && cr.status !== 'Plan Separe' && cr.status !== 'Anulado'
         );
         if (existing) {
+          if (!Array.isArray(existing.mergedTxIds)) {
+            existing.mergedTxIds = existing.txId ? [existing.txId] : [];
+          }
+          if (!existing.mergedTxIds.includes(newTxId)) existing.mergedTxIds.push(newTxId);
           existing.totalGranted = Math.round(((Number(existing.totalGranted) || 0) + grandTotal) * 100) / 100;
           existing.currentBalance = Math.round(((Number(existing.currentBalance) || 0) + grandTotal) * 100) / 100;
           existing.status = 'Al Día';
@@ -29994,6 +30250,7 @@ class NexusApp {
           this.data.customerCredits.unshift({
             id: this.generateSequentialId('CC', this.data.customerCredits),
             txId: newTxId,
+            mergedTxIds: [newTxId],
             customer: cust.name,
             totalGranted: grandTotal,
             currentBalance: grandTotal,
@@ -30170,6 +30427,10 @@ class NexusApp {
     if (m2Input) m2Input.value = '';
     const mCashRec = document.getElementById('mixed-cash-received-input');
     if (mCashRec) mCashRec.value = '';
+    const cardFeeInput = document.getElementById('checkout-card-fee-percent');
+    if (cardFeeInput) cardFeeInput.value = '0';
+    const mixedFeeInput = document.getElementById('checkout-mixed-card-fee-percent');
+    if (mixedFeeInput) mixedFeeInput.value = '0';
     const mVoucherInput = document.getElementById('mixed-voucher-input');
     if (mVoucherInput) mVoucherInput.value = '';
 
@@ -30509,6 +30770,10 @@ class NexusApp {
   }
 
   openAiKeyModal() {
+    if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
+      this.showToast('Acceso Denegado: Solo Administradores autorizados pueden gestionar la API Key de IA.', 'danger');
+      return;
+    }
     const modal = document.getElementById('nexus-ai-key-modal');
     if (!modal) return;
     const currentKey = localStorage.getItem('nexus_deepseek_key') || this.data.store?.deepseekApiKey || '';
@@ -30523,6 +30788,10 @@ class NexusApp {
   }
 
   async saveAiKey() {
+    if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
+      this.showToast('Acceso Denegado: No tienes permisos para guardar la API Key de IA.', 'danger');
+      return;
+    }
     const input = document.getElementById('nexus-ai-api-key-input');
     const key = (input?.value || '').trim();
     if (!key) {

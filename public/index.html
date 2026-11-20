@@ -751,7 +751,7 @@
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                   <span>Exportar Excel (.xls)</span>
                 </button>
-                <button class="btn btn-primary" id="open-supplier-modal-btn" onclick="app.openSupplierModal()">+ Nuevo Proveedor</button>
+                <button class="btn btn-primary" id="open-supplier-modal-btn">+ Nuevo Proveedor</button>
               </div>
             </div>
             <div class="table-wrapper">
@@ -2898,9 +2898,9 @@
               <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">📉 Saldo en Caja tras este Pago:</span>
               <span id="abono-cash-after-val" style="font-weight:800; font-size:1rem; color:var(--emerald-text, #10B981);">$ 0 COP</span>
             </div>
-            <label style="display:flex; align-items:center; gap:0.5rem; margin-top:0.6rem; padding-top:0.5rem; border-top:1px dashed rgba(16, 185, 129, 0.25); cursor:pointer; font-size:0.8rem; font-weight:600; color:var(--text-main);">
-              <input type="checkbox" id="abono-deduct-cash-check" checked onchange="app.updateAbonoCashPreview()">
-              <span>Descontar este valor del dinero en caja (Arqueo de Turno)</span>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin-top:0.6rem; padding-top:0.5rem; border-top:1px dashed rgba(16, 185, 129, 0.25); font-size:0.8rem; font-weight:600; color:var(--text-main);">
+              <input type="checkbox" id="abono-deduct-cash-check" checked disabled>
+              <span>Descontar automáticamente de gaveta cuando el método es Efectivo (Arqueo de Turno)</span>
             </label>
           </div>
 
@@ -5652,6 +5652,6 @@
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=47" defer></script>
-  <script src="js/app.js?v=109" defer></script>
+  <script src="js/app.js?v=110" defer></script>
 </body>
 </html>
