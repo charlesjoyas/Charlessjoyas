@@ -524,6 +524,14 @@ class NexusApp {
     return isNaN(n) ? 0 : n;
   }
 
+  parseMoneyInput(val) {
+    if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+    let raw = String(val ?? '').trim().replace(/^(?:COP\s*|\$\s*)/i, '').replace(/\s*COP$/i, '').trim();
+    // Inline input handlers run before the money mask. Interpret both stages alike.
+    if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(raw)) raw = raw.replace(/\./g, '').replace(',', '.');
+    return this.parseCleanNumber(raw);
+  }
+
   setupThousandMask(input, allowDecimals = false, onUpdate = null) {
     if (!input || input.dataset.hasThousandMask) return;
     input.dataset.hasThousandMask = 'true';
@@ -26581,7 +26589,7 @@ class NexusApp {
 
   onAddToCartQtyInput(val) {
     const qtyVal = this.parseCleanNumber(val);
-    const priceVal = this.parseCleanNumber(document.getElementById('pos-add-custom-price-input')?.value);
+    const priceVal = this.parseMoneyInput(document.getElementById('pos-add-custom-price-input')?.value);
     const totalSale = Math.round(qtyVal * priceVal);
     const totalInput = document.getElementById('pos-add-total-sale-input');
     if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
@@ -26589,7 +26597,7 @@ class NexusApp {
   }
 
   onAddToCartPriceGramInput(val) {
-    const priceVal = this.parseCleanNumber(val);
+    const priceVal = this.parseMoneyInput(val);
     const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
     const totalSale = Math.round(qtyVal * priceVal);
     const totalInput = document.getElementById('pos-add-total-sale-input');
@@ -26598,7 +26606,7 @@ class NexusApp {
   }
 
   onAddToCartTotalSaleInput(val) {
-    const totalSale = this.parseCleanNumber(val);
+    const totalSale = this.parseMoneyInput(val);
     const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
     const priceVal = (qtyVal > 0) ? Math.round(totalSale / qtyVal) : 0;
     const priceInput = document.getElementById('pos-add-custom-price-input');
@@ -26612,7 +26620,7 @@ class NexusApp {
     if (!p) return;
 
     const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
-    const priceVal = this.parseCleanNumber(document.getElementById('pos-add-custom-price-input')?.value);
+    const priceVal = this.parseMoneyInput(document.getElementById('pos-add-custom-price-input')?.value);
     const totalSale = Math.round(qtyVal * priceVal);
 
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
@@ -26756,7 +26764,7 @@ class NexusApp {
     input.value = this.formatNumberWithCommas(next, isPesaje || isUnitWithWeight);
 
     // Synchronize Campo B based on Campo A price
-    const priceVal = this.parseCleanNumber(document.getElementById('pos-add-custom-price-input')?.value);
+    const priceVal = this.parseMoneyInput(document.getElementById('pos-add-custom-price-input')?.value);
     const totalSale = Math.round(next * priceVal);
     const totalInput = document.getElementById('pos-add-total-sale-input');
     if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
@@ -26767,7 +26775,7 @@ class NexusApp {
   adjustAddToCartPrice(deltaPercent) {
     const input = document.getElementById('pos-add-custom-price-input');
     if (!input) return;
-    const cur = this.parseCleanNumber(input.value);
+    const cur = this.parseMoneyInput(input.value);
     if (cur <= 0) return;
     const next = Math.round(cur * (1 + deltaPercent));
     input.value = this.formatNumberWithCommas(next);
@@ -26816,7 +26824,7 @@ class NexusApp {
     const priceInput = document.getElementById('pos-add-custom-price-input');
 
     const qty = this.parseCleanNumber(qtyInput?.value);
-    const price = this.parseCleanNumber(priceInput?.value);
+    const price = this.parseMoneyInput(priceInput?.value);
 
     const stockNum = parseFloat(String(p.stock || 0).replace(',', '.')) || 0;
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
@@ -26847,7 +26855,7 @@ class NexusApp {
   setCartItemPrice(productId, rawValue) {
     const item = this.cart.find(i => i.product.id === productId);
     if (!item) return;
-    let val = this.parseCleanNumber(rawValue);
+    let val = this.parseMoneyInput(rawValue);
     if (isNaN(val) || val <= 0) {
       this.showToast('El precio de venta debe ser mayor a $0.', 'warning');
       this.renderCart();
