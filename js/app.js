@@ -529,7 +529,9 @@ class NexusApp {
     let raw = String(val ?? '').trim().replace(/^(?:COP\s*|\$\s*)/i, '').replace(/\s*COP$/i, '').trim();
     // Inline input handlers run before the money mask. Interpret both stages alike.
     if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(raw)) raw = raw.replace(/\./g, '').replace(',', '.');
-    return this.parseCleanNumber(raw);
+    // A new keystroke can temporarily turn "43,000" into "43,0000".
+    // In a money field those commas still group thousands; they are not decimals.
+    return this.parseCleanNumber(raw.replace(/,/g, ''));
   }
 
   setupThousandMask(input, allowDecimals = false, onUpdate = null) {
@@ -571,7 +573,8 @@ class NexusApp {
       }
     };
 
-    input.addEventListener('input', handleInput);
+    // Money must be normalized before inline price/total/change calculations run.
+    input.addEventListener('input', handleInput, !allowDecimals);
 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Backspace') {

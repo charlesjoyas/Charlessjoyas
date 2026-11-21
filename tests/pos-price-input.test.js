@@ -28,3 +28,10 @@ test('cart price edits accept both grouping styles without changing weight or de
     const h=browserHarness();modal(h,.125,raw);h.app.confirmAddToCartFromModal();assert.equal(h.app.getCartItemPrice(h.app.cart[0]),50000);h.app.setCartItemPrice('P1',raw);assert.equal(h.app.getCartSubtotal(),6250);assert.equal(h.app.cart[0].qty,.125);assert.equal(h.app.cart[0].product.name,'Anillo de prueba');
   }
 });
+test('typing more digits after an inserted thousands comma never turns money into decimals',()=>{
+ const h=browserHarness(),el=modal(h,.2,'');
+ for(const [raw,expected] of [['4,3000',43000],['43,0000',430000],['8,6000',86000],['4,300,0000',43000000]]){
+  h.app.onAddToCartTotalSaleInput(raw);assert.equal(h.app.parseMoneyInput(el['pos-add-custom-price-input'].value),Math.round(expected/.2));
+  h.app.onAddToCartPriceGramInput(raw);assert.equal(h.app.parseMoneyInput(el['pos-add-total-sale-input'].value),Math.round(expected*.2));
+ }
+});
