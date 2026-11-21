@@ -123,7 +123,7 @@ class NexusApp {
       this.cart = saved ? [] : cart.map(ci => ({ ...ci, product: this.data.products.find(p => p.id === ci.product.id) || ci.product }));
       this.currentUser = this.data.users.find(u => u.id === this.currentUser?.id) || this.currentUser;
       try { this.syncAllModules(); this.renderCart(); } catch (_) {}
-      this.showToast(saved ? 'La operación quedó guardada. Actualiza la pantalla para ver el resultado.' : `${error.message} No repitas un cobro sin revisar su estado.`, saved ? 'warning' : 'danger');
+      this.showToast(saved ? 'La operación quedó guardada. Actualiza la pantalla para ver el resultado.' : `${error.message}${error.saveFailed ? ' No repitas un cobro sin revisar su estado.' : ''}`, saved ? 'warning' : 'danger');
       this.updateSafetyNotice();
       return false;
     } finally { this._mutationActive = false; }

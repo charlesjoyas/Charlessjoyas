@@ -20,6 +20,7 @@ test('a definite validation rejection keeps the cart and permits correction with
   const h=browserHarness();checkout(h);const api=await connectOperations(h),connectedFetch=h.context.fetch;
   h.context.fetch=async()=>({ok:false,status:422,json:async()=>({error:'Correct this field'})});const before=clone(h.app.data);
   await h.app.runMutation(()=>h.app.processPaymentSuccess());assert.deepEqual(clone(h.app.data),before);assert.equal(h.app.cart.length,1);assert.ok(!h.app._requiresRefresh);assert.equal(h.storage.has('nexus_pos_pending_operation'),false);
+  assert.equal(h.app.events.at(-1)[0],'Correct this field');
   h.context.fetch=connectedFetch;await h.app.runMutation(()=>h.app.processPaymentSuccess());assert.equal(api.state.recentTransactions.length,1);assert.equal(api.state.products[0].stock,9);assert.equal(h.app.cart.length,0);
 });
 test('unavailable browser storage does not prevent an acknowledged financial operation or reload',async()=>{
