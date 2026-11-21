@@ -140,15 +140,14 @@ class NexusApp {
       notice.style.cssText = 'padding:12px;margin-bottom:12px;border:1px solid #d97706;border-radius:8px;background:#fffbeb;color:#78350f;';
       host.prepend(notice);
     }
-    const legacyCosts = (this.data.recentTransactions || []).some(t => t.status !== 'Reversada' && (t.items || []).some(i => NexusSafety.historicalCost(i) === null));
     notice.replaceChildren();
     const pending=this.getPendingFinancialCommand();
-    notice.hidden = !this._requiresRefresh && !legacyCosts && !pending;
+    notice.hidden = !this._requiresRefresh && !pending;
     if (notice.hidden) return;
     const text = document.createElement('span');
     text.textContent = this._requiresRefresh
       ? 'Guardado sin confirmar o conflicto con otro dispositivo. Revisa el historial antes de repetir la operación. '
-      : pending?'Hay una operación pendiente de revisión; consulta su estado antes de realizar otra.':'Los márgenes de ventas antiguas sin costo histórico son estimados. Las ventas nuevas conservarán su costo original.';
+      : 'Hay una operación pendiente de revisión; consulta su estado antes de realizar otra.';
     notice.appendChild(text);
     if(pending&&!this._requiresRefresh){
       const recover=document.createElement('button');recover.type='button';recover.textContent='Revisar operación pendiente';
