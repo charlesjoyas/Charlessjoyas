@@ -9,3 +9,12 @@ yarn-error.log*
 scratch/
 *.log
 .git/
+backups/
+db.json
+db.json.*
+AUDITORIA_*/
+*.pdf
+tests/
+scripts/
+docs/
+README.md

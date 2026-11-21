@@ -1,5 +1,6 @@
 const express = require('express');
-const cors = require('cors');
+const crypto = require('crypto');
+const { createStateApi } = require('./lib/state-api');
 const fs = require('fs');
 const path = require('path');
 const dns = require('dns');
@@ -33,17 +34,11 @@ if (!process.env.VERCEL) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DIRECT_MONGO_URI = 'mongodb://charlesjoyass_db_user:57XZqt7XTrFdkaKt@ac-3th3i0i-shard-00-00.ceb3uhz.mongodb.net:27017,ac-3th3i0i-shard-00-01.ceb3uhz.mongodb.net:27017,ac-3th3i0i-shard-00-02.ceb3uhz.mongodb.net:27017/charlesjoyas_pos?ssl=true&replicaSet=atlas-xpgtcp-shard-0&authSource=admin&retryWrites=true&w=majority';
-let MONGO_URI = process.env.MONGO_URI || DIRECT_MONGO_URI;
+const MONGO_URI = process.env.NEXUS_LOCAL_ONLY === '1' ? '' : (process.env.MONGO_URI || '');
+const DB_FILE = process.env.NEXUS_DB_FILE || path.join(__dirname, 'db.json');
+const AUTH_SECRET = process.env.AUTH_SECRET || (!process.env.VERCEL ? crypto.randomBytes(48).toString('hex') : '');
 
-// If URI uses SRV for cluster0.ceb3uhz.mongodb.net, prefer the direct replica set URI to prevent querySrv ECONNREFUSED in serverless environments (AWS/Vercel)
-if (MONGO_URI.includes('cluster0.ceb3uhz.mongodb.net') && MONGO_URI.startsWith('mongodb+srv://')) {
-  MONGO_URI = DIRECT_MONGO_URI;
-}
-
-const DB_FILE = path.join(__dirname, 'db.json');
-
-app.use(cors());
+app.disable('x-powered-by');
 app.use(express.json({ limit: '10mb' }));
 // Security Middleware: Strict restriction on internal database, config, backups, reports and server files
 app.use((req, res, next) => {
@@ -58,6 +53,7 @@ app.use((req, res, next) => {
     /^\/db\.json(\.tmp(\.[^/]*)?)?$/i,
     /^\/backups(\/|$)/i,
     /^\/server\.js$/i,
+    /^\/(lib|tests|scripts|docs)(\/|$)/i,
     /^\/api\/index\.js$/i,
     /^\/package(-lock)?\.json$/i,
     /^\/vercel\.json$/i,
@@ -116,6 +112,7 @@ const DataModel = mongoose.model('NexusData', DataSchema);
 
 // Robust Serverless-friendly MongoDB Atlas Connection Manager
 async function ensureDbConnected() {
+  if (!MONGO_URI) return false;
   if (mongoose.connection.readyState === 1) {
     mongoConnected = true;
     lastMongoError = null;
@@ -140,7 +137,7 @@ async function ensureDbConnected() {
     console.log('[Nexus Server] Conectado exitosamente a MongoDB Atlas');
     return true;
   } catch (err) {
-    console.warn('[Nexus Server] Error conectando a MongoDB Atlas:', err.message);
+    console.warn('[Nexus Server] MongoDB no disponible.');
     mongoConnected = false;
     lastMongoError = err.message;
     connectingPromise = null;
@@ -148,21 +145,7 @@ async function ensureDbConnected() {
   }
 }
 
-// Immediately attempt connection on start
-ensureDbConnected().catch(() => {});
-
-// Ensure database connection before executing any /api/ endpoint (guaranteed no hanging)
-app.use(async (req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    try {
-      await Promise.race([
-        ensureDbConnected(),
-        new Promise(r => setTimeout(r, 5500))
-      ]);
-    } catch (_) {}
-  }
-  next();
-});
+// Connections are lazy; importing this module never opens a database connection.
 
 // Helper: load local db file
 function loadLocalDb() {
@@ -196,156 +179,42 @@ function saveLocalDb(data) {
   }
 }
 
-// API Health
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    mongoConnected,
-    storageMode: mongoConnected ? 'MongoDB' : 'Local JSON / Storage',
-    lastMongoError,
-    uriType: MONGO_URI.startsWith('mongodb+srv') ? 'SRV' : 'Direct ReplicaSet',
-    hasEnvMongoUri: !!process.env.MONGO_URI,
-    timestamp: new Date()
-  });
-});
-
-// GET /api/data - Fetch complete store state
-app.get('/api/data', async (req, res) => {
-  try {
-    if (!mongoConnected) {
-      await ensureDbConnected();
-    }
-    const localData = process.env.VERCEL ? null : loadLocalDb();
-    let mongoContent = null;
-    if (mongoConnected) {
-      const doc = await DataModel.findOne({ key: 'main_store' });
-      if (doc && doc.content) {
-        mongoContent = doc.content;
-      }
-    }
-    if (mongoContent && localData && localData.updatedAt && mongoContent.updatedAt) {
-      const mTime = new Date(mongoContent.updatedAt).getTime() || 0;
-      const lTime = new Date(localData.updatedAt).getTime() || 0;
-      return res.json(lTime > mTime ? localData : mongoContent);
-    }
-    if (mongoContent) return res.json(mongoContent);
-    if (localData) return res.json(localData);
-    return res.json({ status: 'empty' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+// MongoDB is authoritative when configured. Never promote an older local copy during an outage.
+async function readStore() {
+  if (MONGO_URI) {
+    if (!await ensureDbConnected()) throw new Error('Database unavailable');
+    const doc = await DataModel.findOne({ key: 'main_store' }).lean();
+    return doc?.content || null;
   }
-});
-
-// POST /api/data - Sync full state (serialized write queue prevents out-of-order overwrites)
-app.post('/api/data', async (req, res) => {
-  const runWrite = async () => {
-    // 1. Authorization check: accept recognized role names OR active user matching DB users list
-    const rawRole = String(req.headers['x-nexus-role'] || '').trim();
-    const userId = String(req.headers['x-nexus-user-id'] || '').trim();
-    const roleLower = rawRole.toLowerCase();
-    let isKnownActiveUser = false;
-    let isKnownInactiveUser = false;
-    try {
-      let refUsers = null;
-      if (mongoConnected) {
-        const refDoc = await DataModel.findOne({ key: 'main_store' });
-        if (Array.isArray(refDoc?.content?.users)) refUsers = refDoc.content.users;
-      } else if (!process.env.VERCEL) {
-        const refLocal = loadLocalDb();
-        if (Array.isArray(refLocal?.users)) refUsers = refLocal.users;
-      }
-      if (refUsers && userId) {
-        const matchedUser = refUsers.find(u => u && String(u.id) === userId);
-        if (matchedUser) {
-          if (matchedUser.status !== 'Active') {
-            isKnownInactiveUser = true;
-          } else if (String(matchedUser.role || '').trim().toLowerCase() === roleLower) {
-            isKnownActiveUser = true;
-          }
-        }
-      }
-    } catch (_) {}
-    if (isKnownInactiveUser) {
-      return res.status(403).json({ error: 'Cuenta desactivada: No tienes permisos para sincronizar datos.' });
-    }
-    const isAllowedRole =
-      roleLower.includes('admin') ||
-      roleLower.includes('cajer') ||
-      roleLower.includes('gerente') ||
-      roleLower.includes('supervisor') ||
-      roleLower.includes('contad') ||
-      roleLower.includes('inventario') ||
-      roleLower.includes('vendedor') ||
-      roleLower.includes('operad');
-
-    if (!rawRole || !userId || (!isKnownActiveUser && !isAllowedRole)) {
-      return res.status(403).json({ error: 'No autorizado: Se requiere una sesión válida para sincronizar datos.' });
-    }
-
-    // 2. Strict multi-property schema validation to prevent DB corruption
-    const data = req.body;
-    if (
-      !data ||
-      typeof data !== 'object' ||
-      !Array.isArray(data.products) ||
-      !Array.isArray(data.users) ||
-      !Array.isArray(data.perfiles) ||
-      !data.store
-    ) {
-      return res.status(400).json({ error: 'Payload de datos inválido o incompleto: estructura requerida ausente' });
-    }
-
-    const savedAt = new Date().toISOString();
-    data.updatedAt = savedAt;
-
-    // Filter out decommissioned legacy products by unique ID if synced from old client cache
-    if (Array.isArray(data.products)) {
-      const DECOMMISSIONED_LEGACY_IDS = new Set([
-        'PRD-CJ-0213', 'PRD-CJ-0220', 'PRD-CJ-0403', 'PRD-CJ-0181', 'PRD-CJ-0438',
-        'PRD-CJ-0201', 'PRD-CJ-0590', 'PRD-CJ-0367', 'PRD-CJ-0353', 'PRD-CJ-0214',
-        'PRD-CJ-0410', 'PRD-CJ-0228', 'PRD-CJ-0634', 'PRD-CJ-0752', 'PRD-CJ-0477',
-        'PRD-CJ-0221', 'PRD-CJ-0473', 'PRD-CJ-0619', 'PRD-CJ-0341', 'PRD-CJ-0356',
-        'PRD-CJ-0424', 'PRD-CJ-0293', 'PRD-CJ-0237', 'PRD-CJ-0420', 'PRD-CJ-0273',
-        'PRD-CJ-0383', 'PRD-CJ-0304', 'PRD-CJ-0336', 'PRD-CJ-0136', 'PRD-CJ-0005',
-        'PRD-249', 'PRD-CJ-0568', 'PRD-CJ-0529', 'PRD-CJ-0486', 'PRD-CJ-0687',
-        'PRD-CJ-0649', 'PRD-CJ-0224'
-      ]);
-      data.products = data.products.filter(p => {
-        if (!p) return false;
-        const idStr = String(p.id || '').trim();
-        return !DECOMMISSIONED_LEGACY_IDS.has(idStr);
-      });
-    }
-
-    if (!mongoConnected) {
-      await ensureDbConnected();
-    }
-
-    if (mongoConnected) {
-      await DataModel.findOneAndUpdate(
-        { key: 'main_store' },
-        { content: data, updatedAt: new Date(savedAt) },
-        { upsert: true, new: true }
-      );
-    } else if (process.env.VERCEL) {
-      return res.status(503).json({ error: 'Error de persistencia: No se pudo conectar a MongoDB Atlas en Vercel.' });
-    }
-
-    saveLocalDb(data);
-
-    res.json({ success: true, mode: mongoConnected ? 'MongoDB' : 'Local JSON', updatedAt: savedAt, timestamp: new Date() });
-  };
-
-  try {
-    const task = writeQueue.then(runWrite, runWrite);
-    writeQueue = task.catch(() => {});
-    await task;
-  } catch (err) {
-    if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
-    }
+  if (process.env.VERCEL) throw new Error('MONGO_URI is required');
+  return loadLocalDb();
+}
+async function compareAndSwapStore(expected, data) {
+  if (MONGO_URI) {
+    if (!await ensureDbConnected()) throw new Error('Database unavailable');
+    const saved = await DataModel.findOneAndUpdate(
+      { key: 'main_store', 'content.updatedAt': expected },
+      { $set: { content: data, updatedAt: new Date(data.updatedAt) } },
+      { new: true }
+    );
+    // The business database is the only write target in Mongo mode. Backups are explicit snapshots.
+    return !!saved;
   }
-});
+  if (process.env.VERCEL) throw new Error('MONGO_URI is required');
+  const current = loadLocalDb();
+  if ((current?.updatedAt ?? null) !== expected) return false;
+  saveLocalDb(data);
+  return true;
+}
+const stateApi = createStateApi({ read: readStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL });
+app.get('/api/health', (req, res) => res.json({ status: 'ok', mongoConnected, storageMode: MONGO_URI ? 'MongoDB' : 'Local JSON', timestamp: new Date() }));
+app.post('/api/auth/login', stateApi.login);
+app.get('/api/auth/session', stateApi.session);
+app.post('/api/auth/logout', stateApi.logout);
+app.post('/api/auth/password', stateApi.password);
+app.get('/api/data', stateApi.get);
+app.post('/api/data', stateApi.post);
+app.use('/api/ai', stateApi.authorizeAi);
 
 // ============================================================================
 // NEXUS AI COPILOT ENGINE (POWERED BY DEEPSEEK-V3 & DETERMINISTIC ANALYTICS)
