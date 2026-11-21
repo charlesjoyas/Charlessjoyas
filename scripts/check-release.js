@@ -8,7 +8,7 @@ const assets = ['index.html','js/app.js','js/data.js','js/safety.js','js/ledger.
 for (const name of assets) {
   assert.ok(fs.readFileSync(path.join(root,name)).equals(fs.readFileSync(path.join(root,'public',name))),`${name}: public copy differs`);
 }
-for (const name of ['server.js','lib/state-api.js','lib/operations.js','lib/financial-validation.js','lib/local-recovery.js','scripts/reconcile-history.js','scripts/local-recovery.js','js/app.js','js/data.js','js/safety.js','showcase/js/showcase.js']) execFileSync(process.execPath,['--check',path.join(root,name)]);
+for (const name of ['server.js','lib/state-api.js','lib/operations.js','lib/financial-validation.js','lib/local-recovery.js','lib/mongo-recovery.js','scripts/reconcile-history.js','scripts/local-recovery.js','scripts/mongo-recovery.js','scripts/export-git-evidence.js','scripts/validate-isolated-copy.js','scripts/build-reconciliation-review.js','js/app.js','js/data.js','js/safety.js','js/ledger.js','js/reconciliation.js','showcase/js/showcase.js']) execFileSync(process.execPath,['--check',path.join(root,name)]);
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
 const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
 assert.equal(ids.length,new Set(ids).size,'duplicate HTML IDs');
@@ -19,5 +19,7 @@ for(const name of ['js/app.js','js/data.js','index.html','server.js','.env.examp
   const body=fs.readFileSync(path.join(root,name),'utf8');
   assert.ok(!/mongodb(?:\+srv)?:\/\/[^\s'"<>]+:[^\s'"<>]+@/.test(body.replace('USER:PASSWORD@','USER@')),`${name}: embedded database credential`);
 }
+const config=JSON.parse(fs.readFileSync(path.join(root,'vercel.json'),'utf8'));
+assert.equal(config.git?.deploymentEnabled?.['codex/preopening-stabilization'],false,'stabilization branch must not auto-deploy while production is in use');
 assert.ok(!app.includes('Ghost superadmin authentication'),'hidden owner login');
 console.log('Release checks passed: syntax, public parity, handlers, HTML IDs and credential scan.');

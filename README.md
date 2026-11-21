@@ -87,6 +87,8 @@ El ensayo de recuperación debe realizarse con un archivo aislado. Una restaurac
 
 ## Publicación y recuperación
 
+Si el negocio ya está atendiendo, seguir [el procedimiento sin interrupción](docs/OPERACION_EN_CURSO.md). La rama `codex/preopening-stabilization` no genera despliegues automáticos. Las herramientas de respaldo de MongoDB solo leen; los ensayos recuperan a archivos locales nuevos y nunca escriben sobre la base activa.
+
 1. Respaldar el proyecto y las colecciones de MongoDB; conservar las copias local y remota por separado. La última copia local no debe sustituir producción.
 2. Configurar `MONGO_URI` y `AUTH_SECRET` en cada proyecto Vercel conectado. Este repositorio registró dos destinos: `charlessjoyas` y `nexus-pos-saas`.
 3. Revocar o rotar la credencial de MongoDB expuesta en versiones anteriores. Los despliegues inmutables antiguos también deben quedar protegidos o sin acceso a la base; actualizar solo un dominio no resuelve ese acceso.

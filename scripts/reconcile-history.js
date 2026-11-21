@@ -6,7 +6,7 @@ const {report}=require('../js/reconciliation');
 const [input,output,...evidencePaths]=process.argv.slice(2);
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function states(file){
-  const bytes=fs.readFileSync(file),parsed=JSON.parse(bytes),entries=Array.isArray(parsed)?parsed:[parsed];
+  const bytes=fs.readFileSync(file),parsed=JSON.parse(bytes),entries=Array.isArray(parsed)?parsed:Array.isArray(parsed.documents)?parsed.documents:[parsed];
   return entries.map(v=>v.content||v.data||v).filter(v=>v.store&&Array.isArray(v.products)).map(state=>({source:path.resolve(file),sha256:sha256(bytes),state}));
 }
 function files(location){
