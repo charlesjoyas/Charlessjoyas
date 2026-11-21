@@ -33,7 +33,7 @@ test('jewelry pieces require their weight before showing a purchase total',()=>{
  const h=browserHarness(),el=purchaseForm(h,{'po-measure-type':'Unidades','po-product-grams':''});h.app.updatePurchaseCalculations();assert.equal(el['po-unit-cost-label'].textContent,'Costo por gramo ($) *');assert.equal(el['po-preview-total'].textContent,'Indica el peso por pieza');
 });
 test('extras retain a per-unit purchase cost and do not require jewelry weight',()=>{
- const h=browserHarness(),el=purchaseForm(h,{'po-measure-type':'Unidades','po-category-select':'test-extra','po-quantity':'1000','po-unit-cost':'10.000','po-product-grams':''});h.app.data.categories.push({id:'test-extra',name:'Extras',type:'extras'});h.app.updatePurchaseCalculations();assert.equal(el['po-unit-cost-label'].textContent,'Costo por unidad ($) *');assert.equal(el['po-preview-total'].textContent,h.app.formatCurrency(10000000));
+ const h=browserHarness(),el=purchaseForm(h,{'po-measure-type':'Unidades','po-category-select':'test-extra','po-quantity':'1000','po-unit-cost':'10.000','po-product-grams':'0.123'});h.app.data.categories.push({id:'test-extra',name:'Extras',type:'extras'});h.app.updatePurchaseCalculations();assert.equal(el['po-unit-cost-label'].textContent,'Costo por unidad ($) *');assert.equal(el['po-preview-total'].textContent,h.app.formatCurrency(10000000));
 });
 test('large replenishments conserve grams and weighted cost in all supported weight units',()=>{
  for(const weightUnit of ['g','kg','mg','µg','oz']){

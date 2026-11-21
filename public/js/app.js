@@ -3960,7 +3960,7 @@ class NexusApp {
     }
     if (gramsInput && existing.measureType === 'Unidades') {
       const val = existing.pieceWeight !== undefined && existing.pieceWeight !== null ? existing.pieceWeight : (existing.weight || 0);
-      if (val > 0) gramsInput.value = this.formatNumberWithCommas(val, true);
+      gramsInput.value = this.formatNumberWithCommas(val, true);
     }
     if (catInfo) {
       catInfo.innerHTML = `✅ Reabasteciendo: <b>${this.escapeHtml(existing.name)}</b> (${this.escapeHtml(existing.categoryName || existing.category)})`;
@@ -4026,7 +4026,7 @@ class NexusApp {
 
     const quantity = this.parseCleanNumber(document.getElementById('po-quantity')?.value);
     const unitCost = NexusLedger.money(this.parseMoneyInput(document.getElementById('po-unit-cost')?.value));
-    const pieceGrams = this.parseCleanNumber(document.getElementById('po-product-grams')?.value);
+    const pieceGrams = isExtra ? 0 : this.parseCleanNumber(document.getElementById('po-product-grams')?.value);
 
     let totalGrams = 0;
     if (isPesaje) {
