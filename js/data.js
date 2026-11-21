@@ -51,18 +51,7 @@ const INITIAL_DATA = {
   },
 
   // 1. DASHBOARD SUB-MODAL DATA & ROLES (SOLO USUARIO ADMINISTRADOR)
-  users: [
-    { 
-      id: "USR-001", 
-      name: "Carlos Mendoza", 
-      email: "carlos@nexuspos.io", 
-      password: "admin123",
-      role: "Super Admin", 
-      status: "Active", 
-      lastLogin: "Hoy 08:15 AM",
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80"
-    }
-  ],
+  users: [],
 
   customers: [],
   suppliers: [],

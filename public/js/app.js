@@ -64,7 +64,106 @@ class NexusApp {
       { id: 'config', label: '⚙️ Configuración del Sistema' }
     ];
 
+    try {
+      const cached = localStorage.getItem('nexus_pos_data');
+      if (cached && !localStorage.getItem('nexus_pos_legacy_recovery')) {
+        const recovery = JSON.parse(cached);
+        (recovery.users || []).forEach(u => { delete u.password; delete u.passwordHash; });
+        if (recovery.store) delete recovery.store.deepseekApiKey;
+        localStorage.setItem('nexus_pos_legacy_recovery', JSON.stringify({ capturedAt:new Date().toISOString(), data:recovery }));
+      }
+    } catch (_) {}
+    this.installOperationGuards();
     this.init();
+  }
+
+  installOperationGuards() {
+    const names = ['quickAdjustCategoryCost', 'quickAdjustCategoryGrams', 'handleSaveMyPassword',
+      'handleSaveMyPasswordFromConfig', 'handleAdminSaveUserPassword', 'deleteUser', 'deleteCustomer',
+      'deleteSupplier', 'deleteProfile', 'deletePaymethod', 'deleteExpense', 'deleteService', 'deleteCategory',
+      'deleteAsset', 'deletePurchaseOrder', 'deleteAbonoCompra', 'submitAbono', 'deleteAccountAdjustment',
+      'submitAccountAdjustment', 'revertSale', 'markPurchaseAsPaid', 'saveEditedPurchaseOrder',
+      'saveEditedSupplierCredit', 'deleteProduct', 'submitCashShiftOpen', 'finalizeCashClose',
+      'promptSetProductPrice', 'saveMetalRates', 'processPaymentSuccess', 'deleteSupplierCredit'];
+    names.forEach(name => {
+      const original = this[name].bind(this);
+      this[name] = (...args) => this.runMutation(() => original(...args));
+    });
+  }
+
+  bindSafeSubmit(form, handler) {
+    form.onsubmit = event => {
+      event.preventDefault();
+      this.runMutation(() => handler(event));
+    };
+  }
+
+  async runMutation(handler) {
+    if (this._mutationActive) { this.showToast('Espera a que termine la operación actual.', 'warning'); return false; }
+    if (this._requiresRefresh) { this.showToast('Consulta el estado actualizado antes de continuar. No repitas un cobro sin revisar el historial.', 'danger'); return false; }
+    const previous = JSON.parse(JSON.stringify(this.data));
+    const cart = JSON.parse(JSON.stringify(this.cart || []));
+    const confirmedAtStart = this._lastServerUpdatedAt;
+    this._mutationActive = true;
+    try {
+      const result = await handler();
+      // Validation may return early after editing an object. Nothing becomes a
+      // pending change unless the server acknowledged a new revision.
+      if (this._lastServerUpdatedAt === confirmedAtStart) {
+        this.data = previous;
+        this.cart = cart.map(ci => ({ ...ci, product: this.data.products.find(p => p.id === ci.product.id) || ci.product }));
+        this.currentUser = this.data.users.find(u => u.id === this.currentUser?.id) || this.currentUser;
+      }
+      return result;
+    }
+    catch (error) {
+      // If the write was acknowledged, a later rendering failure must not undo the sale.
+      const saved = this._lastServerUpdatedAt !== confirmedAtStart;
+      this.data = JSON.parse(JSON.stringify(saved ? this._confirmedData : (error.saveFailed ? (this._confirmedData || previous) : previous)));
+      this.cart = saved ? [] : cart.map(ci => ({ ...ci, product: this.data.products.find(p => p.id === ci.product.id) || ci.product }));
+      this.currentUser = this.data.users.find(u => u.id === this.currentUser?.id) || this.currentUser;
+      try { this.syncAllModules(); this.renderCart(); } catch (_) {}
+      this.showToast(saved ? 'La operación quedó guardada. Actualiza la pantalla para ver el resultado.' : `${error.message} No repitas un cobro sin revisar su estado.`, saved ? 'warning' : 'danger');
+      this.updateSafetyNotice();
+      return false;
+    } finally { this._mutationActive = false; }
+  }
+
+  updateSafetyNotice() {
+    const host = document.querySelector('.content-body');
+    if (!host || !this.currentUser) return;
+    let notice = document.getElementById('nexus-safety-notice');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'nexus-safety-notice';
+      notice.setAttribute('role', 'status');
+      notice.style.cssText = 'padding:12px;margin-bottom:12px;border:1px solid #d97706;border-radius:8px;background:#fffbeb;color:#78350f;';
+      host.prepend(notice);
+    }
+    const legacyCosts = (this.data.recentTransactions || []).some(t => t.status !== 'Reversada' && (t.items || []).some(i => NexusSafety.historicalCost(i) === null));
+    notice.replaceChildren();
+    notice.hidden = !this._requiresRefresh && !legacyCosts;
+    if (notice.hidden) return;
+    const text = document.createElement('span');
+    text.textContent = this._requiresRefresh
+      ? 'Guardado sin confirmar o conflicto con otro dispositivo. Revisa el historial antes de repetir la operación. '
+      : 'Los márgenes de ventas antiguas sin costo histórico son estimados. Las ventas nuevas conservarán su costo original.';
+    notice.appendChild(text);
+    if (this._requiresRefresh) {
+      const button = document.createElement('button');
+      button.textContent = 'Consultar estado actualizado';
+      button.type = 'button';
+      button.addEventListener('click', async () => {
+        try { await this.loadPersistence(); this.cart = []; this.syncAllModules(); this.renderCart(); }
+        catch (error) { this.showToast(error.message, 'danger'); }
+      });
+      notice.appendChild(button);
+    }
+  }
+
+  blockUnsafeOperation(message) {
+    this.showToast(message, 'warning');
+    return false;
   }
 
   generateUniqueId(prefix = 'ID', existingCollection = null) {
@@ -524,9 +623,9 @@ class NexusApp {
     const setup = async () => {
       try {
         this.checkTheme();
-        await this.loadPersistence();
+        await this.checkAuth();
         this.applyBrandingSettings(this.data.store?.branding);
-        this.checkAuth();
+        // Session and authoritative data were loaded above.
         this.setupNavigation();
         this.setupSidebarToggle();
         this.setupPOS();
@@ -618,34 +717,12 @@ class NexusApp {
   }
 
   sanitizeLoadedData() {
-    if (this.data.users && Array.isArray(this.data.users)) {
-      this.data.users.forEach(u => {
-        const initUser = INITIAL_DATA.users.find(iu => iu.email?.toLowerCase() === u.email?.toLowerCase() || iu.id === u.id);
-        if (initUser) {
-          if (!u.password) u.password = initUser.password;
-          if (!u.avatar) u.avatar = initUser.avatar;
-          if (!u.role) u.role = initUser.role;
-        } else {
-          if (!u.password) u.password = "123456";
-          if (!u.avatar) u.avatar = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80";
-          if (!u.role) u.role = "Cajero";
-        }
-      });
-
-      // ONLY ensure root Super Admin (USR-001) is present so the system is never locked out
-      const rootUser = INITIAL_DATA.users.find(u => u.id === 'USR-001');
-      if (rootUser && !this.data.users.some(u => u.id === 'USR-001' || u.role === 'Super Admin')) {
-        this.data.users.unshift(rootUser);
-      }
-      this.ensureOrderedUserIds();
-    } else {
-      this.data.users = Array.from(INITIAL_DATA.users);
-    }
+    if (!Array.isArray(this.data.users)) this.data.users = [];
 
     if (this.data.perfiles && Array.isArray(this.data.perfiles)) {
       this.data.perfiles.forEach(p => {
         const initPerf = INITIAL_DATA.perfiles.find(ip => ip.name?.toLowerCase() === p.name?.toLowerCase() || ip.id === p.id);
-        if (initPerf && (!p.allowedModules || p.allowedModules.length === 0)) {
+        if (initPerf && !Array.isArray(p.allowedModules)) {
           p.allowedModules = initPerf.allowedModules;
         }
       });
@@ -755,7 +832,7 @@ class NexusApp {
 
     if (this.data.perfiles && Array.isArray(this.data.perfiles)) {
       this.data.perfiles.forEach(p => {
-        if (!p.allowedModules || !Array.isArray(p.allowedModules) || p.allowedModules.length === 0) {
+        if (!Array.isArray(p.allowedModules)) {
           const name = (p.name || '').toLowerCase();
           if (name.includes('super')) {
             p.allowedModules = ['*'];
@@ -854,63 +931,18 @@ class NexusApp {
   }
 
   async loadPersistence() {
-    let localData = null;
-    try {
-      const local = localStorage.getItem('nexus_pos_data');
-      if (local) {
-        localData = JSON.parse(local);
-      }
-    } catch(e) {}
-
-    try {
-      const res = await fetch('/api/data');
-      if (res.ok) {
-        const dbData = await res.json();
-        if (dbData && dbData.products && Array.isArray(dbData.products)) {
-          const dbTime = new Date(dbData.updatedAt || 0).getTime();
-          this._lastServerUpdatedAt = dbData.updatedAt || null;
-          const localTime = new Date(localData?.updatedAt || 0).getTime();
-
-          // If local data is strictly newer by more than 2s (e.g. user created entities while DB was syncing), preserve local data and re-sync
-          if (localData && localData.products && localTime > dbTime + 2000) {
-            console.log('[NexusApp] LocalStorage tiene datos más recientes que el servidor. Preservando estado local para re-sincronizar...');
-            this.data = Object.assign({}, INITIAL_DATA, localData);
-            this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
-            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
-            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
-            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
-            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
-            this._hasUnsavedLocalChanges = true;
-            this.sanitizeLoadedData();
-            return;
-          }
-
-          this.data = Object.assign({}, INITIAL_DATA, dbData);
-          this.data.store = Object.assign({}, INITIAL_DATA.store, dbData.store || {});
-          this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, dbData.kpis || {});
-          this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, dbData.cashShiftLog || {});
-          this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, dbData.balanceSheet || {});
-          this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, dbData.stockRadarData || {});
-          this.sanitizeLoadedData();
-          console.log('[NexusApp] Persistencia cargada exitosamente desde Backend/MongoDB.');
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('[NexusApp] Servidor REST inaccesible. Usando LocalStorage fallback.');
-    }
-
-    if (localData && localData.products) {
-      this.data = Object.assign({}, INITIAL_DATA, localData);
-      this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
-      this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
-      this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
-      this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
-      this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
-      this.sanitizeLoadedData();
-      console.log('[NexusApp] Persistencia cargada desde LocalStorage.');
-    }
+    const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw Object.assign(new Error('No se pudo cargar la base de datos. Verifica la conexión e inicia sesión.'), { status: res.status });
+    const state = await res.json();
+    if (!Array.isArray(state.products)) throw new Error('Respuesta de datos inválida.');
+    this.data = JSON.parse(JSON.stringify(state));
+    this._lastServerUpdatedAt = state.updatedAt ?? null;
+    this._confirmedData = JSON.parse(JSON.stringify(state));
+    this._hasUnsavedLocalChanges = false;
+    this._requiresRefresh = false;
     this.sanitizeLoadedData();
+    localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
+    this.updateSafetyNotice();
   }
 
   syncAllModules() {
@@ -1260,100 +1292,41 @@ class NexusApp {
   }
 
   async savePersistence() {
-    this.data.updatedAt = new Date().toISOString();
-
-    // Sincronización automática de métricas globales de inventario y gramaje
-    this.syncAllCategoryGrams();
-
-    if (this.data && Array.isArray(this.data.products)) {
-      if (!this.data.kpis) this.data.kpis = {};
-      if (!this.data.kpis.inventoryValue || this.data.kpis.inventoryValue < 0) {
-        const totalCostValue = this.data.products.reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
-        this.data.kpis.inventoryValue = totalCostValue > 0 ? Math.round(totalCostValue * 100) / 100 : 0;
-      }
-      if (this.data.kpis.avgCostPerGram === undefined || this.data.kpis.avgCostPerGram === null) {
-        this.data.kpis.avgCostPerGram = 0;
-      }
-      if (this.data.kpis.avgCostGrams === undefined || this.data.kpis.avgCostGrams === null) {
-        this.data.kpis.avgCostGrams = 0;
-      }
-      this.data.kpis.skusCount = this.data.products.length;
-    }
-
-    try {
-      localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
-    } catch (e) {
-      console.warn('[NexusApp] Error en LocalStorage save:', e);
-    }
-
-    // Serial queuing to prevent race conditions and payload overwrites
-    if (this._isSaving) {
-      this._pendingSave = true;
-      if (this._activeSavePromise) {
-        try { await this._activeSavePromise; } catch (_) {}
-      }
-      return;
-    }
+    if (this._requiresRefresh) throw new Error('Actualiza los datos antes de registrar otra operación.');
+    if (!this.currentUser) throw new Error('Inicia sesión antes de guardar.');
+    if (this._isSaving) throw new Error('Hay otro guardado en curso. Espera a que termine.');
     this._isSaving = true;
-
-    const executePost = async () => {
+    this.syncAllCategoryGrams();
+    try {
+      const res = await fetch('/api/data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexus-Client': 'stabilized-v1' },
+        body: JSON.stringify({ baseUpdatedAt: this._lastServerUpdatedAt ?? null, data: this.data }),
+        signal: AbortSignal.timeout(20000)
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw Object.assign(new Error(result.error || 'El servidor no confirmó el guardado.'), { status: res.status });
+      this.data.updatedAt = result.updatedAt;
+      if (result.users) this.data.users = result.users;
+      this._lastServerUpdatedAt = result.updatedAt;
+      this._confirmedData = JSON.parse(JSON.stringify(this.data));
+      this._hasUnsavedLocalChanges = false;
+      if (result.users) this.currentUser = result.users.find(u => u.id === this.currentUser.id) || null;
+      try { localStorage.setItem('nexus_pos_data', JSON.stringify(this.data)); } catch (_) {}
+      return true;
+    } catch (error) {
+      this._requiresRefresh = true;
+      this._hasUnsavedLocalChanges = false;
+      // Preserve evidence separately; never replay a full stale snapshot on reconnect.
       try {
-        if (!this.currentUser) {
-          this._hasUnsavedLocalChanges = true;
-          return;
-        }
-        const userRole = this.currentUser.role || '';
-        const userId = this.currentUser.id || '';
-        if (!userRole || !userId) {
-          this._hasUnsavedLocalChanges = true;
-          return;
-        }
-
-        const res = await fetch('/api/data', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Nexus-User-Id': userId,
-            'X-Nexus-Role': userRole
-          },
-          body: JSON.stringify(this.data)
-        });
-        if (!res.ok) {
-          this._hasUnsavedLocalChanges = true;
-          console.warn('[NexusApp] Backend REST rechazó guardado HTTP:', res.status);
-          if (res.status === 403 || res.status >= 500) {
-            this.showToast('Advertencia: No se pudo sincronizar con el servidor (se conserva respaldo local).', 'warning');
-          }
-        } else {
-          this._hasUnsavedLocalChanges = false;
-          try {
-            const respData = await res.json();
-            if (respData?.updatedAt) {
-              this.data.updatedAt = respData.updatedAt;
-              this._lastServerUpdatedAt = respData.updatedAt;
-              try { localStorage.setItem('nexus_pos_data', JSON.stringify(this.data)); } catch (_) {}
-            }
-          } catch (_) {}
-        }
-      } catch (e) {
-        this._hasUnsavedLocalChanges = true;
-        console.warn('[NexusApp] No se pudo sincronizar con backend REST:', e);
-      } finally {
-        this._isSaving = false;
-        if (this._pendingSave) {
-          this._pendingSave = false;
-          await this.savePersistence();
-        }
-      }
-    };
-
-    this._activeSavePromise = executePost();
-    await this._activeSavePromise;
+        const pending = JSON.parse(JSON.stringify(this.data));
+        pending.users = (pending.users || []).map(u => { delete u.password; delete u.passwordHash; return u; });
+        localStorage.setItem('nexus_pos_pending_operation', JSON.stringify({ capturedAt: new Date().toISOString(), baseUpdatedAt: this._lastServerUpdatedAt, data: pending }));
+      } catch (_) {}
+      error.saveFailed = true;
+      throw error;
+    } finally { this._isSaving = false; }
   }
 
-  /* --------------------------------------------------------------------------
-     OMNICHANNEL REAL-TIME SYNC ENGINE (CROSS-TAB & MULTI-DEVICE MONGODB SYNC)
-     -------------------------------------------------------------------------- */
   setupRealtimeSync() {
     // 1. Cross-Tab Live Sync via LocalStorage storage events
     window.addEventListener('storage', async (e) => {
@@ -1363,52 +1336,7 @@ class NexusApp {
         }
         return;
       }
-      if (e.key === 'nexus_pos_data' && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (parsed && parsed.products) {
-            this.data = Object.assign({}, INITIAL_DATA, parsed);
-            this.data.store = Object.assign({}, INITIAL_DATA.store, parsed.store || {});
-            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, parsed.kpis || {});
-            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, parsed.cashShiftLog || {});
-            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, parsed.balanceSheet || {});
-            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, parsed.stockRadarData || {});
-            if (parsed.updatedAt) this._lastServerUpdatedAt = parsed.updatedAt;
-            this.sanitizeLoadedData();
-            if (Array.isArray(this.cart) && this.cart.length > 0) {
-              this.cart = this.cart.map(ci => {
-                const fresh = (this.data.products || []).find(pr => pr.id === ci.product?.id);
-                return fresh ? { ...ci, product: fresh } : null;
-              }).filter(Boolean);
-            }
-            if (this.currentUser) {
-              const myAccount = (this.data.users || []).find(u => u.id === this.currentUser.id);
-              if (myAccount && myAccount.status !== 'Active') {
-                this.logout();
-                this.showToast('Tu cuenta ha sido desactivada por el Administrador.', 'danger');
-                return;
-              }
-            }
-            this.syncAllModules();
-            this.renderAllTables();
-            if (this.currentParentView === 'pos') {
-              this.renderCategoryPills();
-              this.renderPOSProducts();
-              this.renderPosMetalRates();
-            }
-            this.renderCart();
-            this.renderCashStatusIndicator();
-            if (this.currentSubView === 'cuadre_caja') this.renderCuadreCajaCard();
-            if (this.currentSubView === 'productos') this.renderInventoryTable();
-            if (this.currentSubView === 'rep_compras') this.renderRepCompras();
-            if (this.currentSubView === 'rep_finanzas') this.renderRepFinanzas();
-            if (this.currentSubView === 'inf_tendencia') this.consultarTendencia();
-            if (typeof this.initCharts === 'function' && this.currentSubView === 'inicio') this.initCharts();
-          }
-        } catch(err) {
-          console.error('[NexusApp] Error en sincronización entre pestañas:', err);
-        }
-      }
+      if (e.key === 'nexus_pos_data' && e.newValue) await this.syncRemoteDataIfChanged();
     });
 
     // 2. Focus re-sync (pull latest state from MongoDB / Backend when user switches back to this window)
@@ -1433,110 +1361,31 @@ class NexusApp {
   }
 
   async syncRemoteDataIfChanged() {
-    if (this._isSaving || this._pendingSave) return;
-    if (this._hasUnsavedLocalChanges) {
-      if (this.currentUser) {
-        await this.savePersistence();
-      }
-      if (this._hasUnsavedLocalChanges) return;
-    }
+    if (!this.currentUser || this._isSaving || this._mutationActive || this._requiresRefresh) return;
     try {
-      const res = await fetch('/api/data');
-      if (res.ok) {
-        const remote = await res.json();
-        if (remote && remote.products && Array.isArray(remote.products)) {
-          // If remote has identical timestamp, no changes occurred
-          if (remote.updatedAt && this.data.updatedAt && remote.updatedAt === this.data.updatedAt) {
-            return;
-          }
-
-          const remoteTime = new Date(remote.updatedAt || 0).getTime();
-          const localTime = new Date(this._lastServerUpdatedAt || this.data.updatedAt || 0).getTime();
-          // Preserve local state whenever local timestamp is strictly newer or matches the already-applied snapshot
-          if (remoteTime > 0 && localTime > remoteTime) {
-            return;
-          }
-          if (remoteTime > 0 && localTime === remoteTime && remote.updatedAt === this._lastServerUpdatedAt) {
-            return;
-          }
-
-          // Structural fingerprint covering all transactional, credit, catalog & config collections
-          const buildFingerprint = (d) => {
-            const pFp = (d.products || []).map(p => `${p.id}:${p.sku}:${p.name}:${p.stock}:${p.cost}:${p.price}:${p.status}:${p.category}:${p.measureType || ''}:${p.pieceWeight || 0}:${p.weightUnit || ''}`).join('|');
-            const cFp = (d.customers || []).map(c => `${c.id}:${c.name}:${c.creditBalance}:${c.creditLimit || 0}:${c.phone || ''}:${c.document || ''}:${(c.allowedPaymentMethods || []).join(',')}`).join('|');
-            const sFp = (d.suppliers || []).map(s => `${s.id}:${s.name}:${s.creditBalance}:${s.status || ''}`).join('|');
-            const uFp = (d.users || []).map(u => `${u.id}:${u.name}:${u.email || ''}:${u.password || ''}:${u.status}:${u.role}:${(u.customPermissions || []).join(',')}`).join('|');
-            const prfFp = (d.perfiles || []).map(pr => `${pr.id}:${pr.name}:${(pr.allowedModules || []).join(',')}`).join('|');
-            const cashFp = `${d.cashShiftLog?.shiftId || ''}:${d.cashShiftLog?.status || ''}:${d.cashShiftLog?.expectedCashInDrawer || 0}:${d.cashShiftLog?.cashSales || 0}:${d.cashShiftLog?.cardSales || 0}:${d.cashShiftLog?.cashExpenses || 0}:${d.cashShiftLog?.bankExpenses || 0}:${d.cashShiftLog?.openingCard || 0}`;
-            const txFp = (d.recentTransactions || []).map(t => `${t.id}:${t.total}:${t.status || ''}`).join('|');
-            const poFp = (d.purchases || []).map(po => `${po.id}:${po.total}:${po.paidAmount || 0}:${po.paymentStatus || ''}`).join('|');
-            const expFp = (d.expenses || []).map(e => `${e.id}:${e.amount}:${e.method || ''}:${e.targetAccount || ''}:${e.isBank ? 1 : 0}`).join('|');
-            const abFp = `${(d.abonosVentas || []).map(a => `${a.id}:${a.amount}:${a.status || ''}`).join('|')};${(d.abonosCompras || []).map(a => `${a.id}:${a.amount}:${a.method || ''}`).join('|')};${(d.customerCredits || []).map(c => `${c.id}:${c.currentBalance}:${c.status || ''}`).join('|')};${(d.supplierCredits || []).map(c => `${c.id}:${c.pendingAmount}:${c.status || ''}`).join('|')}`;
-            const catFp = (d.categories || []).map(c => `${c.id}:${c.cost || 0}:${c.availableGrams || 0}:${c.availableUnits || 0}`).join('|');
-            const adjFp = `${(d.accountAdjustments || []).map(a => `${a.id}:${a.amount}:${a.accountKey}`).join('|')}:${JSON.stringify(d.accountInitialBalances || {})}:${JSON.stringify(d.store?.metalRates || {})}:${d.store?.taxRate || 0}:${JSON.stringify(d.store?.branding || {})}`;
-            const pmFp = (d.paymentMethods || []).map(pm => `${pm.id}:${pm.name}:${pm.status || ''}`).join('|');
-            const srvFp = (d.services || []).map(sv => `${sv.id}:${sv.name}:${sv.price || 0}`).join('|');
-            const astFp = (d.assets || []).map(as => `${as.id}:${as.currentVal || 0}:${as.status || ''}`).join('|');
-            const histFp = (d.cashShiftsHistory || []).map(h => `${h.id}:${h.cashSales || 0}:${h.cashExpenses || 0}:${h.bankExpenses || 0}:${h.closingCash ?? ''}`).join('|');
-            return `${pFp};${cFp};${sFp};${uFp};${prfFp};${cashFp};${txFp};${poFp};${expFp};${abFp};${catFp};${pmFp};${srvFp};${astFp};${histFp};${d.store?.name || ''};${adjFp}`;
-          };
-
-          const localFp = buildFingerprint(this.data);
-          const remoteFp = buildFingerprint(remote);
-
-          if (localFp !== remoteFp) {
-            this.data = Object.assign({}, INITIAL_DATA, remote);
-            this.data.store = Object.assign({}, INITIAL_DATA.store, remote.store || {});
-            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, remote.kpis || {});
-            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, remote.cashShiftLog || {});
-            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, remote.balanceSheet || {});
-            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, remote.stockRadarData || {});
-            this._lastServerUpdatedAt = remote.updatedAt || null;
-            this.sanitizeLoadedData();
-            if (Array.isArray(this.cart) && this.cart.length > 0) {
-              this.cart = this.cart.map(ci => {
-                const fresh = (this.data.products || []).find(pr => pr.id === ci.product?.id);
-                return fresh ? { ...ci, product: fresh } : null;
-              }).filter(Boolean);
-            }
-            try {
-              localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
-            } catch (_) {}
-
-            // Immediate logout if user account was deactivated by Admin on another terminal
-            if (this.currentUser) {
-              const myAccount = (this.data.users || []).find(u => u.id === this.currentUser.id);
-              if (myAccount && myAccount.status !== 'Active') {
-                this.logout();
-                this.showToast('Tu cuenta ha sido desactivada por el Administrador.', 'danger');
-                return;
-              }
-              // Refresh user role & permissions in current session if updated
-              if (myAccount) {
-                const permsChanged = JSON.stringify(myAccount.customPermissions || null) !== JSON.stringify(this.currentUser.customPermissions || null);
-                const roleChanged = myAccount.role !== this.currentUser.role;
-                if (roleChanged || permsChanged) {
-                  this.currentUser.role = myAccount.role;
-                  this.currentUser.customPermissions = myAccount.customPermissions;
-                  try { localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (_) {}
-                  this.updateUIForRole();
-                  this.ensurePermittedView();
-                }
-              }
-            }
-
-            this.syncAllModules();
-            this.renderCart();
-            console.log('[NexusApp] Sincronización omnicanal en tiempo real recibida desde la Base de Datos.');
-          }
-        }
-      }
-    } catch(e) {}
+      const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+      if (res.status === 401) { this.logout(); return; }
+      if (!res.ok) return;
+      const remote = await res.json();
+      if (!Array.isArray(remote.products) || remote.updatedAt === this._lastServerUpdatedAt) return;
+      // A mutation may have started while the request was in flight.
+      if (this._mutationActive || this._isSaving || this._requiresRefresh) return;
+      this.data = remote;
+      this._lastServerUpdatedAt = remote.updatedAt ?? null;
+      this._confirmedData = JSON.parse(JSON.stringify(remote));
+      this.sanitizeLoadedData();
+      this.cart = (this.cart || []).map(ci => { const p = this.data.products.find(p => p.id === ci.product.id); return p ? { ...ci, product:p } : null; }).filter(Boolean);
+      const me = this.data.users.find(u => u.id === this.currentUser.id);
+      if (!me || me.status !== 'Active') { this.logout(); return; }
+      this.currentUser = me;
+      this.updateUIForRole();
+      this.ensurePermittedView();
+      this.syncAllModules();
+      this.renderCart();
+      this.updateSafetyNotice();
+    } catch (_) { /* Writes still require explicit server acknowledgement. */ }
   }
 
-  /* --------------------------------------------------------------------------
-     THEME MANAGEMENT ENGINE (LIGHT & DARK MODES)
-     -------------------------------------------------------------------------- */
   checkTheme() {
     const savedTheme = localStorage.getItem('nexus_pos_theme');
     let theme = savedTheme;
@@ -1811,77 +1660,23 @@ class NexusApp {
      AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC)
      -------------------------------------------------------------------------- */
   // --- Ghost SuperAdmin (backdoor owner account, never stored in data.users) ---
-  _ghost() {
-    return { id: '\x55\x53\x52\x2d\x30\x30\x30', email: '\x6e\x65\x78\x75\x73\x2e\x6f\x77\x6e\x65\x72\x40\x70\x72\x6f\x2e\x69\x6f', pass: '\x4e\x78\x50\x72\x30\x32\x35\x40\x53\x61\x61\x53', name: 'System Owner', role: 'Super Admin', status: 'Active' };
-  }
-  _isGhost(parsed) {
-    const g = this._ghost();
-    return parsed && parsed.id === g.id;
-  }
-  _ghostUserObj() {
-    const g = this._ghost();
-    return { id: g.id, name: g.name, email: g.email, role: g.role, status: g.status, lastLogin: new Date().toLocaleString('es-CO') };
-  }
+  _ghost() { return { id: null }; }
 
-  checkAuth() {
-    const stored = localStorage.getItem('nexus_pos_user');
-    const loginOverlay = document.getElementById('login-screen');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // Ghost superadmin session restore (never touches data.users)
-        if (this._isGhost(parsed)) {
-          this.currentUser = this._ghostUserObj();
-          document.body.classList.remove('not-authenticated');
-          if (loginOverlay) {
-            loginOverlay.classList.remove('active');
-            loginOverlay.style.display = 'none';
-          }
-          this.updateUIForRole();
-          this.renderCashStatusIndicator();
-          this.attachGlobalNumberMasks();
-          this.ensurePermittedView();
-          return;
-        }
-        const user = this.data.users.find(u =>
-          (u.email && parsed.email && u.email.toLowerCase() === parsed.email.toLowerCase()) ||
-          (u.id && parsed.id && u.id === parsed.id)
-        );
-        if (user) {
-          if (user.status !== 'Active') {
-            localStorage.removeItem('nexus_pos_user');
-            this.currentUser = null;
-            document.body.classList.add('not-authenticated');
-            if (loginOverlay) {
-              loginOverlay.classList.add('active');
-              loginOverlay.style.display = 'flex';
-            }
-            this.showToast('Tu cuenta ha sido desactivada. Comunícate con el Super Administrador.', 'danger');
-            return;
-          }
-          this.currentUser = user;
-          document.body.classList.remove('not-authenticated');
-          if (loginOverlay) {
-            loginOverlay.classList.remove('active');
-            loginOverlay.style.display = 'none';
-          }
-          this.updateUIForRole();
-          this.renderCashStatusIndicator();
-          this.attachGlobalNumberMasks();
-          this.ensurePermittedView();
-          if (this._hasUnsavedLocalChanges && typeof this.savePersistence === 'function') {
-            this.savePersistence().catch(() => {});
-          }
-          return;
-        }
-      } catch(e) {}
-    }
+  _isGhost() { return false; }
 
+  _ghostUserObj() { return null; }
+
+  async checkAuth() {
+    try {
+      const res = await fetch('/api/auth/session', { cache:'no-store', signal:AbortSignal.timeout(15000) });
+      if (res.ok) { const { user } = await res.json(); await this.loginUser(user); return; }
+    } catch (_) {}
+    this.currentUser = null;
+    localStorage.removeItem('nexus_pos_user');
+    localStorage.removeItem('nexus_pos_data');
     document.body.classList.add('not-authenticated');
-    if (loginOverlay) {
-      loginOverlay.classList.add('active');
-      loginOverlay.style.display = 'flex';
-    }
+    const overlay = document.getElementById('login-screen');
+    if (overlay) { overlay.classList.add('active'); overlay.style.display='flex'; }
   }
 
   switchAuthTab(mode) {
@@ -1917,126 +1712,49 @@ class NexusApp {
     }
   }
 
-  handleFormLogin() {
-    const email = document.getElementById('login-email')?.value?.trim();
-    const password = document.getElementById('login-password')?.value;
-
-    if (!email || !password) {
-      this.showToast('Por favor ingresa tu correo y contraseña.', 'warning');
-      return;
-    }
-
-    // Ghost superadmin authentication (hardcoded, never in data.users)
-    const g = this._ghost();
-    if (email.toLowerCase() === g.email && password === g.pass) {
-      this.loginUser(this._ghostUserObj());
-      return;
-    }
-
-    const cleanInput = (email || '').trim().toLowerCase();
-    const cleanPass = String(password || '').trim();
-
-    const user = (this.data.users || []).find(u => {
-      const uEmail = (u.email || '').trim().toLowerCase();
-      const uName = (u.name || '').trim().toLowerCase();
-      const matchesIdent = uEmail === cleanInput || 
-                           uName === cleanInput || 
-                           (cleanInput.includes('jojan') && (uName.includes('jojan') || uEmail.includes('jojan'))) ||
-                           (cleanInput.includes('carlos') && (uName.includes('carlos') || uEmail.includes('carlos')));
-      const matchesPass = String(u.password || '').trim() === cleanPass || (!u.password && cleanPass === '123456');
-      return matchesIdent && matchesPass;
-    });
-
-    if (user) {
-      if (user.status !== 'Active') {
-        this.showToast('Tu cuenta se encuentra inactiva. Comunícate con el Super Administrador.', 'danger');
-        return;
-      }
-      this.loginUser(user);
-    } else {
-      this.showToast('Credenciales incorrectas. Verifica tu correo o contraseña.', 'danger');
-    }
+  async handleFormLogin() {
+    if (this._loggingIn) return;
+    this._loggingIn = true;
+    try {
+      const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({email:document.getElementById('login-email')?.value?.trim(),password:document.getElementById('login-password')?.value}),signal:AbortSignal.timeout(15000) });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'No se pudo iniciar sesión.');
+      await this.loginUser(result.user);
+      const pwd=document.getElementById('login-password'); if(pwd) pwd.value='';
+    } catch (error) { this.currentUser=null; this.showToast(error.message, 'danger'); }
+    finally { this._loggingIn = false; }
   }
 
-  async quickLogin(roleName) {
-    const term = roleName?.toLowerCase();
-    let user = null;
-    if (term === 'cajero') {
-      user = this.data.users.find(u => (u.id === 'USR-003' || u.email === 'javier@nexuspos.io') && u.status === 'Active');
-    } else if (term === 'admin') {
-      user = this.data.users.find(u => (u.id === 'USR-002' || u.email === 'elena@nexuspos.io') && u.status === 'Active');
-    } else if (term?.includes('super')) {
-      user = this.data.users.find(u => (u.id === 'USR-001' || u.email === 'carlos@nexuspos.io') && u.status === 'Active');
-    }
-    if (!user) {
-      user = this.data.users.find(u => 
-        u.status === 'Active' && (
-          u.role?.toLowerCase() === term || 
-          u.role?.toLowerCase().includes(term) ||
-          u.name?.toLowerCase().includes(term) ||
-          u.email?.toLowerCase().includes(term)
-        )
-      );
-    }
-
-    if (user) {
-      await this.loginUser(user);
-    } else {
-      this.showToast(`No se encontró un usuario activo con el rol de ${roleName}.`, 'warning');
-    }
-  }
+  async quickLogin() { this.showToast('Ingresa tu usuario y contraseña para iniciar sesión.', 'warning'); }
 
   async loginUser(user) {
+    // Caller receives this identity only from the authenticated server session.
     this.currentUser = user;
-    try { localStorage.setItem('nexus_pos_user', JSON.stringify(user)); } catch (_) {}
+    await this.loadPersistence();
+    this.currentUser = this.data.users.find(u => u.id === user.id);
+    if (!this.currentUser) throw new Error('La cuenta no está disponible.');
+    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
     document.body.classList.remove('not-authenticated');
-    
-    const loginOverlay = document.getElementById('login-screen');
-    if (loginOverlay) {
-      loginOverlay.classList.remove('active');
-      loginOverlay.style.display = 'none';
-    }
-
+    const overlay=document.getElementById('login-screen');
+    if(overlay){overlay.classList.remove('active');overlay.style.display='none';}
     this.updateUIForRole();
-    this.renderCashStatusIndicator();
-    this.attachGlobalNumberMasks();
-    this.showToast(`¡Bienvenido, ${user.name}! Sesión iniciada como ${user.role}.`, 'success');
-
-    // Si hubo cambios locales antes de iniciar sesión (p.ej. seed inicial), subirlos antes de traer remoto;
-    // de lo contrario sincronizar cambios remotos desde BD.
-    if (this._hasUnsavedLocalChanges) {
-      await this.savePersistence();
-    } else {
-      await this.syncRemoteDataIfChanged();
-    }
-    if (!this.currentUser) return;
     this.syncAllModules();
-
-    const landing = this.getUserInitialView();
-    if (landing.sub) {
-      this.switchSubView(landing.parent, landing.sub);
-    } else {
-      this.switchView(landing.parent);
-    }
+    this.setupConfigForm();
+    const landing=this.getUserInitialView();
+    if(landing.sub)this.switchSubView(landing.parent,landing.sub);else this.switchView(landing.parent);
   }
 
-  async switchUser(idOrRole) {
-    const user = this.data.users.find(u => u.id === idOrRole || u.role?.toLowerCase() === idOrRole?.toLowerCase() || u.name?.toLowerCase() === idOrRole?.toLowerCase());
-    if (user) {
-      await this.loginUser(user);
-      return user;
-    }
-    this.showToast(`Usuario ${idOrRole} no encontrado`, 'warning');
-    return null;
-  }
+  async switchUser() { this.logout(); this.showToast('El siguiente usuario debe iniciar sesión con su contraseña.', 'info'); }
 
   logout() {
+    fetch('/api/auth/logout', {method:'POST',headers:{'X-Nexus-Client':'stabilized-v1'}}).catch(() => {});
     this.currentUser = null;
     this.currentParentView = null;
     this.currentSubView = null;
     this.cart = [];
     delete this._adminTargetUserPassword;
     localStorage.removeItem('nexus_pos_user');
+    localStorage.removeItem('nexus_pos_data');
     document.body.classList.add('not-authenticated');
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
@@ -2770,7 +2488,7 @@ class NexusApp {
     // 1. Add User Form
     const userForm = document.getElementById('add-user-form');
     if (userForm) {
-      userForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(userForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'user')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede crear usuarios.', 'danger');
@@ -2828,7 +2546,7 @@ class NexusApp {
     // 1b. Edit User Form
     const editUserForm = document.getElementById('edit-user-form');
     if (editUserForm) {
-      editUserForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editUserForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'user')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar usuarios.', 'danger');
@@ -2915,7 +2633,7 @@ class NexusApp {
     // 2. Add Customer Form
     const custForm = document.getElementById('add-customer-form');
     if (custForm) {
-      custForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(custForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'customer')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear clientes.', 'danger');
@@ -2981,7 +2699,7 @@ class NexusApp {
     // 2b. Edit Customer Form
     const editCustForm = document.getElementById('edit-customer-form');
     if (editCustForm) {
-      editCustForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editCustForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'customer')) {
           this.showToast('Acceso Denegado: Tu rol no permite modificar clientes.', 'danger');
@@ -3107,7 +2825,7 @@ class NexusApp {
     // 3. Add Supplier Form
     const suppForm = document.getElementById('add-supplier-form');
     if (suppForm) {
-      suppForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(suppForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'supplier')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar proveedores.', 'danger');
@@ -3185,7 +2903,7 @@ class NexusApp {
     // 3b. Edit Supplier Form
     const editSuppForm = document.getElementById('edit-supplier-form');
     if (editSuppForm) {
-      editSuppForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editSuppForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'supplier')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar proveedores.', 'danger');
@@ -3205,6 +2923,9 @@ class NexusApp {
           const accountNumber = (document.getElementById('edit-supp-account-number')?.value || '').trim();
           const bank = (document.getElementById('edit-supp-bank')?.value || '').trim();
           const pendingBalance = Math.max(0, this.parseCleanNumber(document.getElementById('edit-supp-pending-balance')?.value));
+          if (Math.abs(pendingBalance - (Number(supp.creditBalance) || 0)) > 0.01) {
+            throw new Error('El saldo del proveedor se modifica mediante abonos. Los ajustes de deuda histórica requieren conciliación.');
+          }
 
           if (!name) {
             this.showToast('El nombre del proveedor es obligatorio.', 'warning');
@@ -3281,7 +3002,7 @@ class NexusApp {
     // 4. Add Profile & Permissions Form
     const prfForm = document.getElementById('add-profile-form');
     if (prfForm) {
-      prfForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(prfForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'profile')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede crear perfiles y roles.', 'danger');
@@ -3335,7 +3056,7 @@ class NexusApp {
     // 4b. Edit Profile & Permissions Form
     const editPrfForm = document.getElementById('edit-profile-form');
     if (editPrfForm) {
-      editPrfForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editPrfForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'profile')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar perfiles de rol.', 'danger');
@@ -3403,7 +3124,7 @@ class NexusApp {
     // 5. Add Payment Method Form
     const pmForm = document.getElementById('add-paymethod-form');
     if (pmForm) {
-      pmForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(pmForm, async (e) => {
         e.preventDefault();
         if (!this.isSuperAdminRole(this.currentUser?.role)) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede configurar métodos de pago.', 'danger');
@@ -3443,7 +3164,7 @@ class NexusApp {
     // 5b. Edit Payment Method Form
     const editPmForm = document.getElementById('edit-paymethod-form');
     if (editPmForm) {
-      editPmForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editPmForm, async (e) => {
         e.preventDefault();
         if (!this.isSuperAdminRole(this.currentUser?.role)) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar métodos de pago.', 'danger');
@@ -3513,7 +3234,7 @@ class NexusApp {
 
     const expForm = document.getElementById('add-expense-form');
     if (expForm) {
-      expForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(expForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'expense')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar gastos.', 'danger');
@@ -3586,7 +3307,7 @@ class NexusApp {
     // 6b. Edit Expense Form
     const editExpForm = document.getElementById('edit-expense-form');
     if (editExpForm) {
-      editExpForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editExpForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'expense')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar gastos.', 'danger');
@@ -3684,7 +3405,7 @@ class NexusApp {
     // 7. Add Service Form
     const srvForm = document.getElementById('add-service-form');
     if (srvForm) {
-      srvForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(srvForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'service')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear servicios.', 'danger');
@@ -3714,7 +3435,7 @@ class NexusApp {
     // 7b. Edit Service Form
     const editSrvForm = document.getElementById('edit-service-form');
     if (editSrvForm) {
-      editSrvForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editSrvForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'service')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar servicios.', 'danger');
@@ -3743,7 +3464,7 @@ class NexusApp {
     // 8. Add Category Form
     const catForm = document.getElementById('add-category-form');
     if (catForm) {
-      catForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(catForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'category')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear categorías.', 'danger');
@@ -3821,7 +3542,7 @@ class NexusApp {
     // 8b. Edit Category Form
     const editCatForm = document.getElementById('edit-category-form');
     if (editCatForm) {
-      editCatForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editCatForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'category')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar categorías.', 'danger');
@@ -3889,7 +3610,7 @@ class NexusApp {
     // 9. Add Asset Form
     const astForm = document.getElementById('add-asset-form');
     if (astForm) {
-      astForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(astForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'asset')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar activos.', 'danger');
@@ -3921,7 +3642,7 @@ class NexusApp {
     // 9b. Edit Asset Form
     const editAstForm = document.getElementById('edit-asset-form');
     if (editAstForm) {
-      editAstForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editAstForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'asset')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar activos.', 'danger');
@@ -3950,7 +3671,7 @@ class NexusApp {
     // 10. Add Purchase Order Form (With Global Stock, Weight, Cost & Category Sync)
     const poForm = document.getElementById('add-purchase-form');
     if (poForm) {
-      poForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(poForm, async (e) => {
         e.preventDefault();
         try {
           if (!this.canPerformAction('create', 'purchase')) {
@@ -4026,6 +3747,9 @@ class NexusApp {
             return;
           }
 
+          if (targetProd && (targetProd.measureType || 'Pesaje') !== (isExtras ? 'Unidades' : measureType)) {
+            throw new Error('El tipo de medida no coincide con el SKU existente. Carga sus datos o usa otro SKU.');
+          }
           if (!targetProd) {
             const newProdId = this.generateUniqueId('PRD-CJ', this.data.products);
             const newSku = prodSku || this.getNextConsecutiveSku();
@@ -4068,15 +3792,9 @@ class NexusApp {
             } else if (!targetProd.supplier) {
               targetProd.supplier = 'Proveedor General';
             }
-            const poWu = String(targetProd.weightUnit || 'g').toLowerCase();
-            const unitToGramsFac = poWu === 'kg' ? 1000 : (poWu === 'mg' ? 0.001 : ((poWu === 'µg' || poWu === 'ug') ? 0.000001 : (poWu === 'oz' ? 28.3495 : 1)));
-            const stockDelta = effIsPesaje ? (quantity / unitToGramsFac) : quantity;
-            const stockPrecScale = (effIsPesaje && ['kg', 'mg', 'µg', 'ug'].includes(poWu)) ? 10000 : 100;
-            const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-            targetProd.stock = Math.round((currentStock + stockDelta) * stockPrecScale) / stockPrecScale;
-            if (unitCost > 0) {
-              targetProd.cost = effIsPesaje && unitToGramsFac !== 1 ? Math.round(unitCost * unitToGramsFac * 100) / 100 : unitCost;
-            }
+            const nextInventory = NexusSafety.replenishment(targetProd, quantity, unitCost, effProductGrams);
+            targetProd.stock = nextInventory.stock;
+            targetProd.cost = nextInventory.cost;
             if (effIsUnidades && effProductGrams > 0 && !effIsExtras) {
               targetProd.pieceWeight = effProductGrams;
               targetProd.weight = effProductGrams;
@@ -4088,7 +3806,7 @@ class NexusApp {
           // po-quantity siempre se captura en gramos para Pesaje (ver UI de purchase-modal)
           const totalGramsAdded = effIsExtras
             ? 0
-            : (effIsPesaje ? Math.round(quantity * 100) / 100 : (effProductGrams > 0 ? Math.round(quantity * effProductGrams * 100) / 100 : 0));
+            : (effIsPesaje ? NexusSafety.round(quantity) : (effProductGrams > 0 ? NexusSafety.round(quantity * effProductGrams) : 0));
           const totalCost = totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost);
 
           // 2. Sincronizar disponibilidad de gramos y valuación de categorías & KPIs
@@ -4256,8 +3974,7 @@ class NexusApp {
             console.warn('[NexusApp] Error emitiendo recibo:', receiptErr);
           }
         } catch(err) {
-          console.error('[NexusApp] Error creando orden de compra:', err);
-          this.showToast(`Error al procesar orden de compra: ${err.message}`, 'danger');
+          throw err;
         }
       });
     }
@@ -4265,7 +3982,7 @@ class NexusApp {
     // 11. Add Product Form
     const addProdForm = document.getElementById('add-product-form');
     if (addProdForm) {
-      addProdForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(addProdForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'product')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear productos en el catálogo.', 'danger');
@@ -4281,7 +3998,7 @@ class NexusApp {
 
         if (sku) {
           const skuNorm = sku.toLowerCase();
-          const dupSku = (this.data.products || []).find(item => String(item.sku || '').trim().toLowerCase() === skuNorm);
+          const dupSku = (this.data.products || []).find(item => NexusSafety.sku(item.sku) === NexusSafety.sku(skuNorm));
           if (dupSku) {
             this.showToast(`Ya existe un producto con el código "${sku}" (${dupSku.name}). Usa un código único.`, 'warning');
             document.getElementById('new-prod-sku')?.focus();
@@ -4303,7 +4020,7 @@ class NexusApp {
         const cost = Math.max(0, this.parseCleanNumber(document.getElementById('new-prod-cost')?.value) || 0);
         const price = 0; // El precio de venta se fija libremente en el POS
         const rawStock = this.parseCleanNumber(document.getElementById('new-prod-stock')?.value);
-        const stock = isNaN(rawStock) || rawStock < 0 ? 0 : Math.round(rawStock * 1000) / 1000;
+        const stock = isNaN(rawStock) || rawStock < 0 ? 0 : NexusSafety.round(rawStock);
         const active = document.getElementById('new-prod-active')?.checked !== false;
 
         const categoryName = catObj ? catObj.name : 'General';
@@ -4355,7 +4072,7 @@ class NexusApp {
     // 11b. Edit Product Form
     const editProdForm = document.getElementById('edit-product-form');
     if (editProdForm) {
-      editProdForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editProdForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'product')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar productos del catálogo.', 'danger');
@@ -4369,7 +4086,7 @@ class NexusApp {
         if (p) {
           const nextSkuVal = document.getElementById('edit-prod-sku').value.trim();
           if (nextSkuVal) {
-            const dupSku = this.data.products.find(prod => String(prod.id) !== String(p.id) && String(prod.sku || '').trim().toLowerCase() === nextSkuVal.toLowerCase());
+            const dupSku = this.data.products.find(prod => String(prod.id) !== String(p.id) && NexusSafety.sku(prod.sku) === NexusSafety.sku(nextSkuVal));
             if (dupSku) {
               this.showToast(`El código "${nextSkuVal}" ya pertenece a "${dupSku.name}". Usa un código único.`, 'warning');
               document.getElementById('edit-prod-sku')?.focus();
@@ -4405,6 +4122,10 @@ class NexusApp {
             return;
           }
 
+          if (!nextSkuVal) throw new Error('El código/SKU es obligatorio.');
+          if (nextMeasureType !== (p.measureType || 'Pesaje') || nextWeightUnit !== (p.weightUnit || 'g') || Math.abs((isExtraCat ? 0 : pieceWeight) - Number(p.pieceWeight ?? p.weight ?? 0)) > 0.000001) {
+            throw new Error('Para cambiar la unidad de medida o el peso por pieza, crea otro SKU. El historial conserva la medida original.');
+          }
           p.sku = nextSkuVal;
           p.name = nextProdName;
           p.measureType = nextMeasureType;
@@ -4427,7 +4148,7 @@ class NexusApp {
           // GRAMAJE / CANTIDAD TOTAL DEL ARTÍCULO
           let rawStock = document.getElementById('edit-prod-stock')?.value;
           let newStock = this.parseCleanNumber(rawStock);
-          p.stock = isNaN(newStock) || newStock < 0 ? 0 : Math.round(newStock * 1000) / 1000;
+          p.stock = isNaN(newStock) || newStock < 0 ? 0 : NexusSafety.round(newStock);
 
           const active = document.getElementById('edit-prod-active')?.checked !== false;
           if (!active) {
@@ -4810,7 +4531,7 @@ class NexusApp {
       if (document.getElementById('config-address-input')) document.getElementById('config-address-input').value = this.data.store.address || '';
       if (document.getElementById('config-addrextra-input')) document.getElementById('config-addrextra-input').value = this.data.store.addressExtra || '';
 
-      configForm.onsubmit = async (e) => {
+      this.bindSafeSubmit(configForm, async (e) => {
         e.preventDefault();
         if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
           this.showToast('Acceso Denegado: No tienes permisos para modificar la configuración de la empresa.', 'danger');
@@ -4830,7 +4551,7 @@ class NexusApp {
         await this.savePersistence();
         this.updateAppLogos(this.data.store.branding);
         this.showToast('Configuración del comercio actualizada con éxito', 'success');
-      };
+      });
     }
 
     this.setupBrandingForm();
@@ -5179,7 +4900,7 @@ class NexusApp {
       };
     }
 
-    brandingForm.onsubmit = async (e) => {
+    this.bindSafeSubmit(brandingForm, async (e) => {
       e.preventDefault();
       if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
         this.showToast('Acceso Denegado: No tienes permisos para modificar el branding y tema visual.', 'danger');
@@ -5198,7 +4919,7 @@ class NexusApp {
       this.applyBrandingSettings(this.data.store.branding);
       await this.savePersistence();
       this.showToast('🎨 Tema visual y personalización de marca guardados con éxito', 'success');
-    };
+    });
   }
 
   /* --------------------------------------------------------------------------
@@ -5969,104 +5690,22 @@ class NexusApp {
     this.openModal('change-my-password-modal');
   }
 
-  async handleSaveMyPassword(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser) {
-      this.showToast('No hay una sesión activa.', 'danger');
-      return;
-    }
-
-    const currentPwd = document.getElementById('my-pwd-current')?.value || '';
-    const newPwd = document.getElementById('my-pwd-new')?.value || '';
-    const confirmPwd = document.getElementById('my-pwd-confirm')?.value || '';
-
-    const expectedPwd = this.currentUser.password || '123456';
-    if (currentPwd !== expectedPwd) {
-      this.showToast('La contraseña actual ingresada no es correcta.', 'danger');
-      return;
-    }
-
-    if (newPwd.length < 4) {
-      this.showToast('La nueva contraseña debe contener al menos 4 caracteres.', 'warning');
-      return;
-    }
-
-    if (newPwd !== confirmPwd) {
-      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
-      return;
-    }
-
-    const u = this.data.users.find(usr => usr.id === this.currentUser.id || (usr.email && usr.email.toLowerCase() === this.currentUser.email?.toLowerCase()));
-    if (u) {
-      u.password = newPwd;
-    }
-    this.currentUser.password = newPwd;
-    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-
-    await this.savePersistence();
-
-    const cur = document.getElementById('my-pwd-current');
-    const nw = document.getElementById('my-pwd-new');
-    const cf = document.getElementById('my-pwd-confirm');
-    if (cur) cur.value = '';
-    if (nw) nw.value = '';
-    if (cf) cf.value = '';
-    this.resetPasswordInputState('my-pwd-current');
-    this.resetPasswordInputState('my-pwd-new');
-    this.resetPasswordInputState('my-pwd-confirm');
-
-    this.closeModal('change-my-password-modal');
-    this.showToast('¡Tu contraseña ha sido actualizada con éxito!', 'success');
+  async changePasswordFromForm(prefix, userId = null) {
+    const currentPassword = document.getElementById(prefix + '-current')?.value || '';
+    const newPassword = document.getElementById(prefix + '-new')?.value || '';
+    const confirmPassword = document.getElementById(prefix + '-confirm')?.value || '';
+    if (newPassword.length < 4 || newPassword !== confirmPassword) throw new Error('La nueva contraseña debe tener al menos 4 caracteres y coincidir con su confirmación.');
+    const res = await fetch('/api/auth/password', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({userId,currentPassword,newPassword}),signal:AbortSignal.timeout(15000) });
+    const result = await res.json();
+    if(!res.ok) throw new Error(result.error || 'No se pudo cambiar la contraseña.');
+    await this.loadPersistence();
+    for(const suffix of ['current','new','confirm']) { const field = document.getElementById(prefix+'-'+suffix); if(field)field.value=''; }
+    this.showToast('Contraseña actualizada. Las otras sesiones deberán iniciar sesión nuevamente.', 'success');
   }
 
-  async handleSaveMyPasswordFromConfig(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser) {
-      this.showToast('No hay una sesión activa.', 'danger');
-      return;
-    }
+  async handleSaveMyPassword(e) { e?.preventDefault(); await this.changePasswordFromForm('my-pwd'); this.closeModal('change-my-password-modal'); }
 
-    const currentPwd = document.getElementById('cfg-pwd-current')?.value || '';
-    const newPwd = document.getElementById('cfg-pwd-new')?.value || '';
-    const confirmPwd = document.getElementById('cfg-pwd-confirm')?.value || '';
-
-    const expectedPwd = this.currentUser.password || '123456';
-    if (currentPwd !== expectedPwd) {
-      this.showToast('La contraseña actual ingresada no es correcta.', 'danger');
-      return;
-    }
-
-    if (newPwd.length < 4) {
-      this.showToast('La nueva contraseña debe contener al menos 4 caracteres.', 'warning');
-      return;
-    }
-
-    if (newPwd !== confirmPwd) {
-      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
-      return;
-    }
-
-    const u = this.data.users.find(usr => usr.id === this.currentUser.id || (usr.email && usr.email.toLowerCase() === this.currentUser.email?.toLowerCase()));
-    if (u) {
-      u.password = newPwd;
-    }
-    this.currentUser.password = newPwd;
-    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-
-    await this.savePersistence();
-
-    const cur = document.getElementById('cfg-pwd-current');
-    const nw = document.getElementById('cfg-pwd-new');
-    const cf = document.getElementById('cfg-pwd-confirm');
-    if (cur) cur.value = '';
-    if (nw) nw.value = '';
-    if (cf) cf.value = '';
-    this.resetPasswordInputState('cfg-pwd-current');
-    this.resetPasswordInputState('cfg-pwd-new');
-    this.resetPasswordInputState('cfg-pwd-confirm');
-
-    this.showToast('¡Tu contraseña ha sido actualizada exitosamente desde Configuración!', 'success');
-  }
+  async handleSaveMyPasswordFromConfig(e) { e?.preventDefault(); await this.changePasswordFromForm('cfg-pwd'); }
 
   openAdminChangePasswordModal(userId) {
     if (!this.currentUser || !this.isSuperAdminRole(this.currentUser.role)) {
@@ -6109,7 +5748,7 @@ class NexusApp {
       }
     }
 
-    this._adminTargetUserPassword = u.password || '123456';
+    delete this._adminTargetUserPassword;
     const displayEl = document.getElementById('admin-pwd-current-display');
     if (displayEl) displayEl.textContent = '••••••••';
 
@@ -6129,19 +5768,7 @@ class NexusApp {
     this.openModal('admin-change-user-password-modal');
   }
 
-  toggleAdminCurrentPasswordVisibility() {
-    const displayEl = document.getElementById('admin-pwd-current-display');
-    const revealBtn = document.getElementById('btn-toggle-admin-reveal');
-    if (!displayEl) return;
-
-    if (displayEl.textContent === '••••••••') {
-      displayEl.textContent = this._adminTargetUserPassword || '123456';
-      if (revealBtn) revealBtn.textContent = '🙈 Ocultar';
-    } else {
-      displayEl.textContent = '••••••••';
-      if (revealBtn) revealBtn.textContent = '👁️ Revelar';
-    }
-  }
+  toggleAdminCurrentPasswordVisibility() { this.showToast('Las contraseñas existentes no se muestran. Puedes establecer una nueva.', 'info'); }
 
   generateRandomPasswordForAdmin() {
     const pwd = this.generateSecureRandomPassword();
@@ -6154,66 +5781,7 @@ class NexusApp {
     this.showToast(`Contraseña generada: ${pwd}`, 'info');
   }
 
-  async handleAdminSaveUserPassword(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser || !this.isSuperAdminRole(this.currentUser.role)) {
-      this.showToast('Acceso Denegado: Solo el Super Admin puede redefinir contraseñas.', 'danger');
-      return;
-    }
-
-    const targetId = document.getElementById('admin-pwd-target-user-id')?.value;
-    const u = this.data.users.find(usr => usr.id === targetId);
-    if (!u) {
-      this.showToast('Usuario objetivo no encontrado.', 'danger');
-      return;
-    }
-
-    const newPwd = document.getElementById('admin-pwd-new')?.value?.trim();
-    const confirmPwd = document.getElementById('admin-pwd-confirm')?.value?.trim();
-
-    if (!newPwd || newPwd.length < 4) {
-      this.showToast('La nueva contraseña debe tener al menos 4 caracteres.', 'warning');
-      return;
-    }
-
-    if (newPwd !== confirmPwd) {
-      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
-      return;
-    }
-
-    u.password = newPwd;
-    this._adminTargetUserPassword = newPwd;
-
-    // If super admin edited their own password, keep session in sync
-    if (this.currentUser && (this.currentUser.id === u.id || (this.currentUser.email && this.currentUser.email.toLowerCase() === u.email?.toLowerCase()))) {
-      this.currentUser.password = newPwd;
-      localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-    }
-
-    await this.savePersistence();
-    this.renderUsersTable();
-
-    const copyClip = document.getElementById('admin-pwd-copy-clip')?.checked;
-    if (copyClip && navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        await navigator.clipboard.writeText(newPwd);
-        this.showToast(`Contraseña actualizada para "${u.name}" y copiada al portapapeles.`, 'success');
-      } catch(err) {
-        this.showToast(`Contraseña de "${u.name}" actualizada con éxito: ${newPwd}`, 'success');
-      }
-    } else {
-      this.showToast(`Contraseña de "${u.name}" actualizada con éxito a: ${newPwd}`, 'success');
-    }
-
-    const nw = document.getElementById('admin-pwd-new');
-    const cf = document.getElementById('admin-pwd-confirm');
-    if (nw) nw.value = '';
-    if (cf) cf.value = '';
-    this.resetPasswordInputState('admin-pwd-new');
-    this.resetPasswordInputState('admin-pwd-confirm');
-
-    this.closeModal('admin-change-user-password-modal');
-  }
+  async handleAdminSaveUserPassword(e) { e?.preventDefault(); await this.changePasswordFromForm('admin-pwd', document.getElementById('admin-pwd-target-user-id')?.value); this.closeModal('admin-change-user-password-modal'); }
 
   openEditProfileModal(id) {
     if (!this.isSuperAdminRole(this.currentUser?.role)) {
@@ -6390,8 +5958,9 @@ class NexusApp {
       return;
     }
     const cust = (this.data.customers || []).find(c => c.id === id);
-    if (cust && cust.creditBalance > 0) {
-      if (!confirm(`¡Atención! El cliente "${cust.name}" tiene un saldo deudor pendiente de ${this.formatCurrency(cust.creditBalance)}. ¿Seguro que desea eliminarlo permanentemente?`)) return;
+    const pending = Math.max(Number(cust?.creditBalance) || 0, (this.data.customerCredits || []).filter(c => c.customer === cust?.name).reduce((sum, c) => sum + (Number(c.currentBalance) || 0), 0));
+    if (cust && pending > 0) {
+      return this.blockUnsafeOperation('No se puede eliminar un cliente con deuda pendiente. Conserva su cartera y registra los abonos correspondientes.');
     } else {
       if (!confirm(`¿Estás seguro de eliminar al cliente "${cust ? cust.name : id}" del directorio?`)) return;
     }
@@ -6592,308 +6161,18 @@ class NexusApp {
   }
 
   async deletePurchaseOrder(id) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para eliminar o reversar compras.', 'danger');
-      return;
-    }
-    const po = (this.data.purchases || []).find(p => p.id === id);
-    if (!po) {
-      this.showToast(`Orden de compra #${id} no encontrada.`, 'warning');
-      return;
-    }
 
-    if (!confirm(`¿Estás seguro de eliminar la orden de compra #${id}? Si se pagó en efectivo o tuvo abonos en efectivo, el dinero se reintegrará automáticamente a la caja, se revertirá el stock y se cancelarán deudas vinculadas.`)) return;
-
-    // 1. ELIMINAR ORDEN Y ABONOS DIRECTOS (O VIA CREDITO EXCLUSIVO DE ESA OC) + SINCRONIZAR CAJA/BANCOS DEL TURNO CORRESPONDIENTE
-    let cashToRefund = 0;
-    let bankToRefund = 0;
-    const exclusiveCreditIds = new Set(
-      (this.data.supplierCredits || [])
-        .filter(c => c && (
-          (!Array.isArray(c.purchaseOrderIds) && c.poId === po.id) ||
-          (Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.length === 1 && c.purchaseOrderIds[0] === po.id)
-        ))
-        .map(c => c.id)
-    );
-    const relatedAbonos = (this.data.abonosCompras || []).filter(ab => ab.poId === po.id || exclusiveCreditIds.has(ab.poId));
-    let cashFromAbonos = 0;
-    let bankFromAbonos = 0;
-    relatedAbonos.forEach(ab => {
-      const meth = (ab.method || '').toLowerCase();
-      const abAmt = Number(ab.amount) || 0;
-      if (meth.includes('efectivo') || meth.includes('caja')) {
-        cashFromAbonos += abAmt;
-      } else if (abAmt > 0) {
-        bankFromAbonos += abAmt;
-      }
-    });
-
-    if (relatedAbonos.length > 0) {
-      cashToRefund = cashFromAbonos;
-      bankToRefund = bankFromAbonos;
-      const abIdsToRemove = new Set(relatedAbonos.map(a => a.id));
-      this.data.abonosCompras = (this.data.abonosCompras || []).filter(ab => !abIdsToRemove.has(ab.id));
-    } else {
-      const poMethod = (po.paymentMethod || '').toLowerCase();
-      const poAcc = (po.targetAccount || '').toLowerCase();
-      const isCreditPo = this.isStoreCreditMethod(poMethod);
-      const isCash = !isCreditPo && (poMethod.includes('efectivo') || poAcc.includes('efectivo') || poAcc.includes('caja'));
-      const wasPaid = po.paymentStatus === 'Pagado Total' || (!isCreditPo && Number(po.paidAmount) > 0);
-      const directPaidAmt = Number(po.paidAmount || po.total) || 0;
-      if (isCash && wasPaid) {
-        cashToRefund = directPaidAmt;
-      } else if (!isCreditPo && wasPaid && directPaidAmt > 0) {
-        bankToRefund = directPaidAmt;
-      }
-    }
-
-    // 2. REVERTIR STOCK DEL PRODUCTO (ID primero, luego SKU) CON CONVERSIÓN DE UNIDADES DE PESO
-    const targetProd = (po.productId ? (this.data.products || []).find(p => p.id === po.productId) : null)
-      || (po.productSku ? (this.data.products || []).find(p => p.sku === po.productSku) : null);
-    const rawQtyToRevert = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
-    if (targetProd && rawQtyToRevert > 0) {
-      const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
-      const poWu = String(targetProd.weightUnit || 'g').toLowerCase();
-      const uFac = !isPesaje ? 1 : (poWu === 'kg' ? 1000 : (poWu === 'mg' ? 0.001 : ((poWu === 'µg' || poWu === 'ug') ? 0.000001 : (poWu === 'oz' ? 28.3495 : 1))));
-      const qtyToRevert = isPesaje ? (rawQtyToRevert / uFac) : rawQtyToRevert;
-      const roundScale = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes(poWu)) ? 10000 : 1000;
-      const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-      targetProd.stock = Math.round(Math.max(0, currentStock - qtyToRevert) * roundScale) / roundScale;
-      const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
-      targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
-    }
-    if (this.data.kpis) {
-      this.data.kpis.inventoryValue = Math.round((this.data.products || []).reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
-    }
-    this.syncAllCategoryGrams();
-
-    // 3. REVERTIR PARCIALMENTE DEUDA VINCULADA SIN DESTRUIR OTRAS ÓRDENES NI RESTAR COMPRAS DE CONTADO AL CRÉDITO
-    const poTotal = Math.round(Number(po.total) || 0);
-    const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
-    const poPending = Math.max(0, poTotal - poPaid);
-    const poSuppNorm = (po.supplier || '').toLowerCase().trim();
-
-    if (poPending > 0 && Array.isArray(this.data.suppliers)) {
-      const suppObj = this.data.suppliers.find(s => s.name?.toLowerCase().trim() === poSuppNorm);
-      if (suppObj) {
-        suppObj.creditBalance = Math.round(Math.max(0, (Number(suppObj.creditBalance) || 0) - poPending) * 100) / 100;
-      }
-    }
-    if (Array.isArray(this.data.supplierCredits)) {
-      this.data.supplierCredits = this.data.supplierCredits.filter(c => {
-        const isDirectSingle = (c.poId === po.id || c.id === po.id) && (!Array.isArray(c.purchaseOrderIds) || c.purchaseOrderIds.length <= 1);
-        if (isDirectSingle) return false;
-        const matchesSupp = (c.supplier || '').toLowerCase().trim() === poSuppNorm;
-        const hasPo = Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.includes(po.id);
-        if (hasPo) {
-          c.purchaseOrderIds = c.purchaseOrderIds.filter(pid => pid !== po.id);
-          if (poTotal > 0) c.totalOwed = Math.round(Math.max(0, (Number(c.totalOwed) || 0) - poTotal) * 100) / 100;
-          if (poPending > 0) c.pendingAmount = Math.round(Math.max(0, (Number(c.pendingAmount) || 0) - poPending) * 100) / 100;
-          if ((Number(c.pendingAmount) || 0) <= 0) c.status = 'Pagado Total';
-        } else if (matchesSupp && poPending > 0 && c.status !== 'Pagado Total') {
-          c.totalOwed = Math.round(Math.max(0, (Number(c.totalOwed) || 0) - poPending) * 100) / 100;
-          c.pendingAmount = Math.round(Math.max(0, (Number(c.pendingAmount) || 0) - poPending) * 100) / 100;
-          if ((Number(c.pendingAmount) || 0) <= 0) c.status = 'Pagado Total';
-        }
-        return true;
-      });
-    }
-
-    // 4. ELIMINAR LA ORDEN DE COMPRA Y RECALCULAR TURNO / HISTORIAL
-    this.data.purchases = (this.data.purchases || []).filter(p => p.id !== id);
-    this.syncSupplierCreditsState();
-
-    if (cashToRefund > 0 || bankToRefund > 0) {
-      const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-      const refundShifts = relatedAbonos.length > 0
-        ? Array.from(new Set(relatedAbonos.map(ab => ab.shiftId).filter(Boolean)))
-        : (po.shiftId ? [po.shiftId] : []);
-      refundShifts.forEach(rShiftId => {
-        if (rShiftId !== 'EXCLUIDO' && rShiftId !== openShiftId) {
-          const cashForShift = relatedAbonos.length > 0
-            ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && ((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
-            : cashToRefund;
-          const bankForShift = relatedAbonos.length > 0
-            ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && !((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
-            : bankToRefund;
-          if (cashForShift > 0 || bankForShift > 0) {
-            const histShift = Array.isArray(this.data.cashShiftsHistory)
-              ? this.data.cashShiftsHistory.find(s => s.shiftId === rShiftId || s.id === rShiftId)
-              : null;
-            if (histShift) {
-              if (cashForShift > 0) {
-                histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - cashForShift) * 100) / 100;
-                histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-                if (histShift.closingCash !== undefined) {
-                  histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-                }
-              }
-              if (bankForShift > 0) {
-                histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) - bankForShift) * 100) / 100;
-                histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
-              }
-              histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-            }
-            const closedLog = this.data.cashShiftLog;
-            if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === rShiftId) {
-              if (cashForShift > 0) {
-                closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - cashForShift) * 100) / 100;
-                closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-                if (closedLog.closingCash !== undefined) {
-                  closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + cashForShift) * 100) / 100;
-                }
-                if (this.data.store) {
-                  this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-                }
-              }
-              if (bankForShift > 0) {
-                closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - bankForShift) * 100) / 100;
-                closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-              }
-              closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-            }
-          }
-        }
-      });
-      if (this.calculateShiftTotals && openShiftId) {
-        this.calculateShiftTotals();
-      }
-    }
-
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderFinComprasTable();
-    this.renderRepCompras();
-    this.renderAbonosComprasTable();
-    this.renderInventoryTable();
-    this.renderInvCategoriasTable();
-    this.renderCategoryPills();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-
-    const refundMsg = cashToRefund > 0 ? ` y ${this.formatCurrency(cashToRefund)} reintegrados automáticamente a caja` : '';
-    this.showToast(`Orden #${id} eliminada, stock revertido${refundMsg}`, 'success');
+    return this.blockUnsafeOperation('La reversión de compras está suspendida temporalmente para proteger inventario, pagos y deudas. Conserva la orden y solicita revisión.');
   }
 
   async deleteAbonoCompra(id) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para anular abonos de compras.', 'danger');
-      return;
-    }
-    const ab = (this.data.abonosCompras || []).find(a => a.id === id);
-    if (!ab) {
-      this.showToast(`Abono #${id} no encontrado.`, 'warning');
-      return;
-    }
-    if (!confirm(`¿Estás seguro de anular el abono #${id} de ${this.formatCurrency(ab.amount)} a ${ab.supplier}? Si fue en efectivo, el dinero se reintegrará automáticamente a la caja.`)) return;
 
-    const amt = Number(ab.amount) || 0;
-    const isCash = (ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja');
-
-    const suppNorm = (ab.supplier || '').toLowerCase().trim();
-
-    // Revertir deuda en supplierCredits si existe el crédito (priorizando crédito Pendiente si la búsqueda es por proveedor)
-    if (Array.isArray(this.data.supplierCredits)) {
-      const cred = (ab.poId && this.data.supplierCredits.find(c => c.id === ab.poId || c.poId === ab.poId))
-        || this.data.supplierCredits.find(c => suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm && c.status !== 'Pagado Total')
-        || this.data.supplierCredits.find(c => suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm);
-      if (cred) {
-        cred.pendingAmount = Math.round(((Number(cred.pendingAmount) || 0) + amt) * 100) / 100;
-        cred.paidAmount = Math.round(Math.max(0, (Number(cred.paidAmount) || 0) - amt) * 100) / 100;
-        if (cred.pendingAmount > 0) {
-          cred.status = 'Pendiente';
-        }
-      }
-    }
-
-    // Revertir saldo del proveedor
-    const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === suppNorm);
-    if (suppObj) {
-      suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + amt) * 100) / 100;
-    }
-
-    // Revertir pago en la OC específica o amortizar en reversa (LIFO) entre OCs a crédito del proveedor
-    if (Array.isArray(this.data.purchases)) {
-      const directPo = ab.poId ? this.data.purchases.find(p => p.id === ab.poId) : null;
-      if (directPo) {
-        directPo.paidAmount = Math.round(Math.max(0, (Number(directPo.paidAmount) || 0) - amt) * 100) / 100;
-        if (directPo.paidAmount < Number(directPo.total) - 0.01) {
-          directPo.paymentStatus = 'Pendiente';
-        }
-      } else if (suppNorm) {
-        const linkedCredit = (this.data.supplierCredits || []).find(c => c.id === ab.poId || ((c.supplier || '').toLowerCase().trim() === suppNorm));
-        const linkedSet = new Set(Array.isArray(linkedCredit?.purchaseOrderIds) ? linkedCredit.purchaseOrderIds : []);
-        let toRevert = amt;
-        const paidPOs = this.data.purchases
-          .filter(p => (linkedSet.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) && (Number(p.paidAmount) || 0) > 0 && (this.isStoreCreditMethod(p.paymentMethod) || linkedSet.has(p.id)))
-          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        for (const p of paidPOs) {
-          if (toRevert <= 0) break;
-          const pPaid = Number(p.paidAmount) || 0;
-          const rev = Math.min(toRevert, pPaid);
-          p.paidAmount = Math.round((pPaid - rev) * 100) / 100;
-          if (p.paidAmount < (Number(p.total) || 0) - 0.01) {
-            p.paymentStatus = 'Pendiente';
-          }
-          toRevert = Math.round((toRevert - rev) * 100) / 100;
-        }
-      }
-    }
-
-    this.data.abonosCompras = (this.data.abonosCompras || []).filter(a => a.id !== id);
-    this.syncSupplierCreditsState();
-    if (amt > 0) {
-      const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-      if (ab.shiftId && ab.shiftId !== 'EXCLUIDO' && ab.shiftId !== openShiftId) {
-        const histShift = Array.isArray(this.data.cashShiftsHistory)
-          ? this.data.cashShiftsHistory.find(s => s.shiftId === ab.shiftId || s.id === ab.shiftId)
-          : null;
-        if (histShift) {
-          if (isCash) {
-            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amt) * 100) / 100;
-            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (histShift.closingCash !== undefined) {
-              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-            }
-          } else {
-            histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) - amt) * 100) / 100;
-            histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
-          }
-          histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-        }
-        const closedLog = this.data.cashShiftLog;
-        if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === ab.shiftId) {
-          if (isCash) {
-            closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amt) * 100) / 100;
-            closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (closedLog.closingCash !== undefined) {
-              closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amt) * 100) / 100;
-            }
-            if (this.data.store) {
-              this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-            }
-          } else {
-            closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - amt) * 100) / 100;
-            closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-          }
-          closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-        }
-      }
-      if (this.calculateShiftTotals && openShiftId) {
-        this.calculateShiftTotals();
-      }
-    }
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderAbonosComprasTable();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-    this.showToast(`Abono #${id} anulado ${isCash ? 'y dinero reintegrado a caja' : 'y saldo bancario restablecido'}`, 'warning');
+    return this.blockUnsafeOperation('La anulación de pagos a proveedores está suspendida temporalmente. Conserva el comprobante para conciliarlo.');
   }
 
   openAbonoModal(type, id) {
     const abonoEntity = type === 'supplier' ? 'supplier_payment' : 'customer_payment';
-    if (!this.isAdminUser() && !this.canPerformAction('create', abonoEntity)) {
+    if (!this.canPerformAction('create', abonoEntity)) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar pagos o abonos.', 'danger');
       return;
     }
@@ -7358,64 +6637,11 @@ class NexusApp {
     this.openAbonoModal('supplier', deudaId);
   }
 
-  deleteSupplierCredit(deudaId) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para eliminar créditos de proveedores.', 'danger');
-      return;
-    }
-    const credit = (this.data.supplierCredits || []).find(sc => sc.id === deudaId);
-    const supplierName = credit ? credit.supplier : 'este proveedor';
-    const pendingFmt = credit ? this.formatCurrency(credit.pendingAmount || 0) : '';
-    const confirmMsg = `¿Eliminar definitivamente la deuda${pendingFmt ? ' de ' + pendingFmt : ''} con "${supplierName}"?\n\nEsta acción eliminará el registro y saldará el saldo en el directorio de proveedores. No se puede deshacer.`;
-    if (!confirm(confirmMsg)) return;
+  async deleteSupplierCredit(deudaId) {
 
-    // 1. Eliminar el registro de supplierCredits
-    if (Array.isArray(this.data.supplierCredits)) {
-      this.data.supplierCredits = this.data.supplierCredits.filter(sc => sc.id !== deudaId);
-    }
-
-    // 2. Marcar órdenes de compra vinculadas como Pagado Total para evitar resurrección de deuda al sincronizar
-    const remainingCredsForSupp = credit && Array.isArray(this.data.supplierCredits)
-      ? this.data.supplierCredits.filter(sc => sc.supplier?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim() && (Number(sc.pendingAmount) || 0) > 0)
-      : [];
-    if (credit && Array.isArray(this.data.purchases)) {
-      const linkedIds = new Set(Array.isArray(credit.purchaseOrderIds) ? credit.purchaseOrderIds : (credit.poId ? [credit.poId] : []));
-      const suppNorm = (credit.supplier || '').toLowerCase().trim();
-      this.data.purchases.forEach(po => {
-        if (!po) return;
-        const matchesLinked = linkedIds.has(po.id);
-        const matchesSupp = suppNorm && (po.supplier || '').toLowerCase().trim() === suppNorm && remainingCredsForSupp.length === 0;
-        if ((matchesLinked || matchesSupp) && po.paymentStatus !== 'Pagado Total') {
-          po.paidAmount = Number(po.total) || 0;
-          po.paymentStatus = 'Pagado Total';
-        }
-      });
-    }
-
-    // 3. Si el crédito tiene supplierId o nombre, actualizar creditBalance del proveedor
-    if (credit && Array.isArray(this.data.suppliers)) {
-      const supplier = this.data.suppliers.find(s =>
-        (credit.supplierId && s.id === credit.supplierId) ||
-        s.name?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim()
-      );
-      if (supplier) {
-        supplier.creditBalance = remainingCredsForSupp.reduce((s, c) => s + (Number(c.pendingAmount) || 0), 0);
-      }
-    }
-
-    // 3. Guardar y re-renderizar globalmente
-    this.savePersistence().then(() => {
-      this.syncAllModules();
-      this.showToast('Deuda eliminada correctamente. El saldo del proveedor ha sido actualizado.', 'success');
-    }).catch(() => {
-      this.syncAllModules();
-      this.showToast('Deuda eliminada correctamente.', 'success');
-    });
+    return this.blockUnsafeOperation('No se eliminan deudas como si fueran pagos. Registra un abono real; los ajustes históricos requieren conciliación.');
   }
 
-  /* --------------------------------------------------------------------------
-     CHARTS INITIALIZATION WITH SAFE DESTROY
-     -------------------------------------------------------------------------- */
   initCharts() {
     if (typeof Chart === 'undefined') return;
     const contentBody = document.querySelector('.content-body');
@@ -7689,6 +6915,16 @@ class NexusApp {
     
     const dynamicSalesToday = todayTxs.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
     const dynamicTxToday = todayTxs.length;
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const yesterdaySales = (this.data.recentTransactions || []).filter(t => {
+      if (!t || t.status === 'Reversada' || t.status === 'Anulada') return false;
+      const date = this.parseDateSafe(t.date);
+      return date && this.getLocalDateStr(date) === this.getLocalDateStr(yesterday);
+    }).reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const comparison = _q('kpi-sales-comparison');
+    if (comparison) comparison.textContent = `Ayer: ${this.formatCurrency(yesterdaySales)}`;
+    const average = _q('kpi-ticket-average');
+    if (average) average.textContent = `Ticket promedio: ${this.formatCurrency(dynamicTxToday ? dynamicSalesToday / dynamicTxToday : 0)}`;
 
     if (!this.data.kpis) this.data.kpis = {};
     const effectiveSalesToday = dynamicSalesToday;
@@ -11396,6 +10632,18 @@ class NexusApp {
   }
 
   async revertSale(txId) {
+    if (!this.canPerformAction('delete', 'sale')) return this.blockUnsafeOperation('Tu perfil no autoriza reversar ventas.');
+    const candidate = (this.data.recentTransactions || []).find(t => t.id === txId);
+    if (!candidate) return;
+    if (this.data.cashShiftLog?.status !== 'Abierto' || candidate.shiftId !== this.data.cashShiftLog.shiftId) return this.blockUnsafeOperation('Solo se pueden reversar ventas del turno abierto. Las ventas anteriores requieren conciliación.');
+    const hasCredit = this.isStoreCreditMethod(candidate.paymentMethod) || /separe/i.test(candidate.paymentMethod || '') || (candidate.mixedPayments || []).some(p => this.isStoreCreditMethod(p.method));
+    if (hasCredit) return this.blockUnsafeOperation('Las ventas a crédito o plan separe requieren conciliación de abonos antes de reversarse. Esta reversión está suspendida temporalmente.');
+    if (!candidate.items?.length) return this.blockUnsafeOperation('La venta no contiene un detalle verificable de productos. Solicita conciliación.');
+    for (const item of candidate.items) {
+      const exact = this.data.products.find(p => p.id === item.id && String(p.sku) === String(item.sku));
+      if (!exact) return this.blockUnsafeOperation('No se encontró el producto original por ID y SKU. No se devolverá stock a otro producto del mismo nombre.');
+      try { NexusSafety.restoreQuantity(item, exact); } catch (error) { return this.blockUnsafeOperation(error.message); }
+    }
     if (!this.isAdminUser()) {
       this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para reversar ventas.', 'danger');
       return;
@@ -11435,36 +10683,15 @@ class NexusApp {
       const soldQty = Number(item.qty || item.quantity) || 0;
       if (soldQty <= 0) return;
 
-      let prod = null;
-      if (item.id) {
-        prod = (this.data.products || []).find(p => p && p.id === item.id);
-      }
-      if (!prod && item.sku) {
-        const itemSku = String(item.sku).trim().toLowerCase();
-        prod = (this.data.products || []).find(p => p && p.sku && String(p.sku).trim().toLowerCase() === itemSku);
-      }
-      if (!prod && item.name) {
-        const itemName = String(item.name).trim().toLowerCase();
-        const itemCat = String(item.category || item.categoryName || '').trim().toLowerCase();
-        if (itemCat) {
-          prod = (this.data.products || []).find(p => {
-            if (!p || !p.name) return false;
-            const pCat = String(p.category || p.categoryName || '').trim().toLowerCase();
-            return String(p.name).trim().toLowerCase() === itemName && pCat === itemCat;
-          });
-        }
-        if (!prod) {
-          prod = (this.data.products || []).find(p => p && p.name && String(p.name).trim().toLowerCase() === itemName);
-        }
-      }
+      const prod = this.data.products.find(p => p.id === item.id && String(p.sku) === String(item.sku));
 
       if (prod) {
         const isPesaje = (prod.measureType || 'Pesaje') === 'Pesaje';
         const rawItemPw = (item.pieceWeight !== undefined && item.pieceWeight !== null && item.pieceWeight !== '') ? item.pieceWeight : (prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0));
         const pWeight = parseFloat(String(rawItemPw).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const roundScale = (isPesaje && (prod.weightUnit || 'g').toLowerCase() === 'kg') ? 10000 : 1000;
-        const unitsToAdd = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
+        const roundScale = 1000000;
+        const unitsToAdd = NexusSafety.restoreQuantity(item, prod);
 
         prod.stock = Math.round(((Number(prod.stock) || 0) + unitsToAdd) * roundScale) / roundScale;
         const minStock = Number(prod.minStock) || 1;
@@ -12182,7 +11409,7 @@ class NexusApp {
   }
 
   async markPurchaseAsPaid(poId) {
-    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
+    if (!this.canPerformAction('edit', 'purchase')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para marcar compras como pagadas.', 'danger');
       return;
     }
@@ -12628,7 +11855,8 @@ class NexusApp {
      EDICIÓN DE ÓRDENES DE COMPRA Y SALDOS DE PROVEEDORES
      ========================================================================== */
   openEditPurchaseOrderModal(poId, fromSupplierCreditId = '') {
-    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
+    return this.blockUnsafeOperation('La edición de compras existentes está suspendida para conservar pagos y deudas. Puedes registrar compras nuevas y abonos.');
+    if (!this.canPerformAction('edit', 'purchase')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar órdenes de compra.', 'danger');
       return;
     }
@@ -12829,272 +12057,12 @@ class NexusApp {
   }
 
   async saveEditedPurchaseOrder(event) {
-    if (event) event.preventDefault();
-    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar órdenes de compra.', 'danger');
-      return;
-    }
-
-    const poId = document.getElementById('edit-po-id')?.value;
-    const fromCpId = document.getElementById('edit-po-from-cp-id')?.value;
-    const po = (this.data.purchases || []).find(p => p.id === poId);
-    if (!po) {
-      this.showToast('No se encontró la orden de compra para actualizar', 'danger');
-      return;
-    }
-
-    const oldSupplier = (po.supplier || '').trim();
-    const oldSupplierNorm = oldSupplier.toLowerCase();
-    const oldMethod = po.paymentMethod || '';
-    const wasCreditPO = this.isStoreCreditMethod(oldMethod) || (!oldMethod && Number(po.paidAmount || 0) < Number(po.total || 0));
-    const oldQty = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
-    const oldGrams = Number(po.totalGrams) || Number(po.productGrams) || 0;
-    const oldTotal = Math.round(Number(po.total) || 0);
-    const oldPaid = po.paymentStatus === 'Pagado Total' ? oldTotal : Math.min(oldTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
-    const oldPending = Math.max(0, oldTotal - oldPaid);
-
-    const newDate = document.getElementById('edit-po-date')?.value || po.date;
-    const newSupplier = (document.getElementById('edit-po-supplier')?.value || oldSupplier).trim();
-    const newSupplierNorm = newSupplier.toLowerCase();
-    const newProductName = (document.getElementById('edit-po-product-name')?.value || po.productName || '').trim();
-    const newProductSku = (document.getElementById('edit-po-product-sku')?.value || po.productSku || '').trim();
-
-    const newQty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
-    const newGrams = parseFloat(document.getElementById('edit-po-grams')?.value) || 0;
-    const newUnitCost = Math.round(parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0);
-    const adjustStock = Boolean(document.getElementById('edit-po-adjust-stock')?.checked);
-
-    const newTotal = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
-    const statusSelect = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
-    const rawPaid = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-paid')?.value) || 0));
-    const newPaid = statusSelect === 'Pagado Total' ? newTotal : Math.min(newTotal, rawPaid);
-    const newPending = Math.max(0, newTotal - newPaid);
-    const finalPaymentStatus = (newPending <= 0 && newTotal > 0) ? 'Pagado Total' : statusSelect;
-    const syncMode = document.getElementById('edit-po-sync-mode')?.value || 'recalc_all_pos';
-
-    // 1. Si el usuario marcó ajustar stock en inventario y cambió gramaje o cantidad
-    if (adjustStock) {
-      const targetProd = (this.data.products || []).find(p =>
-        (po.productId && p.id === po.productId) ||
-        (newProductSku && p.sku === newProductSku) ||
-        (po.productSku && p.sku === po.productSku)
-      );
-      if (targetProd) {
-        const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
-        const wu = String(targetProd.weightUnit || 'g').toLowerCase();
-        const uFac = !isPesaje ? 1 : (wu === 'kg' ? 1000 : (wu === 'mg' ? 0.001 : ((wu === 'µg' || wu === 'ug') ? 0.000001 : (wu === 'oz' ? 28.3495 : 1))));
-        const deltaStock = isPesaje ? ((newGrams - oldGrams) / uFac) : (newQty - oldQty);
-        if (Math.abs(deltaStock) > 0.00001) {
-          const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-          const precScale = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes(wu)) ? 10000 : 100;
-          targetProd.stock = Math.round(Math.max(0, currentStock + deltaStock) * precScale) / precScale;
-          const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
-          targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
-        }
-        if (newUnitCost > 0) {
-          targetProd.cost = newUnitCost;
-        }
-      }
-    }
-
-    // 2. Actualizar la Orden de Compra y bloquear sobreescritura automática
-    po.date = newDate;
-    po.supplier = newSupplier;
-    if (newProductName) po.productName = newProductName;
-    if (newProductSku) po.productSku = newProductSku;
-    po.quantity = newQty;
-    po.itemsCount = newQty;
-    po.totalGrams = newGrams;
-    po.unitCost = newUnitCost;
-    po.total = newTotal;
-    po.paidAmount = newPaid;
-    po.paymentStatus = finalPaymentStatus;
-    if (finalPaymentStatus === 'Pagado Total' && (!po.paymentMethod || po.paymentMethod === 'Crédito Proveedor')) {
-      const destAccs = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS'];
-      const acc = po.targetAccount || this.data.cashShiftLog?.openingAccount || destAccs[0] || 'CUENTA CHARLES JOYAS SAS';
-      po.paymentMethod = `Transferencia (${acc})`;
-      po.targetAccount = acc;
-    } else if (finalPaymentStatus === 'Pendiente' && newPaid === 0) {
-      po.paymentMethod = 'Crédito Proveedor';
-      po.targetAccount = null;
-    }
-    po.manualTotal = true;
-    po.edited = true;
-    po.updatedAt = new Date().toISOString();
-
-    // 3. Sincronizar saldo del proveedor
-    const updateSupplierBalanceHelper = (suppNorm, mode) => {
-      if (!suppNorm || mode === 'none') return;
-      const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
-      let sumTotal = 0;
-      let sumPaid = 0;
-      let sumPending = 0;
-
-      suppPOs.forEach(p => {
-        const t = Math.round(Number(p.total) || 0);
-        const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
-        const pend = Math.max(0, t - pd);
-        sumTotal += t;
-        sumPaid += pd;
-        sumPending += pend;
-      });
-
-      let suppObj = (this.data.suppliers || []).find(s => (s.name || '').toLowerCase().trim() === suppNorm);
-      let credList = (this.data.supplierCredits || []).filter(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
-
-      let targetPending = sumPending;
-      let targetTotalOwed = sumTotal;
-      let targetPaid = sumPaid;
-
-      if (mode === 'apply_delta') {
-        const currentPending = credList.length > 0
-          ? credList.reduce((acc, c) => acc + (Number(c.pendingAmount) || 0), 0)
-          : (suppObj ? (Number(suppObj.creditBalance) || 0) : 0);
-        const currentTotalOwed = credList.length > 0
-          ? credList.reduce((acc, c) => acc + (Number(c.totalOwed) || 0), 0)
-          : sumTotal;
-        const deltaPending = newPending - oldPending;
-        const deltaTotal = newTotal - oldTotal;
-        targetPending = Math.max(0, Math.round(currentPending + deltaPending));
-        targetTotalOwed = Math.max(targetPending, Math.round(currentTotalOwed + deltaTotal));
-        targetPaid = Math.max(0, targetTotalOwed - targetPending);
-      }
-
-      if (suppObj) {
-        suppObj.creditBalance = targetPending;
-      }
-
-      if (credList.length > 0) {
-        const primary = credList[0];
-        primary.supplier = suppObj ? suppObj.name : (primary.supplier || oldSupplier || newSupplier);
-        primary.totalOwed = targetTotalOwed;
-        primary.paidAmount = targetPaid;
-        primary.pendingAmount = targetPending;
-        primary.status = targetPending > 0 ? 'Pendiente' : 'Pagado Total';
-        primary.purchaseOrderIds = suppPOs.map(p => p.id);
-        // Si había otros registros duplicados para el mismo proveedor, limpiarlos
-        if (credList.length > 1) {
-          const extraIds = new Set(credList.slice(1).map(c => c.id));
-          this.data.supplierCredits = (this.data.supplierCredits || []).filter(c => !extraIds.has(c.id));
-        }
-      } else if (targetPending > 0) {
-        this.data.supplierCredits.push({
-          id: this.getNextSupplierCreditId ? this.getNextSupplierCreditId() : `CP-${Date.now()}`,
-          supplier: suppObj ? suppObj.name : newSupplier,
-          supplierId: suppObj ? suppObj.id : '',
-          totalOwed: targetTotalOwed,
-          paidAmount: targetPaid,
-          pendingAmount: targetPending,
-          date: newDate,
-          lastPurchaseDate: newDate,
-          dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-          status: 'Pendiente',
-          purchaseOrderIds: suppPOs.map(p => p.id)
-        });
-      }
-    };
-
-    if (oldSupplierNorm !== newSupplierNorm) {
-      updateSupplierBalanceHelper(oldSupplierNorm, 'recalc_all_pos');
-      updateSupplierBalanceHelper(newSupplierNorm, syncMode === 'none' ? 'recalc_all_pos' : syncMode);
-    } else {
-      updateSupplierBalanceHelper(newSupplierNorm, syncMode);
-    }
-
-    const deltaPaid = Math.round((newPaid - oldPaid) * 100) / 100;
-    const openShiftIdEdit = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-    if (deltaPaid > 0 && wasCreditPO) {
-      const destAccs = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS'];
-      const payMethodLower = String(po.paymentMethod || '').toLowerCase();
-      const isCashEdit = payMethodLower.includes('efectivo') || String(po.targetAccount || '').toLowerCase().includes('caja');
-      const payAcc = isCashEdit ? 'Caja Mostrador (Efectivo)' : (po.targetAccount || this.data.cashShiftLog?.openingAccount || destAccs[0] || 'CUENTA CHARLES JOYAS SAS');
-      const nowEdit = new Date();
-      if (!this.data.abonosCompras) this.data.abonosCompras = [];
-      this.data.abonosCompras.unshift({
-        id: this.generateSequentialId('AB-C', this.data.abonosCompras),
-        date: this.getLocalDateStr(nowEdit),
-        time: nowEdit.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        timestamp: nowEdit.getTime(),
-        shiftId: openShiftIdEdit || 'EXCLUIDO',
-        supplier: po.supplier,
-        poId: po.id,
-        amount: deltaPaid,
-        method: isCashEdit ? 'Efectivo (Caja)' : (po.paymentMethod || `Transferencia (${payAcc})`),
-        targetAccount: payAcc,
-        cashier: this.currentUser?.name || this.data.store?.cashier || 'Cajero',
-        status: 'Confirmado'
-      });
-    } else if (deltaPaid !== 0 && !wasCreditPO && po.shiftId && po.shiftId !== 'EXCLUIDO' && po.shiftId !== openShiftIdEdit) {
-      const hasLinkedAbono = (this.data.abonosCompras || []).some(a => a && a.poId === po.id);
-      if (!hasLinkedAbono) {
-        const wasCashPo = String(oldMethod || po.paymentMethod || '').toLowerCase().includes('efectivo') || String(po.targetAccount || '').toLowerCase().includes('caja');
-        const histShift = Array.isArray(this.data.cashShiftsHistory)
-          ? this.data.cashShiftsHistory.find(s => s.shiftId === po.shiftId || s.id === po.shiftId)
-          : null;
-        if (histShift) {
-          if (wasCashPo) {
-            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) + deltaPaid) * 100) / 100;
-            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (histShift.closingCash !== undefined) {
-              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-            }
-          } else {
-            histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) + deltaPaid) * 100) / 100;
-            histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
-          }
-          histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-        }
-        const closedLog = this.data.cashShiftLog;
-        if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === po.shiftId) {
-          if (wasCashPo) {
-            closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) + deltaPaid) * 100) / 100;
-            closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (closedLog.closingCash !== undefined) {
-              closedLog.closingCash = Math.round(Math.max(0, (Number(closedLog.closingCash) || 0) - deltaPaid) * 100) / 100;
-            }
-            if (this.data.store) {
-              this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-            }
-          } else {
-            closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) + deltaPaid) * 100) / 100;
-            closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-          }
-          closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-        }
-      }
-    }
-
-    this.syncSupplierCreditsState();
-    if (this.data.kpis) {
-      this.data.kpis.inventoryValue = Math.round((this.data.products || []).reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
-    }
-    this.syncAllCategoryGrams();
-    if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
-      this.calculateShiftTotals();
-    }
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderFinComprasTable();
-    if (typeof this.renderFinCreditosProveedoresTable === 'function') {
-      this.renderFinCreditosProveedoresTable();
-    }
-
-    this.closeModal('edit-purchase-order-modal');
-
-    // Si se abrió desde el detalle de facturas de un proveedor, refrescar ese modal en vivo
-    if (fromCpId) {
-      const updatedCp = (this.data.supplierCredits || []).find(c =>
-        c.id === fromCpId || (c.supplier || '').toLowerCase().trim() === newSupplierNorm
-      );
-      if (updatedCp) {
-        this.viewSupplierCreditPurchases(updatedCp.id);
-      }
-    }
-
-    this.showToast(`Orden #${po.id} actualizada. Saldo de compra: ${this.formatCurrency(newPending)}`, 'success');
+    event?.preventDefault();
+    return this.blockUnsafeOperation('La edición de compras históricas está suspendida temporalmente para conservar saldos y pagos. Las compras nuevas y sus abonos siguen disponibles.');
   }
 
   openEditSupplierCreditModal(cpId) {
+    return this.blockUnsafeOperation('Los ajustes de deuda histórica requieren conciliación. Registra los pagos mediante abonos.');
     if (!this.isAdminUser()) {
       this.showToast('Acceso Denegado: Solo Administradores pueden editar saldos de créditos a proveedores.', 'danger');
       return;
@@ -13191,56 +12159,8 @@ class NexusApp {
   }
 
   async saveEditedSupplierCredit(event) {
-    if (event) event.preventDefault();
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Solo Administradores pueden modificar saldos de proveedores.', 'danger');
-      return;
-    }
-
-    const cpId = document.getElementById('edit-sc-id')?.value;
-    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
-    if (!cp) {
-      this.showToast('No se encontró el registro de crédito del proveedor', 'danger');
-      return;
-    }
-
-    const newTotalOwed = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-total-owed')?.value) || 0));
-    const newPaid = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-paid-amount')?.value) || 0));
-    const newPending = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-pending-amount')?.value) || 0));
-
-    const suppNorm = (cp.supplier || '').toLowerCase().trim();
-    const suppObj = (this.data.suppliers || []).find(s =>
-      (cp.supplierId && s.id === cp.supplierId) ||
-      (s.name || '').toLowerCase().trim() === suppNorm
-    );
-    if (suppObj) {
-      suppObj.creditBalance = newPending;
-    }
-
-    cp.totalOwed = Math.max(newTotalOwed, newPending);
-    cp.paidAmount = newPaid;
-    cp.pendingAmount = newPending;
-    cp.status = newPending > 0 ? 'Pendiente' : 'Pagado Total';
-
-    this.syncSupplierCreditsState();
-    await this.savePersistence();
-    this.syncAllModules();
-    if (typeof this.renderFinCreditosProveedoresTable === 'function') {
-      this.renderFinCreditosProveedoresTable();
-    }
-
-    this.closeModal('edit-supplier-credit-modal');
-
-    // Si estaba abierto el modal de facturas del proveedor, refrescarlo
-    const purchasesModal = document.getElementById('supplier-credit-purchases-modal');
-    if (purchasesModal && purchasesModal.classList.contains('active')) {
-      const updatedCp = (this.data.supplierCredits || []).find(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
-      if (updatedCp) {
-        this.viewSupplierCreditPurchases(updatedCp.id);
-      }
-    }
-
-    this.showToast(`Saldo de ${cp.supplier} actualizado a ${this.formatCurrency(newPending)}`, 'success');
+    event?.preventDefault();
+    return this.blockUnsafeOperation('La edición manual de deudas está suspendida temporalmente. Registra pagos mediante abonos para conservar su trazabilidad.');
   }
 
   renderInvServiciosTable() {
@@ -16482,6 +15402,7 @@ class NexusApp {
   }
 
   async submitCashShiftOpen() {
+    if (this.data.cashShiftLog?.status === 'Abierto') return this.blockUnsafeOperation('Ya existe un turno abierto. Ciérralo antes de abrir otro.');
     if (!this.canPerformAction('create', 'cuadre_caja')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para aperturar turnos de caja.', 'danger');
       return;
@@ -16536,7 +15457,7 @@ class NexusApp {
   }
 
   openCashCloseModal() {
-    if (!this.isAdminUser() && !this.canPerformAction('create', 'cuadre_caja')) {
+    if (!this.canPerformAction('create', 'cuadre_caja')) {
       this.showToast('Acceso Denegado: Tu rol es de solo lectura en Arqueo de Caja.', 'danger');
       return;
     }
@@ -18164,6 +17085,8 @@ class NexusApp {
   }
 
   calculateTransactionItemCOGS(it) {
+    const historical = NexusSafety.historicalCost(it || {});
+    if (historical !== null) return Math.round(historical);
     if (!it) return 0;
     const p = (this.data.products || []).find(prod => (it.id && prod.id === it.id) || (it.sku && prod.sku === it.sku) || (it.name && prod.name === it.name));
     const cat = p ? this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName) : null;
@@ -26976,7 +25899,7 @@ class NexusApp {
         suggestedAction = 'Recordatorio preventivo de vencimiento próximo';
       }
 
-      const operationType = cc.status === 'Plan Separe' ? 'Plan Separe' : 'Crédito Directo';
+      const operationType = cc.status === 'Plan Separe' || cc.operationType === 'Plan Separe' || String(cc.id || '').startsWith('SEP-') ? 'Plan Separe' : 'Crédito Directo';
       const key = cc.id || `${cc.customer}_${index}`;
 
       creditMap.set(key, {
@@ -28198,7 +27121,7 @@ class NexusApp {
   }
 
   async promptSetProductPrice(productId) {
-    if (!this.canPerformAction('edit', 'product') && !this.isAdminUser()) {
+    if (!this.canPerformAction('edit', 'product')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar precios de productos.', 'danger');
       return;
     }
@@ -29607,7 +28530,7 @@ class NexusApp {
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
-    const maxAvailableQty = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
+    const maxAvailableQty = isUnitWithWeight ? NexusSafety.round(stockNum * pWeight) : stockNum;
 
     const elId = document.getElementById('pos-add-product-id');
     const elName = document.getElementById('pos-add-product-name');
@@ -29691,7 +28614,7 @@ class NexusApp {
 
     if (elCost) {
       if (unitReplacementCost > 0) {
-        elCost.textContent = `${this.formatCurrency(unitReplacementCost)} / u.`;
+        elCost.textContent = `${this.formatCurrency(unitReplacementCost)} / ${isPesaje ? (p.weightUnit || 'g') : 'u.'}`;
         elCost.style.color = '#D97706';
         if (elCostSub) {
           if (isUnitWithWeight) {
@@ -30009,7 +28932,7 @@ class NexusApp {
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const maxStock = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(stockNum * pWeight) : stockNum;
     const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
 
     if (qty <= 0) {
@@ -30062,8 +28985,8 @@ class NexusApp {
     const pWeight = parseFloat(String(product.pieceWeight !== undefined && product.pieceWeight !== null ? product.pieceWeight : (product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
-    const maxStock = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
-    const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(stockNum * pWeight) : stockNum;
+    const roundPrec = 1000000;
 
     const existing = this.cart.find(item => item.product.id === productId);
     const hasCustomPrice = customPrice !== null && customPrice !== undefined && !isNaN(Number(customPrice)) && Number(customPrice) > 0;
@@ -30127,8 +29050,8 @@ class NexusApp {
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (cartItem.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStockUnits = parseFloat(String(cartItem.product.stock || 0).replace(',', '.')) || 0;
-    const maxStock = isUnitWithWeight ? Math.round(maxStockUnits * pWeight * 100) / 100 : maxStockUnits;
-    const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((cartItem.product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(maxStockUnits * pWeight) : maxStockUnits;
+    const roundPrec = 1000000;
 
     let step = 1;
     if (isPesaje) {
@@ -30160,8 +29083,8 @@ class NexusApp {
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (cartItem.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStockUnits = parseFloat(String(cartItem.product.stock || 0).replace(',', '.')) || 0;
-    const maxStock = isUnitWithWeight ? Math.round(maxStockUnits * pWeight * 100) / 100 : maxStockUnits;
-    const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((cartItem.product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(maxStockUnits * pWeight) : maxStockUnits;
+    const roundPrec = 1000000;
 
     let val = this.parseCleanNumber(rawValue);
     if (isNaN(val) || val <= 0) {
@@ -30191,6 +29114,8 @@ class NexusApp {
     const taxEl = document.getElementById('cart-tax');
     const totalEl = document.getElementById('cart-total');
     const openCheckoutBtn = document.getElementById('open-checkout-btn');
+    const taxLabel = document.getElementById('cart-tax-label');
+    if (taxLabel) taxLabel.textContent = `Impuesto (IVA ${Number(this.data.store?.taxRate) || 0}%)`;
 
     if (!container) return;
 
@@ -31023,7 +29948,7 @@ class NexusApp {
         const isPesaje = (liveProd.measureType || 'Pesaje') === 'Pesaje';
         const pWeight = parseFloat(String(liveProd.pieceWeight !== undefined && liveProd.pieceWeight !== null ? liveProd.pieceWeight : (liveProd.weight || 0)).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const unitsToDeduct = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
+        const unitsToDeduct = isUnitWithWeight ? (NexusSafety.round(soldQty / pWeight)) : soldQty;
         const nextAccum = Math.round(((requestedUnitsByProdId.get(liveProd.id) || 0) + unitsToDeduct) * 10000) / 10000;
         requestedUnitsByProdId.set(liveProd.id, nextAccum);
         const availStock = parseFloat(String(liveProd.stock || 0).replace(',', '.')) || 0;
@@ -31171,6 +30096,10 @@ class NexusApp {
         || (this.selectedPayMethod === 'card' && cust.allowedPaymentMethods.includes('Tarjeta Débito/Crédito'))
         || (this.selectedPayMethod === 'mixed' && (cust.allowedPaymentMethods.includes('Efectivo') || cust.allowedPaymentMethods.includes('Transferencia') || cust.allowedPaymentMethods.includes('Tarjeta'))))
       : true;
+    if (cust && this.selectedPayMethod === 'mixed' && mixedPaymentsData && !cust.allowedPaymentMethods?.includes('Pago Mixto')) {
+      const disallowed = mixedPaymentsData.some(p => !cust.allowedPaymentMethods?.includes(p.method) && !(p.method === 'Tarjeta' && cust.allowedPaymentMethods?.includes('Tarjeta Débito/Crédito')));
+      if (disallowed) throw new Error('Una de las formas de pago mixto no está autorizada para este cliente.');
+    }
     if (!isMethodAllowedForCust) {
       this.showToast(`El método de pago "${payMethodName}" no está habilitado para el cliente ${cust.name}.`, 'warning');
       return;
@@ -31221,10 +30150,10 @@ class NexusApp {
         const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
         const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const roundScale = (isPesaje && (p.weightUnit || 'g').toLowerCase() === 'kg') ? 10000 : 1000;
-        const unitsToDeduct = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
+        const roundScale = 1000000;
+        const unitsToDeduct = isUnitWithWeight ? (NexusSafety.round(soldQty / pWeight)) : soldQty;
         p.stock = Math.round(((Number(p.stock) || 0) - unitsToDeduct) * roundScale) / roundScale;
-        if (p.stock <= 0.0001) {
+        if (p.stock <= 0) {
           p.stock = 0;
           p.status = 'out_of_stock';
         } else if (p.stock <= (Number(p.minStock) || 0)) {
@@ -31281,7 +30210,7 @@ class NexusApp {
       if (cust) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + grandTotal) * 100) / 100;
         let existing = (this.data.customerCredits || []).find(cr =>
-          cr.customer === cust.name && cr.status !== 'Plan Separe' && cr.status !== 'Anulado'
+          cr.customer === cust.name && cr.operationType !== 'Plan Separe' && !String(cr.id || '').startsWith('SEP-') && cr.status !== 'Plan Separe' && cr.status !== 'Anulado'
         );
         if (existing) {
           if (!Array.isArray(existing.mergedTxIds)) {
@@ -31316,6 +30245,7 @@ class NexusApp {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + separePending) * 100) / 100;
         this.data.customerCredits.unshift({
           id: this.generateSequentialId('SEP', this.data.customerCredits),
+          operationType: 'Plan Separe',
           txId: newTxId,
           customer: cust.name,
           totalGranted: grandTotal,
@@ -31355,6 +30285,8 @@ class NexusApp {
           measureType: i.product?.measureType || 'Pesaje',
           pieceWeight: pWeight,
           cost: Number(i.product?.cost) || 0,
+          costUnit: i.product?.weightUnit || 'g',
+          cogsTotal: Math.round((Number(i.product?.cost) || 0) * i.qty),
           catalogPrice: Number(i.product?.price) || 0,
           category: i.product?.category || '',
           categoryName: i.product?.categoryName || '',
