@@ -65,12 +65,12 @@ class NexusApp {
     ];
 
     try {
-      const cached = localStorage.getItem('nexus_pos_data');
-      if (cached && !localStorage.getItem('nexus_pos_legacy_recovery')) {
+      const cached = this.readBrowserStorage('nexus_pos_data');
+      if (cached && !this.readBrowserStorage('nexus_pos_legacy_recovery')) {
         const recovery = JSON.parse(cached);
         (recovery.users || []).forEach(u => { delete u.password; delete u.passwordHash; });
         if (recovery.store) delete recovery.store.deepseekApiKey;
-        localStorage.setItem('nexus_pos_legacy_recovery', JSON.stringify({ capturedAt:new Date().toISOString(), data:recovery }));
+        this.writeBrowserStorage('nexus_pos_legacy_recovery', JSON.stringify({ capturedAt:new Date().toISOString(), data:recovery }));
       }
     } catch (_) {}
     this.installOperationGuards();
@@ -142,7 +142,7 @@ class NexusApp {
     }
     const legacyCosts = (this.data.recentTransactions || []).some(t => t.status !== 'Reversada' && (t.items || []).some(i => NexusSafety.historicalCost(i) === null));
     notice.replaceChildren();
-    const pending=localStorage.getItem('nexus_pending_command');
+    const pending=this.getPendingFinancialCommand();
     notice.hidden = !this._requiresRefresh && !legacyCosts && !pending;
     if (notice.hidden) return;
     const text = document.createElement('span');
@@ -241,37 +241,53 @@ class NexusApp {
     });
   }
 
+  readBrowserStorage(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
+
+  writeBrowserStorage(key,value) { try { localStorage.setItem(key,value); return true; } catch (_) { return false; } }
+
+  removeBrowserStorage(key) { try { localStorage.removeItem(key); return true; } catch (_) { return false; } }
+
+  getPendingFinancialCommand() {
+    if(this._pendingFinancialCommand!==undefined)return this._pendingFinancialCommand;
+    try { const pending=JSON.parse(this.readBrowserStorage('nexus_pending_command')||'null');return pending&&typeof pending.operationId==='string'&&typeof pending.type==='string'&&pending.args&&typeof pending.args==='object'?pending:null; } catch (_) { return null; }
+  }
+
+  setPendingFinancialCommand(command) {
+    this._pendingFinancialCommand=command;
+    if(command)this.writeBrowserStorage('nexus_pending_command',JSON.stringify(command));else this.removeBrowserStorage('nexus_pending_command');
+  }
+
   async executeFinancialOperation(type,args,existingId=null) {
     const operationId=existingId || crypto.randomUUID();
-    const pending=JSON.parse(localStorage.getItem('nexus_pending_command')||'null');
+    const pending=this.getPendingFinancialCommand();
     if(pending&&pending.operationId!==operationId)throw new Error('Revisa la operación pendiente antes de iniciar otra operación financiera.');
     const body={type,args,operationId,actorId:this.currentUser?.id,baseUpdatedAt:this._lastServerUpdatedAt};
     try {
-      localStorage.setItem('nexus_pending_command',JSON.stringify(body));
+      this.setPendingFinancialCommand(body);
       const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
       const result=await res.json();
       if(!res.ok||!result.success)throw Object.assign(new Error(result.error || 'El servidor no confirmó la operación.'),{status:res.status,code:result.code});
       this.data=result.data;this._lastServerUpdatedAt=result.updatedAt;this._confirmedData=JSON.parse(JSON.stringify(result.data));
       this._requiresRefresh=false;
       this.currentUser=this.data.users.find(u=>u.id===this.currentUser?.id)||this.currentUser;
-      localStorage.removeItem('nexus_pending_command');
-      try{localStorage.setItem('nexus_pos_data',JSON.stringify(this.data));}catch(_){}
+      this.setPendingFinancialCommand(null);
+      try{this.writeBrowserStorage('nexus_pos_data',JSON.stringify(this.data));}catch(_){}
       this.sanitizeLoadedData();this.syncAllModules();this.renderCart();this.updateSafetyNotice();
       return result;
     }catch(error){
-      if(error.status&&error.status<500&&error.status!==409){localStorage.removeItem('nexus_pending_command');throw error;}
+      if(error.status&&error.status<500&&error.status!==409){this.setPendingFinancialCommand(null);throw error;}
       this._requiresRefresh=true;error.saveFailed=true;throw error;
     }
   }
 
   async reviewPendingOperation() {
     try {
-      const command=JSON.parse(localStorage.getItem('nexus_pending_command')||'null');if(!command)return;
+      const command=this.getPendingFinancialCommand();if(!command)return;
       await this.loadPersistence();
       if(command.actorId&&command.actorId!==this.currentUser?.id)throw new Error('La operación pendiente pertenece a otro usuario. Debe revisarla con su sesión original.');
       const applied=(this.data.financialLedger||[]).find(x=>x.operationId===command.operationId);
-      if(applied){localStorage.removeItem('nexus_pending_command');this.showToast('La operación ya estaba guardada. No se repetirá.','success');this.updateSafetyNotice();return;}
-      if(!confirm('La operación '+command.type+' no aparece guardada. ¿Reintentar exactamente la misma operación después de revisar el historial?')){if(confirm('¿Descartar solamente este intento local no guardado? No se modificarán los registros del servidor.')){localStorage.removeItem('nexus_pending_command');this.updateSafetyNotice();}return;}
+      if(applied){this.setPendingFinancialCommand(null);this.showToast('La operación ya estaba guardada. No se repetirá.','success');this.updateSafetyNotice();return;}
+      if(!confirm('La operación '+command.type+' no aparece guardada. ¿Reintentar exactamente la misma operación después de revisar el historial?')){if(confirm('¿Descartar solamente este intento local no guardado? No se modificarán los registros del servidor.')){this.setPendingFinancialCommand(null);this.updateSafetyNotice();}return;}
       await this.runMutation(()=>this.executeFinancialOperation(command.type,command.args,command.operationId));
     }catch(error){this.showToast(error.message,'danger');}
   }
@@ -429,6 +445,10 @@ class NexusApp {
   formatNumberWithCommas(val, allowDecimals = false) {
     if (val === null || val === undefined || val === '') return '';
     let raw = String(val).trim();
+    if(!allowDecimals){
+      raw=raw.replace(/^(?:COP\s*|\$\s*)/i,'').replace(/\s*COP$/i,'').trim();
+      if(/^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(raw))raw=raw.replace(/\./g,'').replace(',','.');
+    }
     if (allowDecimals && !raw.includes('.') && raw.includes(',')) {
       const commaParts = raw.split(',');
       if (commaParts.length === 2 && (commaParts[1].length !== 3 || commaParts[0] === '0' || commaParts[1] === '')) {
@@ -844,7 +864,7 @@ class NexusApp {
       const me = this.data.users.find(u => u && u.email && this.currentUser.email && u.email.toLowerCase() === this.currentUser.email.toLowerCase());
       if (me && this.currentUser.id !== me.id) {
         this.currentUser.id = me.id;
-        try { localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (e) {}
+        try { this.writeBrowserStorage('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (e) {}
       }
     }
   }
@@ -1051,7 +1071,7 @@ class NexusApp {
     this._hasUnsavedLocalChanges = false;
     this._requiresRefresh = false;
     this.sanitizeLoadedData();
-    localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
+    this.writeBrowserStorage('nexus_pos_data', JSON.stringify(this.data));
     this.updateSafetyNotice();
   }
 
@@ -1233,16 +1253,17 @@ class NexusApp {
       this._confirmedData = JSON.parse(JSON.stringify(this.data));
       this._hasUnsavedLocalChanges = false;
       if (result.users) this.currentUser = result.users.find(u => u.id === this.currentUser.id) || null;
-      try { localStorage.setItem('nexus_pos_data', JSON.stringify(this.data)); } catch (_) {}
+      try { this.writeBrowserStorage('nexus_pos_data', JSON.stringify(this.data)); } catch (_) {}
       return true;
     } catch (error) {
+      if([400,403,413,422].includes(error.status)){this._hasUnsavedLocalChanges=false;throw error;}
       this._requiresRefresh = true;
       this._hasUnsavedLocalChanges = false;
       // Preserve evidence separately; never replay a full stale snapshot on reconnect.
       try {
         const pending = JSON.parse(JSON.stringify(this.data));
         pending.users = (pending.users || []).map(u => { delete u.password; delete u.passwordHash; return u; });
-        localStorage.setItem('nexus_pos_pending_operation', JSON.stringify({ capturedAt: new Date().toISOString(), baseUpdatedAt: this._lastServerUpdatedAt, data: pending }));
+        this.writeBrowserStorage('nexus_pos_pending_operation', JSON.stringify({ capturedAt: new Date().toISOString(), baseUpdatedAt: this._lastServerUpdatedAt, data: pending }));
       } catch (_) {}
       error.saveFailed = true;
       throw error;
@@ -1309,7 +1330,7 @@ class NexusApp {
   }
 
   checkTheme() {
-    const savedTheme = localStorage.getItem('nexus_pos_theme');
+    const savedTheme = this.readBrowserStorage('nexus_pos_theme');
     let theme = savedTheme;
     if (!theme) {
       theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
@@ -1320,7 +1341,7 @@ class NexusApp {
   setTheme(theme) {
     this.currentTheme = theme;
     document.documentElement.setAttribute('data-theme', theme);
-    try { localStorage.setItem('nexus_pos_theme', theme); } catch (_) {}
+    try { this.writeBrowserStorage('nexus_pos_theme', theme); } catch (_) {}
 
     const sunIcon = document.getElementById('theme-sun-icon');
     const moonIcon = document.getElementById('theme-moon-icon');
@@ -1371,7 +1392,7 @@ class NexusApp {
 
   getReceiptPrintProfile() {
     try {
-      return localStorage.getItem('nexus_receipt_print_profile') || 'ipad_80mm';
+      return this.readBrowserStorage('nexus_receipt_print_profile') || 'ipad_80mm';
     } catch (_) {
       return 'ipad_80mm';
     }
@@ -1379,7 +1400,7 @@ class NexusApp {
 
   onReceiptPrintProfileChange(profile) {
     try {
-      localStorage.setItem('nexus_receipt_print_profile', profile || 'ipad_80mm');
+      this.writeBrowserStorage('nexus_receipt_print_profile', profile || 'ipad_80mm');
     } catch (_) {}
   }
 
@@ -1594,8 +1615,8 @@ class NexusApp {
       if (res.ok) { const { user } = await res.json(); await this.loginUser(user); return; }
     } catch (_) {}
     this.currentUser = null;
-    localStorage.removeItem('nexus_pos_user');
-    localStorage.removeItem('nexus_pos_data');
+    this.removeBrowserStorage('nexus_pos_user');
+    this.removeBrowserStorage('nexus_pos_data');
     document.body.classList.add('not-authenticated');
     const overlay = document.getElementById('login-screen');
     if (overlay) { overlay.classList.add('active'); overlay.style.display='flex'; }
@@ -1655,7 +1676,7 @@ class NexusApp {
     await this.loadPersistence();
     this.currentUser = this.data.users.find(u => u.id === user.id);
     if (!this.currentUser) throw new Error('La cuenta no está disponible.');
-    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
+    this.writeBrowserStorage('nexus_pos_user', JSON.stringify(this.currentUser));
     document.body.classList.remove('not-authenticated');
     const overlay=document.getElementById('login-screen');
     if(overlay){overlay.classList.remove('active');overlay.style.display='none';}
@@ -1675,8 +1696,8 @@ class NexusApp {
     this.currentSubView = null;
     this.cart = [];
     delete this._adminTargetUserPassword;
-    localStorage.removeItem('nexus_pos_user');
-    localStorage.removeItem('nexus_pos_data');
+    this.removeBrowserStorage('nexus_pos_user');
+    this.removeBrowserStorage('nexus_pos_data');
     document.body.classList.add('not-authenticated');
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
@@ -2541,7 +2562,7 @@ class NexusApp {
 
           if (this.currentUser && this.currentUser.id === u.id) {
             this.currentUser = u;
-            localStorage.setItem('nexus_pos_user', JSON.stringify(u));
+            this.writeBrowserStorage('nexus_pos_user', JSON.stringify(u));
             this.updateUIForRole();
             this.ensurePermittedView();
           }
@@ -20665,19 +20686,19 @@ class NexusApp {
       dateStr,
       timeStr,
       partyName: tx.customer || 'Cliente Mostrador',
-      partyDocument: cust?.document || tx.customerDoc || '',
-      partyDocType: cust?.docType || tx.customerDocType || 'CC',
-      partyAddress: cust?.address || tx.customerAddress || '',
-      partyPhone: cust?.phone || tx.customerPhone || '',
+      partyDocument: tx.customerDoc ?? cust?.document ?? '',
+      partyDocType: tx.customerDocType ?? cust?.docType ?? 'CC',
+      partyAddress: tx.customerAddress ?? cust?.address ?? '',
+      partyPhone: tx.customerPhone ?? cust?.phone ?? '',
       agentName: tx.cashier || this.data.store?.cashier || 'Cajero',
       items: ticketItems,
       subtotal: tx.subtotal || Math.abs(tx.total),
       tax: tx.tax || 0,
       total: Math.abs(tx.total),
-      paidAmount: (Number(tx.separeAbono) || 0) > 0
+      paidAmount: tx.receivedAmount ?? ((Number(tx.separeAbono) || 0) > 0
         ? Number(tx.separeAbono)
-        : ((tx.paymentMethod || '') === 'Crédito' ? 0 : (tx.totalChargedToCustomer || Math.abs(tx.total))),
-      changeAmount: 0,
+        : ((tx.paymentMethod || '') === 'Crédito' ? 0 : (tx.totalChargedToCustomer || Math.abs(tx.total)))),
+      changeAmount: Number(tx.changeAmount)||0,
       bankFeePercent: tx.bankFeePercent || 0,
       bankFeeAmount: tx.bankFeeAmount || 0,
       totalChargedToCustomer: tx.totalChargedToCustomer || Math.abs(tx.total),
@@ -20687,7 +20708,7 @@ class NexusApp {
       mixedPayments: tx.mixedPayments,
       targetAccount: tx.targetAccount || (tx.paymentMethod && tx.paymentMethod.includes('(') ? tx.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : ''),
       voucher: tx.voucher || '',
-      customerCreditBalance: cust?.creditBalance
+      customerCreditBalance: tx.customerCreditBalanceAtSale ?? cust?.creditBalance
     });
 
     const modalTitle = document.getElementById('receipt-modal-title');
@@ -25178,7 +25199,7 @@ class NexusApp {
   sortRadarStock(order) {
     this.radarSortOrder = order || 'codigo_asc';
     try {
-      localStorage.setItem('nexus_radar_sort', this.radarSortOrder);
+      this.writeBrowserStorage('nexus_radar_sort', this.radarSortOrder);
     } catch (_) {}
     this.renderRadarStock();
   }
@@ -25186,7 +25207,7 @@ class NexusApp {
   getRadarSortOrder() {
     if (!this.radarSortOrder) {
       try {
-        const stored = localStorage.getItem('nexus_radar_sort');
+        const stored = this.readBrowserStorage('nexus_radar_sort');
         // Migrate legacy default 'stock_asc' to requested 'codigo_asc' so it's always consecutive by default
         this.radarSortOrder = (stored && stored !== 'stock_asc') ? stored : 'codigo_asc';
       } catch (_) {
@@ -26401,7 +26422,7 @@ class NexusApp {
   }
 
   getCartSubtotal() {
-    return this.cart.reduce((sum, item) => sum + (this.getCartItemPrice(item) * (Number(item.qty) || 0)), 0);
+    return this.cart.reduce((sum, item) => sum + Math.round(this.getCartItemPrice(item) * (Number(item.qty) || 0)), 0);
   }
 
   getCartGrandTotal() {
@@ -27123,7 +27144,7 @@ class NexusApp {
       `;
     }).join('');
 
-    const roundedSubtotal = Math.round(subtotal);
+    const roundedSubtotal = Math.round(this.getCartSubtotal());
     const tax = Math.round(roundedSubtotal * ((Number(this.data.store?.taxRate) || 0) / 100));
     const grandTotal = roundedSubtotal + tax;
 
@@ -27821,7 +27842,7 @@ class NexusApp {
       const requestedUnitsByProdId = new Map();
       for (const cartItem of this.cart) {
         const pPrice = this.getCartItemPrice(cartItem);
-        if (isNaN(pPrice) || pPrice <= 0) {
+        if (!Number.isFinite(pPrice) || pPrice <= 0) {
           this.showToast(`El producto "${cartItem.product?.name || ''}" tiene precio $0. Define un precio de venta antes de cobrar.`, 'warning');
           return;
         }
@@ -27835,7 +27856,7 @@ class NexusApp {
           return;
         }
         const soldQty = Number(cartItem.qty) || 0;
-        if (soldQty <= 0) {
+        if (!Number.isFinite(soldQty) || soldQty <= 0) {
           this.showToast(`Cantidad inválida para "${liveProd.name}".`, 'warning');
           return;
         }
@@ -27843,10 +27864,10 @@ class NexusApp {
         const pWeight = parseFloat(String(liveProd.pieceWeight !== undefined && liveProd.pieceWeight !== null ? liveProd.pieceWeight : (liveProd.weight || 0)).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
         const unitsToDeduct = isUnitWithWeight ? (NexusSafety.round(soldQty / pWeight)) : soldQty;
-        const nextAccum = Math.round(((requestedUnitsByProdId.get(liveProd.id) || 0) + unitsToDeduct) * 10000) / 10000;
+        const nextAccum = NexusSafety.round((requestedUnitsByProdId.get(liveProd.id) || 0) + unitsToDeduct);
         requestedUnitsByProdId.set(liveProd.id, nextAccum);
         const availStock = parseFloat(String(liveProd.stock || 0).replace(',', '.')) || 0;
-        if (nextAccum > availStock + 0.0001) {
+        if (nextAccum > availStock + 0.000001) {
           this.showToast(`Stock insuficiente para "${liveProd.name}". Disponible: ${availStock}, solicitado: ${nextAccum}.`, 'danger');
           return;
         }
@@ -27856,6 +27877,7 @@ class NexusApp {
       const subtotal = Math.round(this.getCartSubtotal());
       const tax = Math.round(subtotal * ((Number(this.data.store?.taxRate) || 0) / 100));
       const grandTotal = subtotal + tax;
+      if(!Number.isFinite(grandTotal)||grandTotal<=0){this.showToast('El total de la venta debe ser mayor a $0. Revisa cantidades y precios.','warning');return;}
 
     const selectedCustomer = document.getElementById('checkout-customer-select')?.value || "Cliente Mostrador";
     const isMostrador = selectedCustomer === 'Cliente Mostrador';
@@ -27914,13 +27936,13 @@ class NexusApp {
     } else if (this.selectedPayMethod === 'mixed') {
       const mAmount1 = this.parseCleanNumber(document.getElementById('mixed-amount-1')?.value);
       const mAmount2 = this.parseCleanNumber(document.getElementById('mixed-amount-2')?.value);
-      const mTotal = Math.round(mAmount1 + mAmount2);
+      const mTotal = NexusLedger.money(mAmount1 + mAmount2);
 
-      if (mAmount1 <= 0 || mAmount2 <= 0) {
+      if (!Number.isFinite(mAmount1)||!Number.isFinite(mAmount2)||mAmount1 <= 0 || mAmount2 <= 0) {
         this.showToast('En Pago Mixto ambas partes deben ser mayores a $0.', 'warning');
         return;
       }
-      if (Math.abs(mTotal - grandTotal) > 1) {
+      if (Math.abs(mTotal - grandTotal) > 0.01) {
         this.showToast(`La suma del pago mixto (${this.formatCurrency(mTotal)}) no coincide con el total de la venta (${this.formatCurrency(grandTotal)}).`, 'warning');
         return;
       }
@@ -28067,10 +28089,7 @@ class NexusApp {
     // Sincronizar automáticamente disponibilidad de gramos en todas las categorías tras la venta
     this.syncAllCategoryGrams();
 
-    let newTxId;
-    do {
-      newTxId = `TX-${Math.floor(89000 + Math.random() * 10000)}`;
-    } while ((this.data.recentTransactions || []).some(t => t.id === newTxId));
+    const newTxId=this.generateSequentialId('TX',this.data.recentTransactions);
     
     let separeAbono = 0;
     let separePending = 0;
@@ -28135,7 +28154,7 @@ class NexusApp {
         this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
         if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
-      if (cust && separePending > 0) {
+      if (cust) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + separePending) * 100) / 100;
         this.data.customerCredits.unshift({
           id: this.generateSequentialId('SEP', this.data.customerCredits),
@@ -28145,7 +28164,7 @@ class NexusApp {
           totalGranted: grandTotal,
           currentBalance: separePending,
           dueDate: new Date(Date.now() + 45 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          status: 'Plan Separe'
+          status: separePending>0?'Plan Separe':'Saldado'
         });
       }
     }
@@ -28259,6 +28278,9 @@ class NexusApp {
       }
     }
 
+    newTx.receivedAmount=cashReceived;
+    newTx.changeAmount=changeVal;
+    newTx.customerCreditBalanceAtSale=Number(cust?.creditBalance||0);
     const receiptHtml = this.buildThermalTicketHtml({
       type: 'venta',
       txId: newTxId,
@@ -28266,6 +28288,7 @@ class NexusApp {
       timeStr: newTx.time,
       partyName: selectedCustomer,
       partyDocument: cust?.document || '',
+      partyDocType: newTx.customerDocType,
       partyAddress: cust?.address || '',
       partyPhone: cust?.phone || '',
       agentName: newTx.cashier,
@@ -28598,8 +28621,8 @@ class NexusApp {
     try {
       if (this.data?.store?.deepseekApiKey) {
         try {
-          if (!localStorage.getItem('nexus_deepseek_key')) {
-            localStorage.setItem('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
+          if (!this.readBrowserStorage('nexus_deepseek_key')) {
+            this.writeBrowserStorage('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
           }
         } catch (_) {}
         delete this.data.store.deepseekApiKey;
@@ -28608,7 +28631,7 @@ class NexusApp {
       if (res.ok) {
         const data = await res.json();
         let hasSavedLocal = false;
-        try { hasSavedLocal = !!localStorage.getItem('nexus_deepseek_key'); } catch (_) {}
+        try { hasSavedLocal = !!this.readBrowserStorage('nexus_deepseek_key'); } catch (_) {}
         const statusDot = document.getElementById('nexus-ai-status-dot');
         const statusText = document.getElementById('nexus-ai-status-text');
         if (data.hasApiKey || hasSavedLocal) {
@@ -28679,14 +28702,14 @@ class NexusApp {
     if (!modal) return;
     if (this.data.store?.deepseekApiKey) {
       try {
-        if (!localStorage.getItem('nexus_deepseek_key')) {
-          localStorage.setItem('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
+        if (!this.readBrowserStorage('nexus_deepseek_key')) {
+          this.writeBrowserStorage('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
         }
       } catch (_) {}
       delete this.data.store.deepseekApiKey;
     }
     let currentKey = '';
-    try { currentKey = localStorage.getItem('nexus_deepseek_key') || ''; } catch (_) {}
+    try { currentKey = this.readBrowserStorage('nexus_deepseek_key') || ''; } catch (_) {}
     const input = document.getElementById('nexus-ai-api-key-input');
     if (input) input.value = currentKey;
     modal.classList.add('open');
@@ -28706,10 +28729,10 @@ class NexusApp {
     const key = (input?.value || '').trim();
     if (this.data.store) delete this.data.store.deepseekApiKey;
     if (!key) {
-      try { localStorage.removeItem('nexus_deepseek_key'); } catch (_) {}
+      try { this.removeBrowserStorage('nexus_deepseek_key'); } catch (_) {}
       this.showToast('API Key de DeepSeek removida', 'warning');
     } else {
-      try { localStorage.setItem('nexus_deepseek_key', key); } catch (_) {}
+      try { this.writeBrowserStorage('nexus_deepseek_key', key); } catch (_) {}
       this.showToast('✨ API Key de DeepSeek guardada localmente en este navegador');
     }
 
@@ -28847,10 +28870,10 @@ class NexusApp {
     }
     this.showAiTyping(true);
     let apiKey = '';
-    try { apiKey = localStorage.getItem('nexus_deepseek_key') || ''; } catch (_) {}
+    try { apiKey = this.readBrowserStorage('nexus_deepseek_key') || ''; } catch (_) {}
     if (!apiKey && this.data.store?.deepseekApiKey) {
       apiKey = String(this.data.store.deepseekApiKey);
-      try { localStorage.setItem('nexus_deepseek_key', apiKey); } catch (_) {}
+      try { this.writeBrowserStorage('nexus_deepseek_key', apiKey); } catch (_) {}
       delete this.data.store.deepseekApiKey;
     }
     const context = customContext || this.getAiBusinessContext();
