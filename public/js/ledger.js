@@ -17,12 +17,14 @@
     if (!force && !/cuenta|cta|banco|bancaria|nequi|daviplata|ahorros|corriente|wallet|billetera/.test(s)) return null;
     return 'acc_' + s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
   }
+  function paymentAccountKey(pm){return pm?.isBankAccount===false?null:pm?.accountKey||account(pm?.name,pm?.isBankAccount===true);}
+  function namedAccount(raw,state,force=true){const pm=(state.paymentMethods||[]).find(p=>norm(p.name)===norm(raw)&&p.isBankAccount!==false);return pm?.accountKey||account(raw,force);}
   function movementAccount(target, method, state) {
     if (/efectivo|^cash$/i.test(method || '')) return 'efectivo_caja';
-    if (target) return account(target, true);
+    if (target) return namedAccount(target,state,true);
     const inner = String(method || '').match(/\(([^)]+)\)/)?.[1];
-    if (inner && !/recargo/i.test(inner)) return account(inner, true);
-    return account(method) || (/tarjeta|transfer|banco|qr|bizum|nequi|daviplata|datafono|datáfono/i.test(method || '') ? account(state.cashShiftLog?.openingAccount, true) || 'cuenta_charles_joyas' : null);
+    if (inner && !/recargo/i.test(inner)) return namedAccount(inner,state,true);
+    return namedAccount(method,state,false) || (/tarjeta|transfer|banco|qr|bizum|nequi|daviplata|datafono|datáfono/i.test(method || '') ? namedAccount(state.cashShiftLog?.openingAccount,state,true) || 'cuenta_charles_joyas' : null);
   }
   function saleParts(tx, state) {
     if (Array.isArray(tx.mixedPayments) && tx.mixedPayments.length) return tx.mixedPayments.filter(p => !debt(p.method)).map(p => ({ accountKey:movementAccount(p.targetAccount || tx.targetAccount,p.method,state), amount:money(p.amount), method:p.method }));
@@ -104,8 +106,10 @@
     const cashAdjustmentsNet=sum(m=>adj(m)&&cash(m)),bankAdjustmentsNet=sum(m=>adj(m)&&!cash(m));
     const openingCash=money(shift.openingCash),openingCard=money(shift.openingCard),openingAccount=shift.openingAccount || '';
     const accountBreakdown={};
-    const ensure=key=>{const name=names[key] || key;return accountBreakdown[name] ||= {name,opening:account(openingAccount,true)===key?openingCard:0,incomes:0,expenses:0,adjustments:0,net:0};};
+    const ensure=key=>{const name=names[key] || (state.paymentMethods||[]).find(pm=>paymentAccountKey(pm)===key)?.name || key;return accountBreakdown[name] ||= {name,opening:namedAccount(openingAccount,state,true)===key?openingCard:0,incomes:0,expenses:0,adjustments:0,net:0};};
     for (const key of ['cuenta_carlos','cuenta_sharick','cuenta_charles_joyas'])ensure(key);
+    const openingKey=namedAccount(openingAccount,state,true);
+    if(openingKey&&openingKey!=='efectivo_caja')ensure(openingKey);
     for (const m of ms.filter(m=>!cash(m))) {const a=ensure(m.accountKey);if(incoming(m))a.incomes+=m.amount;else if(expense(m))a.expenses-=m.amount;else a.adjustments+=m.amount;}
     for(const a of Object.values(accountBreakdown))a.net=money(a.opening+a.incomes-a.expenses+a.adjustments);
     const totalSales=money(sales.reduce((s,t)=>s+Number(t.total || 0),0));
@@ -117,7 +121,8 @@
     const out={},initial=state.accountInitialBalances || {};
     const ensure=(key,label)=>out[key] ||= {key,name:label || names[key] || key,shortName:label || names[key] || key,isCash:key==='efectivo_caja',initialBalance:money(initial[key]),incomes:0,incomesCount:0,expenses:0,expensesCount:0,adjustmentsNet:0,adjustmentsCount:0,balance:0,movements:[],pmId:null,fee:'0%'};
     for(const key of Object.keys(names))ensure(key);
-    for(const pm of state.paymentMethods || []) {const key=account(pm.name,pm.isBankAccount);if(key){const a=ensure(key,pm.name);a.pmId=pm.id;a.fee=pm.fee || '0%';}}
+    for(const pm of state.paymentMethods || []) {const key=paymentAccountKey(pm);if(key){const a=ensure(key,pm.name);a.pmId=pm.id;a.fee=pm.fee || '0%';}}
+    for(const key of Object.keys(initial))ensure(key);
     for(const m of movements(state).filter(m=>!m.excludeFromAccountSummary)) {
       const a=ensure(m.accountKey),amount=Math.abs(m.amount);
       if(m.isAdjustment){a.adjustmentsNet+=m.amount;a.adjustmentsCount++;}else if(m.amount>0){a.incomes+=amount;a.incomesCount++;}else{a.expenses+=amount;a.expensesCount++;}
@@ -129,6 +134,6 @@
     else if(shift.closingCash!==undefined || shift.expectedCashInDrawer!==undefined){const after=(state.accountAdjustments || []).filter(a=>a.accountKey==='efectivo_caja'&&Number(a.timestamp)>Number(shift.closedTimestamp || Infinity));out.efectivo_caja.balance=money(Number(shift.closingCash ?? shift.expectedCashInDrawer)+after.reduce((s,a)=>s+money(a.amount)*(a.isIncome?1:-1),0));}
     return out;
   }
-  const api={money,norm,inactive,debt,account,movementAccount,saleParts,purchaseDirect,legacyExclusion,movements,dateKey,inShift,shiftTotals,accounts,names};
+  const api={money,norm,inactive,debt,account,movementAccount,saleParts,purchaseDirect,legacyExclusion,movements,dateKey,inShift,shiftTotals,accounts,names,paymentAccountKey,namedAccount};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.NexusLedger=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -740,7 +740,7 @@ class NexusApp {
     }
 
     // Match if query prefixes with "cod" or "codigo" (e.g. "cod 001", "cod 0474")
-    const cleanQ = q.replace(/^(?:cod|codigo)\.?\s*/i, '').trim();
+    const cleanQ = q.replace(/^(?:codigo|cod)\.?\s*/i, '').trim();
     if (cleanQ && cleanQ !== q) {
       if (name.includes(cleanQ) || sku.includes(cleanQ) || paddedSku.includes(cleanQ) || id.includes(cleanQ) || barcode.includes(cleanQ) || category.includes(cleanQ) || supplier.includes(cleanQ)) {
         return true;
@@ -758,10 +758,10 @@ class NexusApp {
     }
 
     // Multi-token match (allows searching e.g. "topo 2026" or "balineria 1")
-    const tokens = q.split(/\s+/).filter(Boolean);
+    const tokens = targetQ.split(/\s+/).filter(Boolean);
     if (tokens.length > 1) {
       return tokens.every(tok => {
-        const cleanTok = tok.replace(/^(?:cod|codigo)\.?\s*/i, '').trim();
+        const cleanTok = tok.replace(/^(?:codigo|cod)\.?\s*/i, '').trim();
         const tokNum = /^\d+$/.test(cleanTok) ? (cleanTok.replace(/^0+/, '') || '0') : '';
         const skuNum = /^\d+$/.test(sku) ? (sku.replace(/^0+/, '') || '0') : '';
         const numMatch = tokNum && skuNum && tokNum === skuNum;
@@ -1805,6 +1805,7 @@ class NexusApp {
     if (!this.currentUser) return false;
     const role = (this.currentUser.role || '').toLowerCase();
     if (this.isSuperAdminRole(this.currentUser.role)) return true;
+    if(/contad|auditor/i.test(role))return false;
 
     // Role, permission profile & AI Key management is strictly Super Admin (unless config perm for ai_key)
     if (action === 'manage_roles' || entity === 'profile') {
@@ -2611,6 +2612,7 @@ class NexusApp {
         if (document.getElementById('cust-pay-transfer')?.checked) allowedPaymentMethods.push('Transferencia');
         if (document.getElementById('cust-pay-credit')?.checked) allowedPaymentMethods.push('Crédito');
         if (document.getElementById('cust-pay-separe')?.checked) allowedPaymentMethods.push('Plan Separe');
+        if (document.getElementById('cust-pay-mixed')?.checked) allowedPaymentMethods.push('Pago Mixto');
 
         if (allowedPaymentMethods.length === 0) {
           this.showToast('Debe habilitar al menos una opción de pago para el cliente', 'warning');
@@ -2678,6 +2680,7 @@ class NexusApp {
           if (document.getElementById('edit-cust-pay-transfer')?.checked) allowedPaymentMethods.push('Transferencia');
           if (document.getElementById('edit-cust-pay-credit')?.checked) allowedPaymentMethods.push('Crédito');
           if (document.getElementById('edit-cust-pay-separe')?.checked) allowedPaymentMethods.push('Plan Separe');
+          if (document.getElementById('edit-cust-pay-mixed')?.checked) allowedPaymentMethods.push('Pago Mixto');
 
           if (allowedPaymentMethods.length === 0) {
             this.showToast('Debe habilitar al menos una opción de pago para el cliente', 'warning');
@@ -2908,32 +2911,7 @@ class NexusApp {
             (this.data.products || []).forEach(pr => { if (pr.supplier === oldName) pr.supplier = name; });
           }
 
-          let existingCredit = this.data.supplierCredits.find(sc => 
-            (sc.supplier === name || sc.supplierId === supp.id) &&
-            sc.status !== 'Pagado Total'
-          );
-          if (existingCredit) {
-            existingCredit.pendingAmount = pendingBalance;
-            if (pendingBalance <= 0) {
-              existingCredit.status = 'Pagado Total';
-            } else if ((Number(existingCredit.totalOwed) || 0) < pendingBalance) {
-              existingCredit.totalOwed = pendingBalance;
-            }
-          } else if (pendingBalance > 0) {
-            const newCreditId = this.getNextSupplierCreditId();
-            this.data.supplierCredits.push({
-              id: newCreditId,
-              supplier: name,
-              supplierId: supp.id,
-              totalOwed: pendingBalance,
-              paidAmount: 0,
-              pendingAmount: pendingBalance,
-              date: new Date().toISOString().slice(0, 10),
-              dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-              status: "Pendiente"
-            });
-          }
-
+          // Contact edits never recompute or consolidate separate debt records.
           await this.savePersistence();
           this.syncAllModules();
           this.closeModal('edit-supplier-modal');
@@ -3078,6 +3056,10 @@ class NexusApp {
         const isBankAccount = document.getElementById('pm-is-account-select')?.value !== 'false';
         const initBalVal = this.parseCleanNumber(document.getElementById('pm-initial-balance-input')?.value) || 0;
 
+        const feeValue=Number(fee.replace('%','').replace(',','.'));
+        if(!name||!Number.isFinite(feeValue)||feeValue<0||feeValue>100||!Number.isFinite(initBalVal)||initBalVal<0)throw new Error('Indica un nombre, comisión entre 0 y 100%, y saldo inicial válido.');
+        if(this.data.paymentMethods.some(pm=>String(pm.name||'').trim().toLowerCase()===name.toLowerCase()))throw new Error('Ya existe una cuenta o método con ese nombre.');
+        const existingAccounts=this.getAccountsFinancialSummary();
         const newPm = {
           id: this.generateSequentialId('PM', this.data.paymentMethods),
           name,
@@ -3092,7 +3074,9 @@ class NexusApp {
           const accKey = this.resolveCanonicalAccountKey(name, true);
           if (accKey) {
             if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
-            this.data.accountInitialBalances[accKey] = initBalVal;
+            newPm.accountKey=accKey;
+            if(!existingAccounts[accKey])this.data.accountInitialBalances[accKey] = initBalVal;
+            else if(initBalVal!==0)throw new Error('La cuenta ya existe. Usa un ajuste documentado para cambiar su saldo.');
           }
         }
 
@@ -3118,6 +3102,7 @@ class NexusApp {
         if (pm) {
           const oldName = pm.name;
           const oldAccKey = this.resolveCanonicalAccountKey(oldName, pm.isBankAccount);
+          const oldAccount=this.getAccountsFinancialSummary()[oldAccKey];
           const nextName = document.getElementById('edit-pm-name').value.trim();
           if (!nextName) {
             this.showToast('Ingresa un nombre válido para el método de pago.', 'warning');
@@ -3141,21 +3126,9 @@ class NexusApp {
           if (isAccEl) {
             pm.isBankAccount = isAccEl.value === 'true';
           }
-          const initBalInput = document.getElementById('edit-pm-initial-balance');
-          const accKey = pm.isBankAccount !== false ? this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount) : '';
-          if (oldAccKey && oldAccKey !== accKey && this.data.accountInitialBalances && Object.prototype.hasOwnProperty.call(this.data.accountInitialBalances, oldAccKey)) {
-            const sharedWithOther = (this.data.paymentMethods || []).some(p => p.id !== pm.id && p.isBankAccount !== false && this.resolveCanonicalAccountKey(p.name, true) === oldAccKey);
-            if (accKey && !initBalInput && this.data.accountInitialBalances[accKey] === undefined) {
-              this.data.accountInitialBalances[accKey] = this.data.accountInitialBalances[oldAccKey];
-            }
-            if (!sharedWithOther) {
-              delete this.data.accountInitialBalances[oldAccKey];
-            }
-          }
-          if (initBalInput && pm.isBankAccount !== false && accKey) {
-            if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
-            this.data.accountInitialBalances[accKey] = this.parseCleanNumber(initBalInput.value) || 0;
-          }
+          if(oldAccKey&&pm.isBankAccount===false&&(oldAccount?.movements.length||Math.abs(oldAccount?.balance||0)>.005))throw new Error('Esta cuenta tiene saldo o movimientos; conserva su tipo de cuenta.');
+          if(pm.isBankAccount!==false)pm.accountKey=oldAccKey||NexusLedger.account(nextName,true);
+          else delete pm.accountKey;
 
           await this.savePersistence();
           this.syncAllModules();
@@ -3634,9 +3607,7 @@ class NexusApp {
         }
         const id = document.getElementById('edit-prod-id').value;
         const origSku = document.getElementById('edit-prod-orig-sku')?.value?.trim();
-        const p = (origSku && id && this.data.products.find(prod => String(prod.id) === String(id) && String(prod.sku).trim() === origSku))
-          || (id && this.data.products.find(prod => String(prod.id) === String(id)))
-          || (origSku && this.data.products.find(prod => String(prod.sku).trim() === origSku));
+        const p = this.findProductIdentity(id,origSku);
         if (p) {
           const nextSkuVal = document.getElementById('edit-prod-sku').value.trim();
           if (nextSkuVal) {
@@ -4690,14 +4661,17 @@ class NexusApp {
     this.openModal('product-modal');
   }
 
+  findProductIdentity(id,sku=null) {
+    if(!id&&!sku)return null;
+    return (this.data.products||[]).find(p=>(!id||String(p.id)===String(id))&&(!sku||String(p.sku).trim()===String(sku).trim()))||null;
+  }
+
   openEditProductModal(id, sku = null) {
     if (!this.canPerformAction('edit', 'product')) {
       this.showToast('Acceso Restringido: Tu rol no tiene permisos para editar productos del catálogo.', 'warning');
       return;
     }
-    const p = (sku && id && this.data.products.find(item => item.id === id && String(item.sku).trim() === String(sku).trim()))
-      || (id && this.data.products.find(item => item.id === id))
-      || (sku && this.data.products.find(item => String(item.sku).trim() === String(sku).trim()));
+    const p = this.findProductIdentity(id,sku);
     if (!p) return;
 
     document.getElementById('edit-prod-id').value = p.id;
@@ -4985,7 +4959,7 @@ class NexusApp {
     if (docTypeSelect) docTypeSelect.value = 'CC';
     const docInput = document.getElementById('cust-document-input');
     if (docInput) docInput.placeholder = 'ej. 1020304050';
-    ['cash', 'card', 'transfer', 'credit', 'separe'].forEach(type => {
+    ['cash', 'card', 'transfer', 'credit', 'separe', 'mixed'].forEach(type => {
       const el = document.getElementById(`cust-pay-${type}`);
       if (el) el.checked = true;
     });
@@ -5023,6 +4997,7 @@ class NexusApp {
     if (chkTransfer) chkTransfer.checked = methods.includes('Transferencia');
     if (chkCredit) chkCredit.checked = methods.includes('Crédito');
     if (chkSepare) chkSepare.checked = methods.includes('Plan Separe');
+    const chkMixed=document.getElementById('edit-cust-pay-mixed');if(chkMixed)chkMixed.checked=methods.includes('Pago Mixto');
 
     this.openModal('edit-customer-modal');
   }
@@ -5376,6 +5351,8 @@ class NexusApp {
     if (initBalInput) {
       const currentInit = (accKey && this.data.accountInitialBalances && this.data.accountInitialBalances[accKey]) || 0;
       initBalInput.value = this.formatNumberWithCommas(currentInit);
+      initBalInput.readOnly=true;
+      initBalInput.title='El saldo inicial se conserva. Para registrar dinero usa Ajustar saldo / movimientos.';
     }
 
     this.attachGlobalNumberMasks();
@@ -8360,6 +8337,8 @@ class NexusApp {
     if (!rawName) return null;
     const s = String(rawName).trim().toLowerCase();
     if (!s) return null;
+    const known=(this.data.paymentMethods||[]).find(pm=>String(pm.name||'').trim().toLowerCase()===s&&pm.isBankAccount!==false);
+    if(known?.accountKey)return known.accountKey;
     if (s.includes('zharick') || s.includes('sharick')) return 'cuenta_sharick';
     if (s.includes('carlos') && !s.includes('charles')) return 'cuenta_carlos';
     if (s.includes('charles joyas')) return 'cuenta_charles_joyas';
@@ -8819,7 +8798,7 @@ class NexusApp {
     }
 
     if (type === 'set_balance') {
-      const diff = Math.round(rawVal - acc.balance);
+      const diff = NexusLedger.money(rawVal - acc.balance);
       const diffSign = diff >= 0 ? '+' : '';
       previewBox.innerHTML = `
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
@@ -8880,6 +8859,7 @@ class NexusApp {
 
     const acc = accountsMap[accKey];
     if (!acc) return;
+    if((accKey==='efectivo_caja'||(type==='transfer'&&destKey==='efectivo_caja'))&&this.data.cashShiftLog?.status!=='Abierto')throw new Error('Abre un turno de caja para registrar movimientos en efectivo.');
 
     if (!Array.isArray(this.data.accountAdjustments)) {
       this.data.accountAdjustments = [];
@@ -8891,16 +8871,14 @@ class NexusApp {
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const operator = this.currentUser?.name || 'Administrador';
     const activeShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : 'EXCLUIDO';
-    if (this.data.cashShiftLog && this.data.cashShiftLog.status !== 'Abierto' && !this.data.cashShiftLog.closedTimestamp) {
-      this.data.cashShiftLog.closedTimestamp = now.getTime() - 1;
-    }
+
 
     if (type === 'set_balance') {
-      if (isNaN(rawVal) || rawVal < 0) {
+      if (!Number.isFinite(rawVal) || rawVal < 0) {
         this.showToast('Ingresa un saldo válido mayor o igual a $0.', 'warning');
         return;
       }
-      const diff = Math.round(rawVal - acc.balance);
+      const diff = NexusLedger.money(rawVal - acc.balance);
       if (diff === 0) {
         this.showToast(`La cuenta ${acc.shortName} ya tiene un saldo de ${this.formatCurrency(rawVal)}.`, 'info');
         this.closeModal('account-adjust-modal');
@@ -8948,7 +8926,7 @@ class NexusApp {
         category: isInc ? 'Ingreso Manual' : 'Retiro Manual',
         typeLabel: isInc ? '📥 Ingreso Manual (+)' : '📤 Retiro Manual (-)',
         isIncome: isInc,
-        amount: Math.round(rawVal),
+        amount: NexusLedger.money(rawVal),
         concept: conceptRaw || (isInc ? `Ingreso / Consignación manual en ${acc.shortName}` : `Retiro / Egreso manual de ${acc.shortName}`),
         party: acc.name,
         operator
@@ -8984,7 +8962,7 @@ class NexusApp {
           category: 'Transferencia entre Cuentas',
           typeLabel: `🔄 Entrada desde ${acc.shortName}`,
           isIncome: true,
-          amount: Math.round(rawVal),
+          amount: NexusLedger.money(rawVal),
           concept: conceptRaw || `Transferencia recibida desde ${acc.name}`,
           party: `Origen: ${acc.shortName}`,
           operator
@@ -9000,7 +8978,7 @@ class NexusApp {
           category: 'Transferencia entre Cuentas',
           typeLabel: `🔄 Envío hacia ${destAcc.shortName}`,
           isIncome: false,
-          amount: Math.round(rawVal),
+          amount: NexusLedger.money(rawVal),
           concept: conceptRaw || `Transferencia enviada hacia ${destAcc.name}`,
           party: `Destino: ${destAcc.shortName}`,
           operator
@@ -11671,9 +11649,7 @@ class NexusApp {
       this.showToast('Acceso Restringido: Tu rol no tiene permisos para eliminar productos del catálogo.', 'warning');
       return;
     }
-    const p = (sku && id && this.data.products.find(item => item.id === id && String(item.sku).trim() === String(sku).trim()))
-      || (id && this.data.products.find(item => item.id === id))
-      || (sku && this.data.products.find(item => String(item.sku).trim() === String(sku).trim()));
+    const p = this.findProductIdentity(id,sku);
     if (!p) return;
     if (!confirm(`¿Está seguro de eliminar el producto "${p.name}"? Esta acción no se puede deshacer.`)) return;
 

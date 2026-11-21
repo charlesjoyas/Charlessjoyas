@@ -4065,6 +4065,7 @@
                   </div>
                 </div>
               </label>
+              <label class="payment-check-card" id="card-cust-pay-mixed"><input type="checkbox" id="cust-pay-mixed" value="Pago Mixto"><div class="payment-check-info"><span class="payment-check-icon">🔄</span><div><div class="payment-check-title">Pago Mixto</div><div class="payment-check-desc">Combinar dos medios de pago</div></div></div></label>
             </div>
           </div>
         </div>
@@ -5008,6 +5009,7 @@
                   </div>
                 </div>
               </label>
+              <label class="payment-check-card" id="card-edit-cust-pay-mixed"><input type="checkbox" id="edit-cust-pay-mixed" value="Pago Mixto"><div class="payment-check-info"><span class="payment-check-icon">🔄</span><div><div class="payment-check-title">Pago Mixto</div><div class="payment-check-desc">Combinar dos medios de pago</div></div></div></label>
             </div>
           </div>
         </div>
@@ -5328,7 +5330,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">Saldo Base Inicial ($ COP)</label>
-            <input type="text" id="edit-pm-initial-balance" class="form-input" data-number-mask="true" placeholder="0" value="0">
+            <input type="text" id="edit-pm-initial-balance" readonly title="El saldo inicial se conserva; usa un ajuste documentado para cambiar dinero disponible." class="form-input" data-number-mask="true" placeholder="0" value="0">
           </div>
           <div class="form-group">
             <label class="form-label">Comisión %</label>
@@ -5659,8 +5661,8 @@
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=48" defer></script>
   <script src="js/safety.js?v=1" defer></script>
-  <script src="js/ledger.js?v=1" defer></script>
+  <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=114" defer></script>
+  <script src="js/app.js?v=115" defer></script>
 </body>
 </html>
