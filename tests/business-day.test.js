@@ -13,7 +13,7 @@ async function connectedDay() {
   h.app.data=publicState(api.state);h.app._confirmedData=clone(h.app.data);
   h.app.savePersistence=h.App.prototype.savePersistence;
   h.context.fetch=async(url,options={})=>{
-    const name=url==='/api/data'?(options.method==='POST'?'post':'get'):url==='/api/auth/session'?'session':null;
+    const name=url==='/api/operations'?'operation':url==='/api/data'?(options.method==='POST'?'post':'get'):url==='/api/auth/session'?'session':null;
     if(!name)throw new Error('Unexpected route in isolated business-day test');
     const r=await api.request(name,options.body?JSON.parse(options.body):{},session);
     if(r.cookie)session=r.cookie;

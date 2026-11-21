@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const safety = require('../js/safety');
+const ledger = require('../js/ledger');
+const crypto = require('crypto');
 const { createStateApi, publicState } = require('../lib/state-api');
 const clone = x => JSON.parse(JSON.stringify(x));
 const root = path.join(__dirname, '..');
@@ -20,9 +22,9 @@ function browserHarness() {
     addEventListener() {}
   };
   const context = vm.createContext({
-    NexusSafety: safety, document, Intl, Date, AbortSignal, setTimeout, clearTimeout,
+    NexusSafety: safety, NexusLedger:ledger, crypto, document, Intl, Date, AbortSignal, setTimeout, clearTimeout,
     window: { addEventListener() {} },
-    console: { log() {}, warn() {}, error() {} }, confirm: () => true,
+    console: { log() {}, warn() {}, error() {} }, confirm: () => true, prompt: () => 'Verified test evidence',
     localStorage: { getItem: k => storage.get(k) || null, setItem: (k,v) => storage.set(k,v), removeItem: k => storage.delete(k) },
     fetch: () => { throw new Error('Network disabled in regression tests'); }
   });
@@ -99,5 +101,11 @@ function memoryApi(seed) {
   };
   return { request, login, get state() { return clone(state); }, outage: value => { failWrite=value; } };
 }
+async function connectOperations(h){
+  const api=memoryApi({...clone(h.app.data),users:clone(h.seed.users)}),session=await api.login();
+  h.app._confirmedData=clone(h.app.data);h.app.savePersistence=h.App.prototype.savePersistence;
+  h.context.fetch=async(url,options={})=>{const r=await api.request(url==='/api/operations'?'operation':options.method==='POST'?'post':'get',options.body?JSON.parse(options.body):{},session);return {ok:r.statusCode===200,status:r.statusCode,json:async()=>r.body};};
+  return api;
+}
 const product = (fields = {}) => ({ id:'P1',sku:'001',name:'Audit jewelry',measureType:'Pesaje',weightUnit:'g',unit:'g',category:'oro18k',categoryName:'Oro 18K Italiano & Ley',stock:10,cost:100,price:200,minStock:.5,status:'active',...fields });
-module.exports = { browserHarness, memoryApi, clone, product, root };
+module.exports = { browserHarness, memoryApi, clone, product, root, connectOperations };

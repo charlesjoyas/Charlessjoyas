@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { createStateApi } = require('./lib/state-api');
+const localRecovery=require('./lib/local-recovery');
 const fs = require('fs');
 const path = require('path');
 const dns = require('dns');
@@ -168,6 +169,7 @@ function saveLocalDb(data) {
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const tmpFile = `${DB_FILE}.tmp.${uniqueSuffix}`;
   try {
+    if(fs.existsSync(DB_FILE))localRecovery.backup(DB_FILE,process.env.NEXUS_BACKUP_DIR||undefined);
     fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
     fs.renameSync(tmpFile, DB_FILE);
   } catch (e) {
@@ -214,6 +216,7 @@ app.post('/api/auth/logout', stateApi.logout);
 app.post('/api/auth/password', stateApi.password);
 app.get('/api/data', stateApi.get);
 app.post('/api/data', stateApi.post);
+app.post('/api/operations', stateApi.operation);
 app.use('/api/ai', stateApi.authorizeAi);
 
 // ============================================================================

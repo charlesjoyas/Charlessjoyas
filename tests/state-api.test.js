@@ -104,3 +104,25 @@ test('password change hashes the new credential and revokes previous sessions', 
   assert.equal((await api.request('session',{},changed.cookie)).statusCode,200);
   assert.equal((await api.request('login',{email:'admin@example.test',password:'new-audit-password'})).statusCode,200);
 });
+
+
+test('direct snapshots cannot invent payments, change opening debt, or forge audit history',async()=>{
+  for(const mutate of [d=>d.abonosCompras.push({id:'FAKE',amount:500,supplier:'Fake'}),d=>d.suppliers.push({id:'S1',name:'Fake',creditBalance:500}),d=>d.financialLedger=[{id:'FAKE'}],d=>{d.recentTransactions.push({...sale('BAD'),paymentMethod:'Pago Mixto',mixedPayments:[{method:'Efectivo',amount:10},{method:'Transferencia',amount:10,targetAccount:'Cuenta Carlos'}]});d.products[0].stock--;}]){
+    const api=fixture(),cookie=await api.login(),data=(await api.request('get',{},cookie)).body;const before=clone(api.state);mutate(data);const r=await api.request('post',{baseUpdatedAt:data.updatedAt,data},cookie);assert.ok([400,403].includes(r.statusCode),r.body.error);assert.deepEqual(api.state,before);
+  }
+});
+
+test('a forged cash closing is rejected even for an administrator',async()=>{
+  const api=fixture(),cookie=await api.login(),data=(await api.request('get',{},cookie)).body;data.cashShiftLog={...data.cashShiftLog,status:'Cerrado',closingCash:500,expectedCashInDrawer:500};data.cashShiftsHistory.push({id:'CLOSE-FAKE',shiftId:'AUDIT',status:'Cerrado',closingCash:500,expectedCashInDrawer:500,difference:0});
+  const r=await api.request('post',{baseUpdatedAt:data.updatedAt,data},cookie);assert.equal(r.statusCode,400);assert.equal(api.state.cashShiftLog.status,'Abierto');
+});
+
+
+test('credit-limit exceptions require the authenticated administrator and an explicit reason',async()=>{
+  for(const [role,override,accepted]of [['admin',true,true],['admin',false,false],['cashier',true,false]]){
+    const {seed}=browserHarness();seed.products=[product()];seed.cashShiftLog={status:'Abierto',shiftId:'AUDIT',openingCash:0};seed.customers=[{id:'C1',name:'Customer',creditBalance:0,creditLimit:100}];const api=memoryApi(seed),cookie=await api.login(role),data=(await api.request('get',{},cookie)).body;
+    const tx={...sale('LIMIT'),customer:'Customer',paymentMethod:'Crédito'};if(override)tx.creditLimitOverride={reason:'Documented exception',authorizedBy:role==='admin'?'USR-001':'USR-002'};
+    data.products[0].stock--;data.recentTransactions.push(tx);data.customers[0].creditBalance=200;data.customerCredits.push({id:'CC-LIMIT',customer:'Customer',txId:'LIMIT',totalGranted:200,currentBalance:200,status:'Al Día'});
+    const r=await api.request('post',{baseUpdatedAt:data.updatedAt,data},cookie);assert.equal(r.statusCode===200,accepted,r.body.error);
+  }
+});

@@ -13,7 +13,7 @@ Plataforma integral de Punto de Venta (POS), control de inventario de metales pr
 - 💰 **Arqueo y Cierre de Caja**: Registro de apertura, movimientos en efectivo, transferencias, QR y cuadre ciego con detección de discrepancias.
 - 🧾 **Impresión Térmica Directa**: Tickets de venta, recibos de compra y comprobantes de abono formateados para impresoras térmicas ESC/POS (80mm y 58mm).
 - 🔐 **Control de Acceso Basado en Roles (RBAC)**: Perfiles diferenciados para Super Admin, Gerente, Cajero y Contador.
-- ☁️ **Doble Persistencia**: Sincronización transparente con MongoDB y respaldo en `db.json` / LocalStorage para funcionamiento offline.
+- ☁️ **Persistencia confirmada**: MongoDB como fuente única en producción; archivo local solo en modo local explícito. LocalStorage no confirma ventas ni reproduce escrituras sin conexión.
 
 ---
 
@@ -62,9 +62,28 @@ Ejecutar `npm test` y `npm run check`. Las pruebas usan datos ficticios y archiv
 
 Cada escritura requiere la versión exacta leída del servidor y una sesión válida. Un conflicto devuelve HTTP 409 sin sobrescribir datos. La pantalla no anuncia éxito si el servidor rechaza o no confirma el guardado. Ante un fallo, conserva evidencia local separada, revierte la vista al estado confirmado y exige consultar el estado actualizado. No se reproducen automáticamente operaciones pendientes ni bases completas de LocalStorage. **No repetir un cobro sin revisar el historial.**
 
-Temporalmente quedan suspendidas la edición/reversión de compras existentes, la anulación de pagos a proveedores, la edición/eliminación manual de sus deudas y las reversiones de ventas a crédito, separe o turnos anteriores. Las compras nuevas y sus pagos mediante abonos siguen disponibles. Una reversión de contado del turno actual requiere coincidencia exacta de ID y SKU. No se permite cambiar la unidad de medida o peso por pieza de un SKU existente, ni eliminar clientes con cartera pendiente.
+Las compras, sus ediciones y devoluciones, los abonos, la anulación de pagos a proveedores, las reversiones de ventas (incluidos crédito, separe y turnos anteriores), los ajustes de deuda y las correcciones de gastos se procesan mediante operaciones del servidor con ID único. Los reintentos del mismo ID no duplican efectos. Las correcciones administrativas conservan los registros originales y agregan movimientos compensatorios en el turno actual; no reescriben cierres anteriores. Ajustar deuda no significa registrar un pago. El cambio de inventario usa diferencias y, si ya hubo movimientos posteriores, exige confirmar el costo vigente y deja la diferencia de valoración en auditoría.
+
+Una operación histórica ambigua se detiene hasta conciliarla con soporte. En **Dashboard → Conciliación y auditoría**, administración puede documentar vínculos de crédito/factura, distribución exacta de abonos, identidad del mismo SKU, recuperación de referencias con stock cero, costos históricos ausentes y exclusiones de caja/tesorería. No se adivinan distribuciones ni costos; no se sustituyen referencias por productos del mismo nombre. Las distribuciones acumuladas no pueden exceder el principal/pago de la factura. Una devolución con recargo bancario requiere confirmar si también se devuelve ese recargo.
+
+Ante una respuesta perdida, consultar el estado actualizado y usar **Revisar operación pendiente**. La pantalla busca el ID en auditoría antes de ofrecer un reintento explícito de la misma operación. Nunca repite automáticamente un cobro o una venta.
 
 Las reposiciones calculan costo ponderado; las ventas nuevas guardan costo histórico inmutable. Los márgenes antiguos sin ese dato siguen siendo **estimaciones identificadas en pantalla**. No se reconstruyen ni recalculan masivamente los registros antiguos.
+
+## Conciliación y recuperación local
+
+El análisis siguiente solo lee archivos y genera un informe HTML/JSON en un directorio nuevo:
+
+```powershell
+node scripts/reconcile-history.js ESTADO.json DIRECTORIO_NUEVO RESPALDOS
+node scripts/local-recovery.js backup ESTADO.json DIRECTORIO_RESPALDOS
+node scripts/local-recovery.js verify RESPALDO.json
+node scripts/local-recovery.js restore RESPALDO.json ARCHIVO_NUEVO.json
+```
+
+Los respaldos incluyen SHA256 y tamaño; se verifican al crearlos y al restaurarlos. La restauración rechaza sobrescribir un archivo existente. En modo local, cada escritura guarda antes una copia del archivo previo fuera del proyecto, en el directorio personal `.codex/backups/charles-joyas/local-snapshots` (o `NEXUS_BACKUP_DIR`). Si el respaldo falla, el guardado se detiene. La retención se administra manualmente; esta protección local no configura respaldos programados de MongoDB.
+
+El ensayo de recuperación debe realizarse con un archivo aislado. Una restauración real requiere comparar primero las ventas posteriores al respaldo; nunca reemplazar la base activa por una copia antigua. Los informes pueden contener información comercial y deben permanecer privados.
 
 ## Publicación y recuperación
 

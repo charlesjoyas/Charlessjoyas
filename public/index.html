@@ -568,7 +568,7 @@
           <div class="sub-view-pane" id="pane-dashboard-inicio">
             <div class="section-header">
               <div>
-                <h1 class="section-title">Panorámica General</h1>
+                <h1 class="section-title">Panorámica General</h1><button type="button" class="btn" onclick="app.openReconciliation()">Conciliación y auditoría</button>
                 <p class="section-subtitle">Métricas en tiempo real, ingresos y rendimiento general de caja.</p>
               </div>
               <button class="btn btn-secondary text-sm" onclick="app.refreshDashboardKPIs()">🔄 Actualizar KPIs</button>
@@ -2844,6 +2844,7 @@
         <form id="abono-form" onsubmit="event.preventDefault(); app.submitAbono();">
           <input type="hidden" id="abono-credit-type" value="customer">
           <input type="hidden" id="abono-credit-id" value="">
+          <input type="hidden" id="abono-purchase-id" value="">
 
           <div class="card" style="background:var(--canvas-bg); border:1px solid var(--border-color); padding:1rem; margin-bottom:1.25rem; border-radius:var(--radius-md);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
@@ -3018,6 +3019,9 @@
         <div class="modal-body" style="padding:1.25rem; max-height:78vh; overflow-y:auto;">
           <input type="hidden" id="edit-po-id">
           <input type="hidden" id="edit-po-from-cp-id">
+          <div class="form-group"><label for="edit-po-reason">Motivo y soporte de la corrección</label><input id="edit-po-reason" class="form-control" required></div>
+          <div class="form-group"><label>Pago adicional: medio y cuenta</label><select id="edit-po-payment-method" class="form-control"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option></select><select id="edit-po-payment-account" class="form-control"></select></div>
+          <div id="edit-po-refunds-list"></div>
 
           <!-- Fila 1: Fecha, Proveedor y Producto -->
           <div class="modal-grid-asym-1-15" style="margin-bottom:0.85rem;">
@@ -3133,7 +3137,7 @@
       </div>
       <form id="edit-supplier-credit-form" onsubmit="app.saveEditedSupplierCredit(event)">
         <div class="modal-body" style="padding:1.25rem;">
-          <input type="hidden" id="edit-sc-id">
+          <input type="hidden" id="edit-sc-id"><div class="form-group"><label for="edit-sc-reason">Motivo y soporte (este ajuste no registra dinero)</label><input id="edit-sc-reason" class="form-control" required></div>
           <div class="form-group" style="margin-bottom:0.85rem;">
             <label class="form-label" style="font-weight:700; font-size:0.78rem;">Proveedor</label>
             <input type="text" id="edit-sc-supplier" class="form-control" readonly style="font-weight:700; background:var(--canvas-bg);">
@@ -3152,11 +3156,11 @@
           <div style="display:grid; grid-template-columns: 1fr; gap:0.8rem;">
             <div class="form-group" style="margin:0;">
               <label class="form-label" style="font-weight:700; font-size:0.78rem;">Total Facturado Acumulado ($)</label>
-              <input type="number" step="1" min="0" id="edit-sc-total-owed" class="form-control" style="font-weight:700;" required oninput="app.onEditSCTotalOrPaidChange('total')">
+              <input type="number" step="1" min="0" id="edit-sc-total-owed" readonly class="form-control" style="font-weight:700;" required oninput="app.onEditSCTotalOrPaidChange('total')">
             </div>
             <div class="form-group" style="margin:0;">
               <label class="form-label" style="font-weight:700; font-size:0.78rem; color:var(--emerald-text, #059669);">Total Abonado / Pagado ($)</label>
-              <input type="number" step="1" min="0" id="edit-sc-paid-amount" class="form-control" style="font-weight:700; color:var(--emerald-text, #059669);" required oninput="app.onEditSCTotalOrPaidChange('paid')">
+              <input type="number" step="1" min="0" id="edit-sc-paid-amount" readonly class="form-control" style="font-weight:700; color:var(--emerald-text, #059669);" required oninput="app.onEditSCTotalOrPaidChange('paid')">
             </div>
             <div class="form-group" style="margin:0;">
               <label class="form-label" style="font-weight:800; font-size:0.82rem; color:var(--rose-text, #e11d48);">Saldo Pendiente Real que se Debe ($)</label>
@@ -5648,10 +5652,15 @@
 <div id="toast-container"></div>
 
   <!-- App Scripts (Local, 100% Offline Compatible) -->
+  <div class="modal-backdrop" id="reconciliation-modal" style="overflow-x:hidden;"><div class="modal-card" style="max-width:1000px; max-height:90vh; overflow:hidden;"><div class="modal-header"><h3>Conciliación documentada</h3><button class="modal-close-btn" onclick="app.closeModal('reconciliation-modal')">×</button></div><div class="modal-body" style="overflow-x:hidden; min-width:0;"><p>Los hallazgos no cambian los datos por sí solos. Toda corrección requiere soporte y queda en auditoría.</p><div id="reconciliation-summary"></div><button type="button" class="btn" onclick="app.exportReconciliationReport()">Descargar informe</button><div id="reconciliation-list" style="overflow-x:auto; max-width:100%; margin-top:12px;"></div></div></div></div>
+  <div class="modal-backdrop" id="reconciliation-action-modal"><div class="modal-card" style="max-width:800px; max-height:90vh; overflow:hidden;"><div class="modal-header"><h3 id="reconciliation-action-title">Conciliar registro</h3><button class="modal-close-btn" onclick="app.closeModal('reconciliation-action-modal')">×</button></div><form onsubmit="event.preventDefault(); app.submitReconciliationAction()"><div class="modal-body"><div id="reconciliation-action-fields"></div><label>Soporte verificable (recibo, factura, respaldo)</label><input class="form-control" id="reconciliation-reference" required><label>Motivo de la corrección</label><textarea class="form-control" id="reconciliation-reason" required></textarea></div><div class="modal-footer"><button type="submit" class="btn btn-primary">Guardar conciliación documentada</button></div></form></div></div>
+
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=48" defer></script>
   <script src="js/safety.js?v=1" defer></script>
-  <script src="js/app.js?v=113" defer></script>
+  <script src="js/ledger.js?v=1" defer></script>
+  <script src="js/reconciliation.js?v=1" defer></script>
+  <script src="js/app.js?v=114" defer></script>
 </body>
 </html>

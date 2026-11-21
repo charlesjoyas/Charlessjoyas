@@ -4,11 +4,11 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const assert = require('assert/strict');
 const root = path.join(__dirname,'..');
-const assets = ['index.html','js/app.js','js/data.js','js/safety.js','css/styles.css','css/nexus_ai.css','showcase/index.html','showcase/js/showcase.js','showcase/css/showcase.css'];
+const assets = ['index.html','js/app.js','js/data.js','js/safety.js','js/ledger.js','js/reconciliation.js','css/styles.css','css/nexus_ai.css','showcase/index.html','showcase/js/showcase.js','showcase/css/showcase.css'];
 for (const name of assets) {
   assert.ok(fs.readFileSync(path.join(root,name)).equals(fs.readFileSync(path.join(root,'public',name))),`${name}: public copy differs`);
 }
-for (const name of ['server.js','lib/state-api.js','js/app.js','js/data.js','js/safety.js','showcase/js/showcase.js']) execFileSync(process.execPath,['--check',path.join(root,name)]);
+for (const name of ['server.js','lib/state-api.js','lib/operations.js','lib/financial-validation.js','lib/local-recovery.js','scripts/reconcile-history.js','scripts/local-recovery.js','js/app.js','js/data.js','js/safety.js','showcase/js/showcase.js']) execFileSync(process.execPath,['--check',path.join(root,name)]);
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
 const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
 assert.equal(ids.length,new Set(ids).size,'duplicate HTML IDs');

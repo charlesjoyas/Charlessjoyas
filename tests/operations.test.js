@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const safety = require('../js/safety');
-const { browserHarness, memoryApi, product, clone } = require('./helpers');
+const { browserHarness, memoryApi, product, clone, connectOperations } = require('./helpers');
 
 test('weighted replenishment preserves the value of old inventory', () => {
   assert.deepEqual(safety.replenishment(product(),10,300,0),{stock:20,cost:200});
@@ -36,31 +36,30 @@ test('customer deletion cannot erase an outstanding balance', async () => {
   const {app}=browserHarness();app.data.customers=[{id:'C1',name:'Customer',creditBalance:100}];app.data.customerCredits=[{id:'CC-001',customer:'Customer',currentBalance:100}];
   const before=clone(app.data);await app.deleteCustomer('C1');assert.deepEqual(app.data,before);
 });
-test('unsafe purchase/debt operations leave every record unchanged', async () => {
-  for (const name of ['deletePurchaseOrder','deleteAbonoCompra','deleteSupplierCredit','saveEditedPurchaseOrder','saveEditedSupplierCredit']) {
-    const {app}=browserHarness();app.data.products=[product()];app.data.suppliers=[{id:'S1',name:'Supplier',creditBalance:96357320}];
-    const before=clone(app.data);await app[name](name.startsWith('save')?{preventDefault(){}}:'OC-001');
-    assert.deepEqual(app.data,before);assert.ok(app.events.length>0);
-  }
+test('a rejected purchase command leaves inventory and opening debt unchanged', async () => {
+  const h=browserHarness(),{app}=h;app.data.products=[product()];app.data.suppliers=[{id:'S1',name:'Supplier',creditBalance:96357320}];
+  const api=await connectOperations(h),before=clone(api.state);
+  await app.runMutation(()=>app.deletePurchaseOrder('MISSING-ORDER'));
+  assert.deepEqual(api.state,before);assert.equal(app._requiresRefresh,undefined);assert.ok(app.events.length>0);
 });
+
 test('missing original SKU cannot return stock to a namesake', async () => {
-  const {app}=browserHarness();app.data.products=[product({id:'OTHER',sku:'848',stock:1})];
+  const h=browserHarness(),{app}=h;app.data.products=[product({id:'OTHER',sku:'848',stock:1})];
   app.data.cashShiftLog={status:'Abierto',shiftId:'AUDIT',openingCash:0};
   app.data.recentTransactions=[{id:'TX-011',shiftId:'AUDIT',paymentMethod:'Efectivo',status:'completed',total:100,items:[{id:'DELETED',sku:'856',name:'Audit jewelry',qty:1}]}];
-  await app.revertSale('TX-011');assert.equal(app.data.products[0].stock,1);assert.equal(app.data.recentTransactions[0].status,'completed');
+  await connectOperations(h);await app.runMutation(()=>app.revertSale('TX-011'));assert.equal(app.data.products[0].stock,1);assert.equal(app.data.recentTransactions[0].status,'completed');
 });
-test('prior-shift and credit reversals are blocked without changing balances', async () => {
-  for(const tx of [{shiftId:'OLD',paymentMethod:'Efectivo'},{shiftId:'AUDIT',paymentMethod:'Crédito'},{shiftId:'AUDIT',paymentMethod:'Plan Separe'}]) {
-    const {app}=browserHarness();app.data.cashShiftLog={status:'Abierto',shiftId:'AUDIT'};app.data.products=[product()];
-    app.data.recentTransactions=[{id:'T1',total:100,items:[{id:'P1',sku:'001',qty:1}],status:'completed',...tx}];
-    const before=clone(app.data);await app.revertSale('T1');assert.deepEqual(app.data,before);
-  }
+test('credit reversal without a provable linked credit is rejected by the API', async () => {
+  const h=browserHarness(),{app}=h;app.data.cashShiftLog={status:'Abierto',shiftId:'AUDIT'};app.data.products=[product()];
+  app.data.recentTransactions=[{id:'T1',total:100,items:[{id:'P1',sku:'001',qty:1,unit:'g',measureType:'Pesaje'}],status:'completed',shiftId:'OLD',paymentMethod:'Crédito'}];
+  const api=await connectOperations(h),before=clone(api.state);await app.runMutation(()=>app.revertSale('T1'));assert.deepEqual(api.state,before);
 });
+
 test('same-shift cash reversal restores the exact product and cash', async () => {
-  const {app}=browserHarness();app.data.cashShiftLog={status:'Abierto',shiftId:'AUDIT',openingCash:100};app.data.products=[product({stock:9})];
+  const h=browserHarness(),{app}=h;app.data.cashShiftLog={status:'Abierto',shiftId:'AUDIT',openingCash:100};app.data.products=[product({stock:9})];
   app.data.recentTransactions=[{id:'T1',shiftId:'AUDIT',date:'20/11/2026',total:200,paymentMethod:'Efectivo',status:'completed',items:[{id:'P1',sku:'001',qty:1,unit:'g',measureType:'Pesaje',pieceWeight:0}]}];
   assert.equal(app.calculateShiftTotals().expectedCashInDrawer,300);
-  await app.revertSale('T1');assert.equal(app.data.products[0].stock,10);assert.equal(app.data.recentTransactions[0].status,'Reversada');assert.equal(app.calculateShiftTotals().expectedCashInDrawer,100);
+  await connectOperations(h);await app.runMutation(()=>app.revertSale('T1'));assert.equal(app.data.products[0].stock,10);assert.equal(app.data.recentTransactions[0].status,'Reversada');assert.equal(app.calculateShiftTotals().expectedCashInDrawer,100);
 });
 test('empty role permissions remain empty after sanitation', () => {
   const {app}=browserHarness();app.data.perfiles=[{id:'PRF-03',name:'Cajero',allowedModules:[]}];app.sanitizeLoadedData();
@@ -106,8 +105,18 @@ test('remote account-only changes are applied even when sales totals are identic
 test('actual purchase form uses weighted costs and three decimal grams', async () => {
   for (const [startingStock,quantity,cost,expectedStock,expectedCost] of [[10,10,300,20,200],[0,.125,400000,.125,400000]]) {
     const h=browserHarness();const {app}=h;app.data.products=[product({stock:startingStock})];app.data.cashShiftLog={status:'Abierto',shiftId:'AUDIT',openingCash:100000};
-    const submit=h.bindForm('add-purchase-form',{'po-product-name':'Audit jewelry','po-product-sku':'001','po-product-id':'P1','po-category-select':'oro18k','po-measure-type':'Pesaje','po-quantity':quantity,'po-unit-cost':cost,'po-payment-status':'Pagado Total','po-payment-method':'Efectivo'});
+    app.data.suppliers=[{id:'S1',name:'Supplier',creditBalance:0}];await connectOperations(h);
+    const submit=h.bindForm('add-purchase-form',{'po-supp-select':'Supplier','po-product-name':'Audit jewelry','po-product-sku':'001','po-product-id':'P1','po-category-select':'oro18k','po-measure-type':'Pesaje','po-quantity':quantity,'po-unit-cost':cost,'po-payment-status':'Pagado Total','po-payment-method':'Efectivo'});
     await submit();assert.equal(app.data.products[0].stock,expectedStock);assert.equal(app.data.products[0].cost,expectedCost);
     if(quantity===.125)assert.equal(app.data.purchases[0].total,50000);
   }
+});
+
+
+
+test('an unconfirmed financial command preserves its ID and blocks a different command',async()=>{
+  const h=browserHarness(),{app,context,storage}=h;context.fetch=async()=>({ok:false,status:503,json:async()=>({error:'Unavailable'})});
+  await assert.rejects(()=>app.executeFinancialOperation('customerPayment',{creditId:'CC',amount:100,reason:'Test'}),/Unavailable/);
+  const pending=JSON.parse(storage.get('nexus_pending_command'));assert.ok(pending.operationId);assert.equal(app._requiresRefresh,true);
+  await assert.rejects(()=>app.executeFinancialOperation('customerPayment',{creditId:'CC',amount:200,reason:'Other'}),/pendiente/);assert.equal(JSON.parse(storage.get('nexus_pending_command')).operationId,pending.operationId);
 });

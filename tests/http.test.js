@@ -14,7 +14,7 @@ test('real HTTP server: authentication, write, reload, conflict and internal fil
   const {seed}=browserHarness();seed.products=[product()];fs.writeFileSync(file,JSON.stringify(seed));
   const sourceFile=path.join(root,'db.json'), original=fs.readFileSync(sourceFile);
   const child=spawn(process.execPath,['-e',"const app=require('./server');const s=app.listen(0,'127.0.0.1',()=>console.log('AUDIT_PORT='+s.address().port));"],{
-    cwd:root,env:{...process.env,NEXUS_LOCAL_ONLY:'1',NEXUS_DB_FILE:file,AUTH_SECRET:'isolated-http-test-secret-more-than-32-characters',VERCEL:''},stdio:['ignore','pipe','pipe']
+    cwd:root,env:{...process.env,NEXUS_LOCAL_ONLY:'1',NEXUS_DB_FILE:file,NEXUS_BACKUP_DIR:path.join(tmp,'snapshots'),AUTH_SECRET:'isolated-http-test-secret-more-than-32-characters',VERCEL:''},stdio:['ignore','pipe','pipe']
   });
   t.after(async()=>{
     const exited=once(child,'exit');child.kill();await exited;
