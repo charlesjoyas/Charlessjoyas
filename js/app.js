@@ -4826,11 +4826,11 @@ class NexusApp {
 
     const previewBrandArea = document.getElementById('preview-brand-logo-area');
     if (previewBrandArea) {
-      if (logoUrl) {
-        previewBrandArea.innerHTML = `<img src="${logoUrl}" style="max-height:28px; object-fit:contain;"> <span style="color:#fff; font-weight:800; font-family:var(--font-heading);">${appName} <span style="font-size:0.65rem; background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px;">${appBadge}</span></span>`;
+      if (safeLogoUrl) {
+        previewBrandArea.innerHTML = `<img src="${safeLogoUrl}" style="max-height:28px; object-fit:contain;"> <span style="color:#fff; font-weight:800; font-family:var(--font-heading);">${safeAppName} <span style="font-size:0.65rem; background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px;">${safeAppBadge}</span></span>`;
       } else {
-        const firstLetter = appName.charAt(0).toUpperCase() || 'N';
-        previewBrandArea.innerHTML = `<div style="width:28px; height:28px; background:var(--brand-primary); border-radius:6px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.8rem; font-weight:bold;">${firstLetter}</div> <span style="color:#fff; font-weight:800; font-family:var(--font-heading);">${appName} <span style="font-size:0.65rem; background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px;">${appBadge}</span></span>`;
+        const firstLetter = this.escapeHtml(appName.charAt(0).toUpperCase() || 'N');
+        previewBrandArea.innerHTML = `<div style="width:28px; height:28px; background:var(--brand-primary); border-radius:6px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.8rem; font-weight:bold;">${firstLetter}</div> <span style="color:#fff; font-weight:800; font-family:var(--font-heading);">${safeAppName} <span style="font-size:0.65rem; background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:4px;">${safeAppBadge}</span></span>`;
       }
     }
   }
@@ -6089,6 +6089,10 @@ class NexusApp {
   }
 
   openEditServiceModal(id) {
+    if (!this.canPerformAction('edit', 'service')) {
+      this.showToast('Acceso Denegado: No tienes permisos para editar servicios del taller.', 'danger');
+      return;
+    }
     const srv = this.data.services.find(s => s.id === id);
     if (!srv) return;
 
@@ -6101,6 +6105,10 @@ class NexusApp {
   }
 
   openEditAssetModal(id) {
+    if (!this.canPerformAction('edit', 'asset')) {
+      this.showToast('Acceso Denegado: No tienes permisos para editar activos fijos.', 'danger');
+      return;
+    }
     const ast = this.data.assets.find(a => a.id === id);
     if (!ast) return;
 
@@ -6226,23 +6234,42 @@ class NexusApp {
     const exp = (this.data.expenses || []).find(e => e.id === id);
     this.data.expenses = this.data.expenses.filter(e => e.id !== id);
     const isOpenShift = exp && exp.shiftId && this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId === this.data.cashShiftLog.shiftId;
-    if (exp && exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift && Array.isArray(this.data.cashShiftsHistory)) {
+    if (exp && exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift) {
       const mL = String(exp.method || '').toLowerCase();
       const accL = String(exp.targetAccount || '').toLowerCase();
       const explicitCash = !exp.isBank && (mL.includes('efectivo') || accL.includes('efectivo') || accL.includes('caja'));
       const wasBank = Boolean(exp.isBank || (!explicitCash && (mL.includes('transfer') || mL.includes('banco') || mL.includes('tarjeta') || mL.includes('cuenta') || (!!exp.targetAccount && !accL.includes('caja')))));
-      const hist = this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId);
+      const expAmt = Number(exp.amount) || 0;
+      const hist = Array.isArray(this.data.cashShiftsHistory)
+        ? this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId)
+        : null;
       if (hist) {
         if (!wasBank) {
-          hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) - (Number(exp.amount) || 0)) * 100) / 100;
-          hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses) * 100) / 100;
+          hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) - expAmt) * 100) / 100;
+          hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses + (Number(hist.cashAdjustmentsNet) || 0)) * 100) / 100;
           if (hist.closingCash !== undefined) {
             hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
           }
         } else {
-          hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) - (Number(exp.amount) || 0)) * 100) / 100;
+          hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) - expAmt) * 100) / 100;
         }
         hist.totalExpenses = Math.round(((Number(hist.cashExpenses) || 0) + (Number(hist.bankExpenses) || 0)) * 100) / 100;
+      }
+      const closedLog = this.data.cashShiftLog;
+      if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === exp.shiftId) {
+        if (!wasBank) {
+          closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - expAmt) * 100) / 100;
+          closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+          if (closedLog.closingCash !== undefined) {
+            closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + expAmt) * 100) / 100;
+          }
+          if (this.data.store) {
+            this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+          }
+        } else {
+          closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - expAmt) * 100) / 100;
+        }
+        closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
       }
     }
     if (this.calculateShiftTotals) {
@@ -6418,17 +6445,33 @@ class NexusApp {
         ? Array.from(new Set(relatedAbonos.map(ab => ab.shiftId).filter(Boolean)))
         : (po.shiftId ? [po.shiftId] : []);
       refundShifts.forEach(rShiftId => {
-        if (rShiftId !== 'EXCLUIDO' && rShiftId !== openShiftId && Array.isArray(this.data.cashShiftsHistory)) {
+        if (rShiftId !== 'EXCLUIDO' && rShiftId !== openShiftId) {
           const amtForShift = relatedAbonos.length > 0
             ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && ((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
             : cashToRefund;
-          const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === rShiftId || s.id === rShiftId);
-          if (histShift && amtForShift > 0) {
-            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amtForShift) * 100) / 100;
-            histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses) * 100) / 100;
-            if (histShift.closingCash !== undefined) {
-              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+          if (amtForShift > 0) {
+            const histShift = Array.isArray(this.data.cashShiftsHistory)
+              ? this.data.cashShiftsHistory.find(s => s.shiftId === rShiftId || s.id === rShiftId)
+              : null;
+            if (histShift) {
+              histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amtForShift) * 100) / 100;
+              histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
+              histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
+              if (histShift.closingCash !== undefined) {
+                histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+              }
+            }
+            const closedLog = this.data.cashShiftLog;
+            if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === rShiftId) {
+              closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amtForShift) * 100) / 100;
+              closedLog.totalExpenses = Math.round((closedLog.cashExpenses + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
+              closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+              if (closedLog.closingCash !== undefined) {
+                closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amtForShift) * 100) / 100;
+              }
+              if (this.data.store) {
+                this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+              }
             }
           }
         }
@@ -6522,14 +6565,28 @@ class NexusApp {
     this.syncSupplierCreditsState();
     if (isCash && amt > 0) {
       const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-      if (ab.shiftId && ab.shiftId !== 'EXCLUIDO' && ab.shiftId !== openShiftId && Array.isArray(this.data.cashShiftsHistory)) {
-        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === ab.shiftId || s.id === ab.shiftId);
+      if (ab.shiftId && ab.shiftId !== 'EXCLUIDO' && ab.shiftId !== openShiftId) {
+        const histShift = Array.isArray(this.data.cashShiftsHistory)
+          ? this.data.cashShiftsHistory.find(s => s.shiftId === ab.shiftId || s.id === ab.shiftId)
+          : null;
         if (histShift) {
           histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amt) * 100) / 100;
           histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses) * 100) / 100;
+          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
           if (histShift.closingCash !== undefined) {
             histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+          }
+        }
+        const closedLog = this.data.cashShiftLog;
+        if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === ab.shiftId) {
+          closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amt) * 100) / 100;
+          closedLog.totalExpenses = Math.round((closedLog.cashExpenses + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
+          closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+          if (closedLog.closingCash !== undefined) {
+            closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amt) * 100) / 100;
+          }
+          if (this.data.store) {
+            this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
           }
         }
       }
@@ -9822,16 +9879,15 @@ class NexusApp {
     // 7. Ajustes Manuales / Transferencias entre Cuentas (accountAdjustments)
     const curShift = this.data.cashShiftLog || {};
     const curShiftOpen = curShift.status === 'Abierto';
-    let currentShiftCashAdjNet = 0;
+    // Cuando el turno está abierto, calculateShiftTotals().expectedCashInDrawer ya incluye cashAdjustmentsNet del turno;
+    // cuando está cerrado, solo sumamos ajustes posteriores al cierre del turno activo.
+    let postCloseCashAdjNet = 0;
     (this.data.accountAdjustments || []).forEach(adj => {
       if (!adj || !adj.accountKey) return;
-      if (adj.accountKey === 'efectivo_caja') {
-        const belongsToCurrentShift = curShiftOpen
-          ? (adj.shiftId === curShift.shiftId || (!adj.shiftId && curShift.openedTimestamp && Number(adj.timestamp) >= curShift.openedTimestamp))
-          : (curShift.closedTimestamp ? Number(adj.timestamp) > curShift.closedTimestamp : false);
-        if (belongsToCurrentShift) {
+      if (!curShiftOpen && adj.accountKey === 'efectivo_caja') {
+        if (curShift.closedTimestamp && Number(adj.timestamp) > curShift.closedTimestamp) {
           const signedAmt = Math.round(Math.abs(Number(adj.amount) || 0)) * (adj.isIncome ? 1 : -1);
-          currentShiftCashAdjNet += signedAmt;
+          postCloseCashAdjNet += signedAmt;
         }
       }
       addMovement(adj.accountKey, {
@@ -9868,9 +9924,9 @@ class NexusApp {
 
     Object.values(accounts).forEach(acc => {
       if (acc.isCash && activeShiftCash !== null) {
-        // Para Efectivo en Caja, usar el arqueo real + únicamente ajustes de caja del turno activo (no acumular ajustes de turnos pasados ya cerrados)
+        // Para Efectivo en Caja: con turno abierto, activeShiftCash ya incluye los ajustes del turno; con turno cerrado, añadir solo ajustes posteriores al cierre
         acc.shiftDrawerBalance = activeShiftCash;
-        acc.balance = Math.round(activeShiftCash + currentShiftCashAdjNet);
+        acc.balance = Math.round(activeShiftCash + (curShiftOpen ? 0 : postCloseCashAdjNet));
       } else {
         acc.balance = Math.round(acc.initialBalance + acc.incomes - acc.expenses + acc.adjustmentsNet);
       }
@@ -10366,6 +10422,9 @@ class NexusApp {
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const operator = this.currentUser?.name || 'Administrador';
     const activeShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : 'EXCLUIDO';
+    if (this.data.cashShiftLog && this.data.cashShiftLog.status !== 'Abierto' && !this.data.cashShiftLog.closedTimestamp) {
+      this.data.cashShiftLog.closedTimestamp = now.getTime() - 1;
+    }
 
     if (type === 'set_balance') {
       if (isNaN(rawVal) || rawVal < 0) {
@@ -10665,7 +10724,13 @@ class NexusApp {
       if (fromInput) fromInput.value = this.finVentasDateFrom;
       if (toInput) toInput.value = this.finVentasDateTo;
     } else if (period === 'custom') {
-      const fromInput = document.getElementById('fin-ventas-date-from');
+      const fromVal = fromInput?.value || '';
+      const toVal = toInput?.value || '';
+      if (fromVal || toVal) {
+        this.finVentasDateFrom = fromVal;
+        this.finVentasDateTo = toVal;
+        this.renderFinVentasTable();
+      }
       if (fromInput) {
         fromInput.focus();
         if (typeof fromInput.showPicker === 'function') {
@@ -11129,8 +11194,9 @@ class NexusApp {
       // Anular deuda y posibles abonos previos vinculados exclusivamente a esta factura
       let targetCreditId = null;
       let hasMergedCredits = false;
+      let cred = null;
       if (Array.isArray(this.data.customerCredits)) {
-        const cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id || (Array.isArray(c.mergedTxIds) && c.mergedTxIds.includes(tx.id)))
+        cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id || (Array.isArray(c.mergedTxIds) && c.mergedTxIds.includes(tx.id)))
           || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado' && (Number(c.currentBalance) || 0) > 0)
           || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado');
         if (cred) {
@@ -11139,22 +11205,17 @@ class NexusApp {
             cred.mergedTxIds = cred.mergedTxIds.filter(tid => tid !== tx.id);
             hasMergedCredits = cred.mergedTxIds.length > 0;
           }
-          cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
-          cred.currentBalance = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - grandTotal) * 100) / 100;
-          if (cred.currentBalance <= 0) cred.status = 'Anulado';
         }
       }
-      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
-      if (cust) {
-        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - grandTotal) * 100) / 100;
-      }
-      if (Array.isArray(this.data.abonosVentas) && targetCreditId) {
+      let reversedAbonosTotal = 0;
+      if (Array.isArray(this.data.abonosVentas)) {
         this.data.abonosVentas.forEach(ab => {
           const directInvoiceMatch = ab.invoiceId && ab.invoiceId === tx.id;
-          const exclusiveCreditMatch = !hasMergedCredits && ab.creditId === targetCreditId;
+          const exclusiveCreditMatch = targetCreditId && !hasMergedCredits && ab.creditId === targetCreditId;
           if (ab && ab.status !== 'Reversado' && (directInvoiceMatch || exclusiveCreditMatch)) {
             ab.status = 'Reversado';
             const abAmt = Number(ab.amount) || 0;
+            reversedAbonosTotal += abAmt;
             const abMeth = String(ab.method || '').toLowerCase();
             const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
             if (isAbCash) cashRefundAmount += abAmt;
@@ -11165,6 +11226,16 @@ class NexusApp {
             }
           }
         });
+      }
+      const remainingUnpaidForTx = Math.max(0, grandTotal - reversedAbonosTotal);
+      if (cred) {
+        cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
+        cred.currentBalance = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - remainingUnpaidForTx) * 100) / 100;
+        if (cred.currentBalance <= 0 && (!hasMergedCredits || cred.totalGranted <= 0)) cred.status = 'Anulado';
+      }
+      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
+      if (cust) {
+        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - remainingUnpaidForTx) * 100) / 100;
       }
     } else if (payMethod.includes('separe')) {
       const sep = Array.isArray(this.data.customerCredits)
@@ -11181,29 +11252,35 @@ class NexusApp {
         cashRefundAmount += effAbono;
         histCashRefundAmount += effAbono;
       }
-      if (effPending > 0) {
+      let reversedSepAbonos = 0;
+      if (Array.isArray(this.data.abonosVentas)) {
+        this.data.abonosVentas.forEach(ab => {
+          const matchesSep = (sep && ab.creditId === sep.id) || (ab.invoiceId && ab.invoiceId === tx.id);
+          if (ab && ab.status !== 'Reversado' && matchesSep) {
+            ab.status = 'Reversado';
+            const abAmt = Number(ab.amount) || 0;
+            reversedSepAbonos += abAmt;
+            const abMeth = String(ab.method || '').toLowerCase();
+            const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
+            if (isAbCash) cashRefundAmount += abAmt;
+            else bankRefundAmount += abAmt;
+            if (tx.shiftId && ab.shiftId === tx.shiftId) {
+              if (isAbCash) histCashRefundAmount += abAmt;
+              else histBankRefundAmount += abAmt;
+            }
+          }
+        });
+      }
+      const remainingSepDebt = sep
+        ? Math.max(0, Math.min(effPending, Number(sep.currentBalance) || 0))
+        : Math.max(0, effPending - reversedSepAbonos);
+      if (remainingSepDebt > 0) {
         const cust = (this.data.customers || []).find(c => c.name === tx.customer);
         if (cust) {
-          cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - effPending) * 100) / 100;
+          cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - remainingSepDebt) * 100) / 100;
         }
       }
       if (sep) {
-        if (Array.isArray(this.data.abonosVentas)) {
-          this.data.abonosVentas.forEach(ab => {
-            if (ab && ab.status !== 'Reversado' && (ab.creditId === sep.id || ab.invoiceId === tx.id)) {
-              ab.status = 'Reversado';
-              const abAmt = Number(ab.amount) || 0;
-              const abMeth = String(ab.method || '').toLowerCase();
-              const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
-              if (isAbCash) cashRefundAmount += abAmt;
-              else bankRefundAmount += abAmt;
-              if (tx.shiftId && ab.shiftId === tx.shiftId) {
-                if (isAbCash) histCashRefundAmount += abAmt;
-                else histBankRefundAmount += abAmt;
-              }
-            }
-          });
-        }
         sep.status = 'Anulado';
         sep.currentBalance = 0;
         sep.totalGranted = 0;
@@ -11228,20 +11305,26 @@ class NexusApp {
           if (histBankRefundAmount > 0) {
             histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
           }
-          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0)) * 100) / 100;
+          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0) + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
           if (histShift.closingCash !== undefined) {
             histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
           }
         }
       }
       if (this.data.cashShiftLog?.status === 'Cerrado' && tx.shiftId === this.data.cashShiftLog.shiftId) {
+        const log = this.data.cashShiftLog;
         if (histCashRefundAmount > 0) {
-          this.data.cashShiftLog.cashSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cashSales) || 0) - histCashRefundAmount) * 100) / 100;
-          this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
-          if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
+          log.cashSales = Math.round(Math.max(0, (Number(log.cashSales) || 0) - histCashRefundAmount) * 100) / 100;
+          log.expectedCashInDrawer = Math.round(((Number(log.openingCash) || 0) + (Number(log.cashSales) || 0) - (Number(log.cashExpenses) || 0) + (Number(log.cashAdjustmentsNet) || 0)) * 100) / 100;
+          if (log.closingCash !== undefined) {
+            log.closingCash = Math.round(Math.max(0, (Number(log.closingCash) || 0) - histCashRefundAmount) * 100) / 100;
+          }
+          if (this.data.store) {
+            this.data.store.cashInBox = log.closingCash !== undefined ? log.closingCash : log.expectedCashInDrawer;
+          }
         }
         if (histBankRefundAmount > 0) {
-          this.data.cashShiftLog.cardSales = Math.round(Math.max(0, (Number(this.data.cashShiftLog.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
+          log.cardSales = Math.round(Math.max(0, (Number(log.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
         }
       }
     }
@@ -11311,6 +11394,7 @@ class NexusApp {
     }
 
     let totalFacturado = 0;
+    let validTxCount = 0;
     const methodsMap = {};
 
     let rowsXml = '';
@@ -11319,6 +11403,7 @@ class NexusApp {
       const tot = Number(tx.total) || 0;
       const method = tx.paymentMethod || 'Efectivo';
       if (!isCancelled) {
+        validTxCount++;
         totalFacturado += Math.abs(tot);
         if (!methodsMap[method]) {
           methodsMap[method] = { count: 0, total: 0 };
@@ -11579,7 +11664,7 @@ class NexusApp {
 
    <Row ss:Height="22">
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO:</Data></Cell>
-    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${txs.length}</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="Number">${validTxCount}</Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totalFacturado}</Data></Cell>
     <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">1.0</Data></Cell>
    </Row>
@@ -11769,11 +11854,12 @@ class NexusApp {
   renderFinCreditosClientesTable() {
     const tbody = document.getElementById('fin-cred-cli-tbody');
     if (!tbody) return;
-    if (!this.data.customerCredits || this.data.customerCredits.length === 0) {
+    const activeCredits = (this.data.customerCredits || []).filter(cc => cc && cc.status !== 'Anulado' && cc.status !== 'Anulada');
+    if (activeCredits.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">💳</div><div style="font-weight:600;">No hay créditos de clientes pendientes</div><div style="font-size:0.8rem; margin-top:0.25rem;">Las ventas a crédito o planes separe aparecerán aquí.</div></td></tr>`;
       return;
     }
-    tbody.innerHTML = this.data.customerCredits.map(cc => {
+    tbody.innerHTML = activeCredits.map(cc => {
       let badgeStyle = '';
       let badgeClass = 'badge-warning';
       let statusLabel = this.escapeHtml(cc.status);
@@ -12672,21 +12758,24 @@ class NexusApp {
       tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.5rem; margin-bottom:0.5rem;">🛠️</div><div style="font-weight:600;">No hay servicios de taller registrados</div><div style="font-size:0.8rem; margin-top:0.25rem;">Haga clic en "+ Nuevo Servicio" para registrar reparaciones o mantenimiento.</div></td></tr>`;
       return;
     }
-    tbody.innerHTML = this.data.services.map(s => `
+    const canEditSrv = this.canPerformAction('edit', 'service');
+    const canDeleteSrv = this.canPerformAction('delete', 'service');
+    tbody.innerHTML = this.data.services.map(s => {
+      const editBtn = canEditSrv ? `<button class="btn-action-edit" onclick="app.openEditServiceModal('${this.escapeHtml(s.id)}')">Editar</button>` : '';
+      const deleteBtn = canDeleteSrv ? `<button class="btn-action-delete" onclick="app.deleteService('${this.escapeHtml(s.id)}')">Eliminar</button>` : '';
+      const actions = `${editBtn}${deleteBtn}`;
+      const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>`;
+      return `
       <tr>
         <td><b>${this.escapeHtml(s.id)}</b></td>
         <td><span class="font-bold">${this.escapeHtml(s.name)}</span></td>
         <td>${this.escapeHtml(s.category)}</td>
         <td><span class="font-bold" style="color:var(--primary-indigo);">${this.formatCurrency(s.price)}</span></td>
         <td><span class="badge badge-active"><span class="badge-dot"></span>${this.escapeHtml(s.status)}</span></td>
-        <td>
-          <div class="action-btn-group">
-            <button class="btn-action-edit" onclick="app.openEditServiceModal('${this.escapeHtml(s.id)}')">Editar</button>
-            <button class="btn-action-delete" onclick="app.deleteService('${this.escapeHtml(s.id)}')">Eliminar</button>
-          </div>
-        </td>
+        <td>${actionHtml}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 
   renderInvCategoriasTable() {
@@ -14714,6 +14803,7 @@ class NexusApp {
         opening: (openingAccount && openingAccount.toLowerCase() === acc.toLowerCase()) ? openingCard : 0,
         incomes: 0,
         expenses: 0,
+        adjustments: 0,
         net: 0
       };
     });
@@ -14730,6 +14820,7 @@ class NexusApp {
           opening: (openingAccount && openingAccount.toLowerCase() === clean.toLowerCase()) ? openingCard : 0,
           incomes: 0,
           expenses: 0,
+          adjustments: 0,
           net: 0
         };
       }
@@ -14774,16 +14865,61 @@ class NexusApp {
       if (accObj) accObj.expenses += Math.round(Number(item.amount) || 0);
     });
 
+    // Registrar ajustes manuales / transferencias del turno abierto (accountAdjustments)
+    let cashAdjustmentsNet = 0;
+    let bankAdjustmentsNet = 0;
+    if (shift.status === 'Abierto') {
+      const closedShiftIds = new Set();
+      (this.data.cashShiftsHistory || []).forEach(s => {
+        if (s?.id) closedShiftIds.add(s.id);
+        if (s?.shiftId) closedShiftIds.add(s.shiftId);
+      });
+      let openTimestamp = shift.openedTimestamp || 0;
+      if (!openTimestamp && shift.openedDate) {
+        openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
+      }
+      const canonicalDisplayMap = {
+        cuenta_sharick: 'Cuenta Sharick',
+        cuenta_carlos: 'Cuenta Carlos',
+        cuenta_charles_joyas: 'CUENTA CHARLES JOYAS SAS'
+      };
+      (this.data.accountAdjustments || []).forEach(adj => {
+        if (!adj || !adj.accountKey) return;
+        if (adj.closedShiftId || adj.shiftId === 'EXCLUIDO' || (adj.shiftId && closedShiftIds.has(adj.shiftId))) return;
+        const matchesShift = adj.shiftId
+          ? !!(shift.shiftId && adj.shiftId === shift.shiftId)
+          : (openTimestamp > 0 && Number(adj.timestamp) >= (openTimestamp - 60000));
+        if (!matchesShift) return;
+
+        const signedAmt = Math.round(Math.abs(Number(adj.amount) || 0)) * (adj.isIncome ? 1 : -1);
+        if (adj.accountKey === 'efectivo_caja') {
+          cashAdjustmentsNet += signedAmt;
+        } else {
+          bankAdjustmentsNet += signedAmt;
+          let matchedDisplay = Object.keys(accountBreakdown).find(k =>
+            this.resolveCanonicalAccountKey ? this.resolveCanonicalAccountKey(k, true) === adj.accountKey : false
+          );
+          if (!matchedDisplay) {
+            matchedDisplay = canonicalDisplayMap[adj.accountKey] || adj.party || adj.accountKey;
+          }
+          const accObj = getOrInitAccount(matchedDisplay);
+          if (accObj) {
+            accObj.adjustments = (accObj.adjustments || 0) + signedAmt;
+          }
+        }
+      });
+    }
+
     // Calcular saldos netos por cuenta
     Object.values(accountBreakdown).forEach(acc => {
-      acc.net = (Number(acc.opening) || 0) + (Number(acc.incomes) || 0) - (Number(acc.expenses) || 0);
+      acc.net = (Number(acc.opening) || 0) + (Number(acc.incomes) || 0) - (Number(acc.expenses) || 0) + (Number(acc.adjustments) || 0);
     });
 
-    // Saldo Teórico en gaveta física: Base de apertura + Todo el Efectivo recibido (ventas + abonos) - Salidas de efectivo reales
-    const calculatedExpected = openingCash + totalEfectivo - cashExpenses;
+    // Saldo Teórico en gaveta física: Base de apertura + Todo el Efectivo recibido (ventas + abonos) - Salidas de efectivo reales + Ajustes de caja
+    const calculatedExpected = openingCash + totalEfectivo - cashExpenses + cashAdjustmentsNet;
 
-    // Saldo Teórico en Cuentas Bancarias / Tarjeta: Base inicial + Ingresos bancarios - Egresos bancarios
-    const expectedCardInAccount = openingCard + totalTarjeta + totalTransferencia - bankExpenses;
+    // Saldo Teórico en Cuentas Bancarias / Tarjeta: Base inicial + Ingresos bancarios - Egresos bancarios + Ajustes bancarios
+    const expectedCardInAccount = openingCard + totalTarjeta + totalTransferencia - bankExpenses + bankAdjustmentsNet;
 
     // Saldo Consolidado Total del Turno (Gaveta + Banco)
     const expectedTotalShift = calculatedExpected + expectedCardInAccount;
@@ -14793,6 +14929,8 @@ class NexusApp {
       shift.cashExpenses = cashExpenses;
       shift.bankExpenses = bankExpenses;
       shift.totalExpenses = totalExpenses;
+      shift.cashAdjustmentsNet = cashAdjustmentsNet;
+      shift.bankAdjustmentsNet = bankAdjustmentsNet;
       shift.expectedCashInDrawer = calculatedExpected;
       shift.expectedCardInAccount = expectedCardInAccount;
       shift.accountBreakdown = accountBreakdown;
@@ -14832,6 +14970,8 @@ class NexusApp {
       cashExpenses,
       bankExpenses,
       totalExpenses,
+      cashAdjustmentsNet,
+      bankAdjustmentsNet,
       expectedCashInDrawer: calculatedExpected,
       expectedCardInAccount,
       expectedTotalShift,
@@ -15506,31 +15646,64 @@ class NexusApp {
     const isOpen = shift.status === 'Abierto';
 
     const totals = this.calculateShiftTotals();
-    const totalEfectivo = totals.totalEfectivo;
-    const totalTransferencia = totals.totalTransferencia;
-    const totalTarjeta = totals.totalTarjeta;
-    const totalCredito = totals.totalCredito;
-    const totalFacturado = totals.totalFacturado;
-    const totalRecaudado = totals.totalRecaudado;
-    const openingCash = totals.openingCash;
-    const cashExpenses = totals.cashExpenses;
-    const calculatedExpected = totals.expectedCashInDrawer;
-    const expectedCashInDrawer = isOpen ? calculatedExpected : (Math.round(Number(shift.expectedCashInDrawer)) || calculatedExpected);
+    const histSnap = (!isOpen && Array.isArray(this.data.cashShiftsHistory))
+      ? (this.data.cashShiftsHistory.find(s => s.shiftId && shift.shiftId && s.shiftId === shift.shiftId) || this.data.cashShiftsHistory[0] || null)
+      : null;
+    const closedSrc = (!isOpen && (shift.cashSales !== undefined || shift.closingCash !== undefined || shift.closedBy))
+      ? shift
+      : (histSnap || shift);
+
+    const openingCash = Math.round(Number(isOpen ? totals.openingCash : (closedSrc.openingCash ?? totals.openingCash)) || 0);
+    const openingCard = Math.round(Number(isOpen ? totals.openingCard : (closedSrc.openingCard ?? 0)) || 0);
+    const openingAccount = isOpen ? totals.openingAccount : (closedSrc.openingAccount || '');
+    const openingTotal = isOpen ? totals.openingTotal : (Math.round(Number(closedSrc.openingTotal)) || (openingCash + openingCard));
+    const totalEfectivo = isOpen ? totals.totalEfectivo : Math.round(Number(closedSrc.cashSales) || 0);
+    const totalTransferencia = isOpen
+      ? totals.totalTransferencia
+      : (closedSrc.transferSales !== undefined ? Math.round(Number(closedSrc.transferSales) || 0) : Math.round(Number(closedSrc.cardSales) || 0));
+    const totalTarjeta = isOpen
+      ? totals.totalTarjeta
+      : (closedSrc.tarjetaSales !== undefined ? Math.round(Number(closedSrc.tarjetaSales) || 0) : 0);
+    const totalCredito = isOpen ? totals.totalCredito : Math.round(Number(closedSrc.creditSales) || 0);
+    const cashExpenses = isOpen ? totals.cashExpenses : Math.round(Number(closedSrc.cashExpenses) || 0);
+    const bankExpenses = isOpen ? totals.bankExpenses : Math.round(Number(closedSrc.bankExpenses) || 0);
+    const totalExpenses = isOpen ? totals.totalExpenses : (Math.round(Number(closedSrc.totalExpenses)) || (cashExpenses + bankExpenses));
+    const cashAdjNet = isOpen ? (totals.cashAdjustmentsNet || 0) : Math.round(Number(closedSrc.cashAdjustmentsNet) || 0);
+    const totalFacturado = isOpen
+      ? totals.totalFacturado
+      : (closedSrc.totalFacturado !== undefined ? Math.round(Number(closedSrc.totalFacturado) || 0) : (totalEfectivo + totalTransferencia + totalTarjeta + totalCredito));
+    const totalRecaudado = isOpen
+      ? totals.totalRecaudado
+      : (closedSrc.totalRecaudado !== undefined ? Math.round(Number(closedSrc.totalRecaudado) || 0) : (totalEfectivo + totalTransferencia + totalTarjeta));
+    const salesCount = isOpen ? totals.salesCount : (closedSrc.salesCount || 0);
+    const expectedCashInDrawer = isOpen
+      ? totals.expectedCashInDrawer
+      : (closedSrc.expectedCashInDrawer !== undefined ? Math.round(Number(closedSrc.expectedCashInDrawer) || 0) : (openingCash + totalEfectivo - cashExpenses + cashAdjNet));
+    const expectedCardInAccount = isOpen
+      ? totals.expectedCardInAccount
+      : (closedSrc.expectedCardInAccount !== undefined ? Math.round(Number(closedSrc.expectedCardInAccount) || 0) : (openingCard + totalTransferencia + totalTarjeta - bankExpenses));
+    const displayBreakdown = isOpen ? totals.accountBreakdown : (closedSrc.accountBreakdown || totals.accountBreakdown);
 
     container.innerHTML = `
+      ${!isOpen ? `
+        <div style="margin-bottom:0.85rem; padding:0.6rem 0.9rem; background:rgba(100,116,139,0.08); border:1px solid var(--border-color); border-radius:var(--radius-sm); font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+          <span>🔒 <b>Turno actual cerrado</b> — mostrando el resumen del último cierre registrado${closedSrc.closedAt ? ` (${this.escapeHtml(closedSrc.closedAt)})` : ''}.</span>
+          ${closedSrc.closingCash !== undefined ? `<span style="font-weight:700; color:var(--text-main);">Arqueo Físico: ${this.formatCurrency(closedSrc.closingCash)}</span>` : ''}
+        </div>
+      ` : ''}
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:0.75rem;">
         <!-- 1. Monto Apertura -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Monto Apertura (Base)</div>
-          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(totals.openingTotal || openingCash)}</div>
-          ${totals.openingCard > 0 ? `<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">💵 ${this.formatCurrency(openingCash)} · 💳 ${this.formatCurrency(totals.openingCard)} (${this.escapeHtml(totals.openingAccount)})</div>` : (shift.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Por: <b>${this.escapeHtml(shift.openedBy)}</b> (${shift.openedAt || ''})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">Base inicial de turno</div>')}
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(openingTotal || openingCash)}</div>
+          ${openingCard > 0 ? `<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">💵 ${this.formatCurrency(openingCash)} · 💳 ${this.formatCurrency(openingCard)} (${this.escapeHtml(openingAccount)})</div>` : (closedSrc.openedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Por: <b>${this.escapeHtml(closedSrc.openedBy)}</b> (${this.escapeHtml(closedSrc.openedAt || '')})</div>` : '<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem;">Base inicial de turno</div>')}
         </div>
 
         <!-- 2. Ventas Efectivo -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Total Efectivo Ingresado</div>
           <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:var(--emerald-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">+${this.formatCurrency(totalEfectivo)}</div>
-          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${totals.abonosEfectivo > 0 ? `Ventas: ${this.formatCurrency(totals.salesEfectivo)} · Abonos: ${this.formatCurrency(totals.abonosEfectivo)}` : '💵 Entró a gaveta física'}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${isOpen && totals.abonosEfectivo > 0 ? `Ventas: ${this.formatCurrency(totals.salesEfectivo)} · Abonos: ${this.formatCurrency(totals.abonosEfectivo)}` : '💵 Entró a gaveta física'}</div>
         </div>
 
         <!-- 3. Ventas Transferencia -->
@@ -15557,8 +15730,8 @@ class NexusApp {
         <!-- 6. Retiros & Egresos -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Retiros & Egresos (Total)</div>
-          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:var(--rose-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">-${this.formatCurrency(totals.totalExpenses || (cashExpenses + (totals.bankExpenses || 0)))}</div>
-          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">💵 Caja: ${this.formatCurrency(cashExpenses)} · 🏦 Banco: ${this.formatCurrency(totals.bankExpenses || 0)}</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:700; color:var(--rose-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">-${this.formatCurrency(totalExpenses)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">💵 Caja: ${this.formatCurrency(cashExpenses)} · 🏦 Banco: ${this.formatCurrency(bankExpenses)}</div>
         </div>
 
         <!-- 7. Total Facturado -->
@@ -15572,14 +15745,14 @@ class NexusApp {
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Efectivo Esperado (Gaveta)</div>
           <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:var(--primary-indigo); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(expectedCashInDrawer)}</div>
-          ${shift.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Cierre: <b>${this.escapeHtml(shift.closedBy)}</b> (${shift.closedAt || ''})</div>` : `<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Base: ${this.formatCurrency(openingCash)} + Efec: ${this.formatCurrency(totalEfectivo)}${cashExpenses > 0 ? ` - Salidas: ${this.formatCurrency(cashExpenses)}` : ''}</div>`}
+          ${closedSrc.closedBy ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Cierre: <b>${this.escapeHtml(closedSrc.closedBy)}</b> (${this.escapeHtml(closedSrc.closedAt || '')})</div>` : `<div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Base: ${this.formatCurrency(openingCash)} + Efec: ${this.formatCurrency(totalEfectivo)}${cashExpenses > 0 ? ` - Salidas: ${this.formatCurrency(cashExpenses)}` : ''}${cashAdjNet !== 0 ? ` · Ajustes: ${cashAdjNet >= 0 ? '+' : '-'}${this.formatCurrency(Math.abs(cashAdjNet))}` : ''}</div>`}
         </div>
 
         <!-- 9. Saldo Estimado Bancos -->
         <div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; min-width:0;">
           <div style="font-size:0.78rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Saldo Bancos Estimado</div>
-          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:#4338CA; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(totals.expectedCardInAccount)}</div>
-          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Recaudos: +${this.formatCurrency(totalTransferencia + totalTarjeta)}${totals.bankExpenses > 0 ? ` · Egresos: -${this.formatCurrency(totals.bankExpenses)}` : ''}</div>
+          <div style="font-family:var(--font-heading); font-size:1.3rem; font-weight:800; color:#4338CA; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">${this.formatCurrency(expectedCardInAccount)}</div>
+          <div style="font-size:0.72rem; color:var(--text-subtle); margin-top:0.35rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Recaudos: +${this.formatCurrency(totalTransferencia + totalTarjeta)}${bankExpenses > 0 ? ` · Egresos: -${this.formatCurrency(bankExpenses)}` : ''}</div>
         </div>
       </div>
 
@@ -15591,7 +15764,7 @@ class NexusApp {
           </h4>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
             <span style="font-size:0.82rem; font-weight:700; color:var(--text-main); background:var(--card-bg); border:1px solid var(--border-color); padding:3px 10px; border-radius:20px;">
-              🛒 Ventas Facturadas: ${this.formatCurrency(totalFacturado)} (${totals.salesCount})
+              🛒 Ventas Facturadas: ${this.formatCurrency(totalFacturado)}${salesCount > 0 ? ` (${salesCount})` : ''}
             </span>
             <span style="font-size:0.82rem; font-weight:700; color:var(--emerald-text); background:rgba(16,185,129,0.1); padding:3px 10px; border-radius:20px;">
               📥 Total Recaudado (Efectivo/Banco): +${this.formatCurrency(totalRecaudado)}
@@ -15616,10 +15789,10 @@ class NexusApp {
               💵 Caja: -${this.formatCurrency(cashExpenses)}
             </span>
             <span style="font-size:0.78rem; font-weight:700; color:#4338CA; background:rgba(99, 102, 241, 0.12); padding:2px 8px; border-radius:12px;">
-              🏦 Cuentas: -${this.formatCurrency(totals.bankExpenses || 0)}
+              🏦 Cuentas: -${this.formatCurrency(bankExpenses)}
             </span>
             <span style="font-size:0.84rem; font-weight:800; color:var(--rose-text); background:rgba(244,63,94,0.1); padding:3px 10px; border-radius:20px;">
-              Total Egresos: -${this.formatCurrency(totals.totalExpenses || (cashExpenses + (totals.bankExpenses || 0)))}
+              Total Egresos: -${this.formatCurrency(totalExpenses)}
             </span>
           </div>
         </div>
@@ -15627,7 +15800,7 @@ class NexusApp {
       </div>
 
       <!-- CONCILIACIÓN POR CUENTA BANCARIA -->
-      ${this.renderCashShiftAccountsBreakdownWidget(totals.accountBreakdown)}
+      ${this.renderCashShiftAccountsBreakdownWidget(displayBreakdown)}
 
       <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
         <span class="badge ${isOpen ? 'badge-active' : 'badge-inactive'}" style="font-size:0.9rem;"><span class="badge-dot"></span>Turno: ${shift.status}</span>
@@ -15687,6 +15860,11 @@ class NexusApp {
                   <span>(-) Egresos Turno:</span>
                   <b>-${this.formatCurrency(acc.expenses)}</b>
                 </div>
+                ${(acc.adjustments || 0) !== 0 ? `
+                <div style="display:flex; justify-content:space-between; color:${acc.adjustments > 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">
+                  <span>(±) Ajustes Turno:</span>
+                  <b>${acc.adjustments > 0 ? '+' : '-'}${this.formatCurrency(Math.abs(acc.adjustments))}</b>
+                </div>` : ''}
                 <div style="display:flex; justify-content:space-between; padding-top:4px; margin-top:2px; border-top:1px solid var(--border-color); font-weight:800; font-size:0.8rem; color:var(--text-main);">
                   <span>(=) Neto de este Turno:</span>
                   <span style="color:#4338CA;">${this.formatCurrency(acc.net)}</span>
@@ -15951,7 +16129,7 @@ class NexusApp {
 
     const accountsBreakdownEl = document.getElementById('cash-shift-accounts-close-breakdown');
     if (accountsBreakdownEl && totals.accountBreakdown) {
-      const accEntries = Object.values(totals.accountBreakdown).filter(a => a.opening > 0 || a.incomes > 0 || a.expenses > 0);
+      const accEntries = Object.values(totals.accountBreakdown).filter(a => a.opening > 0 || a.incomes > 0 || a.expenses > 0 || (a.adjustments || 0) !== 0);
       if (accEntries.length > 0) {
         accountsBreakdownEl.style.display = 'block';
         accountsBreakdownEl.innerHTML = `
@@ -15965,6 +16143,7 @@ class NexusApp {
                 <span style="display:inline-flex; gap:8px;">
                   <span style="color:var(--emerald-text);">+${this.formatCurrency(acc.incomes)}</span>
                   ${acc.expenses > 0 ? `<span style="color:var(--rose-text);">-${this.formatCurrency(acc.expenses)}</span>` : ''}
+                  ${(acc.adjustments || 0) !== 0 ? `<span style="color:${acc.adjustments > 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${acc.adjustments > 0 ? '+' : '-'}${this.formatCurrency(Math.abs(acc.adjustments))}</span>` : ''}
                   <span style="font-weight:800; color:#4338CA;">= ${this.formatCurrency(acc.net)}</span>
                 </span>
               </div>
@@ -16053,10 +16232,15 @@ class NexusApp {
       cashExpenses: totals.cashExpenses,
       bankExpenses: totals.bankExpenses || 0,
       totalExpenses: totals.totalExpenses || (totals.cashExpenses + (totals.bankExpenses || 0)),
+      cashAdjustmentsNet: totals.cashAdjustmentsNet || 0,
+      bankAdjustmentsNet: totals.bankAdjustmentsNet || 0,
       accountBreakdown: totals.accountBreakdown || {},
       expectedCashInDrawer: expected,
       closingCash: counted,
       difference: diff,
+      totalFacturado: totals.totalFacturado || 0,
+      totalRecaudado: totals.totalRecaudado || 0,
+      salesCount: totals.salesCount || 0,
       openedBy: this.data.cashShiftLog?.openedBy || currentOperator,
       openedAt: this.data.cashShiftLog?.openedAt || '',
       openedDate: this.data.cashShiftLog?.openedDate || now.toISOString().slice(0, 10),
@@ -16069,6 +16253,7 @@ class NexusApp {
 
     const closingShiftId = this.data.cashShiftLog?.shiftId;
     if (closingShiftId) {
+      const openedTs = this.data.cashShiftLog?.openedTimestamp || 0;
       (this.getCashShiftExpenses() || []).forEach(it => {
         if (!it.id) return;
         const e = (this.data.expenses || []).find(x => x.id === it.id);
@@ -16086,13 +16271,42 @@ class NexusApp {
         a.closedShiftId = closingShiftId;
         if (!a.shiftId) a.shiftId = closingShiftId;
       });
+      (this.data.accountAdjustments || []).forEach(adj => {
+        if (!adj || adj.closedShiftId || adj.shiftId === 'EXCLUIDO') return;
+        const matchesOpen = adj.shiftId
+          ? adj.shiftId === closingShiftId
+          : (openedTs > 0 && Number(adj.timestamp) >= (openedTs - 60000));
+        if (matchesOpen) {
+          adj.closedShiftId = closingShiftId;
+          if (!adj.shiftId) adj.shiftId = closingShiftId;
+        }
+      });
     }
 
     this.data.cashShiftLog.status = "Cerrado";
+    this.data.cashShiftLog.cashSales = totals.totalEfectivo;
+    this.data.cashShiftLog.transferSales = totals.totalTransferencia;
+    this.data.cashShiftLog.tarjetaSales = totals.totalTarjeta;
+    this.data.cashShiftLog.cardSales = totals.totalTransferencia + totals.totalTarjeta;
+    this.data.cashShiftLog.creditSales = totals.totalCredito;
+    this.data.cashShiftLog.cashExpenses = totals.cashExpenses;
+    this.data.cashShiftLog.bankExpenses = totals.bankExpenses || 0;
+    this.data.cashShiftLog.totalExpenses = totals.totalExpenses || (totals.cashExpenses + (totals.bankExpenses || 0));
+    this.data.cashShiftLog.cashAdjustmentsNet = totals.cashAdjustmentsNet || 0;
+    this.data.cashShiftLog.bankAdjustmentsNet = totals.bankAdjustmentsNet || 0;
+    this.data.cashShiftLog.expectedCashInDrawer = expected;
+    this.data.cashShiftLog.expectedCardInAccount = totals.expectedCardInAccount || 0;
+    this.data.cashShiftLog.accountBreakdown = totals.accountBreakdown || {};
+    this.data.cashShiftLog.totalFacturado = totals.totalFacturado || 0;
+    this.data.cashShiftLog.totalRecaudado = totals.totalRecaudado || 0;
+    this.data.cashShiftLog.salesCount = totals.salesCount || 0;
     this.data.cashShiftLog.closingCash = counted;
     this.data.cashShiftLog.closedBy = currentOperator;
     this.data.cashShiftLog.closedAt = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     this.data.cashShiftLog.closedTimestamp = now.getTime();
+    if (this.data.store) {
+      this.data.store.cashInBox = counted;
+    }
 
     this.closeModal('close-cash-modal');
     await this.savePersistence();
@@ -16549,7 +16763,9 @@ class NexusApp {
     const cardSales = Math.round(Number(shift.cardSales) || 0);
     const creditSales = Math.round(Number(shift.creditSales) || 0);
     const expenses = Math.round(Number(shift.cashExpenses) || 0);
-    const expected = shift.expectedCashInDrawer !== undefined ? Math.round(Number(shift.expectedCashInDrawer) || 0) : (opening + cashSales - expenses);
+    const cashAdjNet = Math.round(Number(shift.cashAdjustmentsNet) || 0);
+    const bankAdjNet = Math.round(Number(shift.bankAdjustmentsNet) || 0);
+    const expected = shift.expectedCashInDrawer !== undefined ? Math.round(Number(shift.expectedCashInDrawer) || 0) : (opening + cashSales - expenses + cashAdjNet);
     const counted = shift.closingCash !== undefined ? Math.round(Number(shift.closingCash) || 0) : 0;
     const diff = shift.difference !== undefined ? Math.round(Number(shift.difference) || 0) : (counted - expected);
 
@@ -16565,20 +16781,111 @@ class NexusApp {
     const dateParts = shift.date ? shift.date.split('-') : [];
     const datePattern = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : shift.date;
     const ddMm = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : '';
+    const targetIds = new Set([shift.shiftId, shift.id].filter(Boolean));
+
+    const belongsToClosedShift = (item) => {
+      if (!item || item.excludeFromCashShift || item.shiftId === 'EXCLUIDO') return false;
+      if (item.closedShiftId || item.shiftId) {
+        return !!(targetIds.has(item.closedShiftId) || targetIds.has(item.shiftId));
+      }
+      if (!item.date) return false;
+      return item.date === datePattern || item.date.includes(datePattern) || (shift.date && item.date.includes(shift.date)) || (ddMm && item.date.includes(ddMm));
+    };
 
     const dayTxs = (this.data.recentTransactions || []).filter(tx => {
-      if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return false;
-      if (tx.shiftId && shift.shiftId) return tx.shiftId === shift.shiftId;
-      if (!tx.date) return false;
-      return tx.date === datePattern || tx.date.includes(datePattern) || (shift.date && tx.date.includes(shift.date)) || (ddMm && tx.date.includes(ddMm));
+      if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada' || tx.status === 'reversada') return false;
+      return belongsToClosedShift(tx);
     });
 
-    const dayExpenses = (this.data.expenses || []).filter(e => {
-      if (!e) return false;
-      if (e.shiftId && shift.shiftId) return e.shiftId === shift.shiftId;
-      if (!e.date) return false;
-      const isDay = e.date.includes(datePattern) || (shift.date && e.date.includes(shift.date)) || (ddMm && e.date.includes(ddMm));
-      return isDay;
+    const dayAbonos = (this.data.abonosVentas || []).filter(ab => {
+      if (!ab || ab.status === 'Reversado' || ab.status === 'Reversada' || ab.status === 'Anulado' || ab.status === 'Anulada') return false;
+      return belongsToClosedShift(ab);
+    });
+
+    const dayIncomes = [
+      ...dayTxs.map(t => ({
+        id: t.id || '',
+        time: t.time || '',
+        customer: t.customer || 'Cliente General',
+        method: t.paymentMethod || 'Efectivo',
+        total: Number(t.total) || 0,
+        isAbono: false
+      })),
+      ...dayAbonos.map(a => ({
+        id: a.id || '',
+        time: a.time || '',
+        customer: `${a.customer || 'Cliente'}${a.invoiceId ? ` (${a.invoiceId})` : ''}`,
+        method: a.method || 'Efectivo',
+        total: Number(a.amount) || 0,
+        isAbono: true
+      }))
+    ];
+
+    const classifyOutflowChannel = (methodStr, targetAccountStr) => {
+      const m = String(methodStr || '').toLowerCase();
+      const acc = String(targetAccountStr || '').toLowerCase();
+      const isExplicitCash = m.includes('efectivo') || acc.includes('efectivo') || acc.includes('caja');
+      const isBank = !isExplicitCash && (m.includes('transfer') || m.includes('banco') || m.includes('tarjeta') || m.includes('cuenta') || (!!targetAccountStr && !acc.includes('caja')));
+      const acct = isBank
+        ? (targetAccountStr || (methodStr && String(methodStr).includes('(') ? String(methodStr).replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'Cuenta Bancaria'))
+        : 'Caja';
+      return { isBank, acct };
+    };
+
+    const dayOutflows = [];
+    (this.data.expenses || []).forEach(e => {
+      if (!belongsToClosedShift(e)) return;
+      const ch = classifyOutflowChannel(e.method, e.targetAccount);
+      dayOutflows.push({
+        id: e.id || '',
+        concept: e.description || e.category || 'Gasto Operativo',
+        isBank: ch.isBank,
+        acct: ch.acct,
+        amount: Math.round(Number(e.amount) || 0)
+      });
+    });
+
+    (this.data.abonosCompras || []).forEach(a => {
+      if (!belongsToClosedShift(a)) return;
+      const ch = classifyOutflowChannel(a.method, a.targetAccount);
+      dayOutflows.push({
+        id: a.id || '',
+        concept: `Pago a Proveedor: ${a.supplier || 'Proveedor'}${a.poId ? ` (${a.poId})` : ''}`,
+        isBank: ch.isBank,
+        acct: ch.acct,
+        amount: Math.round(Number(a.amount) || 0)
+      });
+    });
+
+    const abonoPoIds = new Set((this.data.abonosCompras || []).map(a => a && a.poId).filter(Boolean));
+    (this.data.purchases || []).forEach(po => {
+      if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po?.id)) return;
+      if (!po || abonoPoIds.has(po.id)) return;
+      const pom = String(po.paymentMethod || '').toLowerCase();
+      if (pom.includes('crédito') || pom.includes('credito')) return;
+      if (po.paymentStatus && po.paymentStatus !== 'Pagado Total') return;
+      if (!belongsToClosedShift(po)) return;
+      const ch = classifyOutflowChannel(po.paymentMethod, po.targetAccount);
+      dayOutflows.push({
+        id: po.id || '',
+        concept: `Compra Mercancía: ${po.supplier || 'Proveedor'} (${po.productName || po.productSku || 'Joyería'})`,
+        isBank: ch.isBank,
+        acct: ch.acct,
+        amount: Math.round(Number(po.paidAmount || po.total) || 0)
+      });
+    });
+
+    (this.data.recentTransactions || []).forEach(tx => {
+      if (!tx || tx.status !== 'Reversada' || !tx.refundShiftId || !targetIds.has(tx.refundShiftId)) return;
+      const cashRef = Math.round(Number(tx.cashRefunded) || 0);
+      if (cashRef <= 0) return;
+      dayOutflows.push({
+        id: `REV-${tx.id}`,
+        concept: `Reembolso Reversión Venta #${tx.id} (${tx.customer || 'Cliente'})`,
+        isBank: false,
+        acct: 'Caja',
+        amount: cashRef
+      });
     });
 
     const bankExpenses = Math.round(Number(shift.bankExpenses) || 0);
@@ -16615,13 +16922,18 @@ class NexusApp {
           <strong>${this.formatCurrency(opening)}</strong>
         </div>
         <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.86rem; color:var(--emerald-text);">
-          <span>(+) Ventas Recaudadas en Efectivo:</span>
+          <span>(+) Ventas y Abonos Recaudados en Efectivo:</span>
           <strong>+${this.formatCurrency(cashSales)}</strong>
         </div>
         <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.86rem; color:var(--rose-text);">
           <span>(-) Egresos y Salidas de Caja en Efectivo:</span>
           <strong>-${this.formatCurrency(expenses)}</strong>
         </div>
+        ${cashAdjNet !== 0 ? `
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.86rem; color:${cashAdjNet > 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">
+          <span>(±) Ajustes Manuales de Caja en Turno:</span>
+          <strong>${cashAdjNet > 0 ? '+' : '-'}${this.formatCurrency(Math.abs(cashAdjNet))}</strong>
+        </div>` : ''}
         <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.92rem; font-weight:800; color:var(--primary-indigo);">
           <span>(=) Efectivo Teórico Esperado en Gaveta:</span>
           <span>${this.formatCurrency(expected)}</span>
@@ -16632,7 +16944,7 @@ class NexusApp {
         </div>
       </div>
 
-      ${(cardSales > 0 || creditSales > 0 || bankExpenses > 0) ? `
+      ${(cardSales > 0 || creditSales > 0 || bankExpenses > 0 || bankAdjNet !== 0) ? `
       <div style="background:var(--canvas-bg); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; margin-bottom:1.25rem;">
         <h4 style="margin:0 0 0.5rem 0; font-size:0.88rem; font-weight:700; color:var(--text-main);">
           <span>🏦</span> Conciliación y Flujos Bancarios del Turno
@@ -16640,21 +16952,22 @@ class NexusApp {
         ${openingCard > 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem;"><span>(+) Base Inicial Banco (${this.escapeHtml(openingAccount || 'Cuenta')}):</span><strong>${this.formatCurrency(openingCard)}</strong></div>` : ''}
         ${cardSales > 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem; color:var(--emerald-text);"><span>(+) Transferencias / Datáfono:</span><strong>+${this.formatCurrency(cardSales)}</strong></div>` : ''}
         ${bankExpenses > 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem; color:var(--rose-text);"><span>(-) Egresos Bancarios del Turno:</span><strong>-${this.formatCurrency(bankExpenses)}</strong></div>` : ''}
+        ${bankAdjNet !== 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem; color:${bankAdjNet > 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};"><span>(±) Ajustes Manuales Bancos:</span><strong>${bankAdjNet > 0 ? '+' : '-'}${this.formatCurrency(Math.abs(bankAdjNet))}</strong></div>` : ''}
         ${creditSales > 0 ? `<div style="display:flex; justify-content:space-between; font-size:0.85rem; color:#D97706; margin-bottom:0.35rem;"><span>🏷️ Ventas a Crédito (Por cobrar):</span><strong>+${this.formatCurrency(creditSales)}</strong></div>` : ''}
-        ${(openingCard > 0 || cardSales > 0 || bankExpenses > 0) ? `
+        ${(openingCard > 0 || cardSales > 0 || bankExpenses > 0 || bankAdjNet !== 0) ? `
         <div style="display:flex; justify-content:space-between; padding-top:0.45rem; border-top:1px dashed var(--border-color); font-size:0.92rem; font-weight:800; color:#4338CA;">
           <span>(=) Saldo Bancario Estimado:</span>
-          <span>${this.formatCurrency(Number(shift.expectedCardInAccount) || (openingCard + cardSales - bankExpenses))}</span>
+          <span>${this.formatCurrency(shift.expectedCardInAccount !== undefined ? Math.round(Number(shift.expectedCardInAccount) || 0) : (openingCard + cardSales - bankExpenses + bankAdjNet))}</span>
         </div>` : ''}
       </div>` : ''}
 
       <div style="margin-top:1rem;">
         <h4 style="margin:0 0 0.5rem 0; font-size:0.88rem; font-weight:700; color:var(--text-main); display:flex; justify-content:space-between; align-items:center;">
-          <span>🛒 Transacciones Registradas en la Fecha (${dayTxs.length})</span>
-          <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">Movimientos vinculados</span>
+          <span>🛒 Ventas & Abonos Registrados en el Turno (${dayIncomes.length})</span>
+          <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">${dayTxs.length} ventas · ${dayAbonos.length} abonos</span>
         </h4>
-        ${dayTxs.length === 0 
-          ? `<div style="font-size:0.8rem; color:var(--text-muted); padding:0.5rem 0;">No se registraron ventas en esta fecha.</div>`
+        ${dayIncomes.length === 0 
+          ? `<div style="font-size:0.8rem; color:var(--text-muted); padding:0.5rem 0;">No se registraron ventas ni abonos en este turno.</div>`
           : `<div style="max-height:160px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
               <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
                 <thead>
@@ -16666,11 +16979,11 @@ class NexusApp {
                   </tr>
                 </thead>
                 <tbody>
-                  ${dayTxs.map(t => `
+                  ${dayIncomes.map(t => `
                     <tr style="border-bottom:1px solid var(--border-color);">
-                      <td style="padding:4px 8px;"><b>${this.escapeHtml(t.id || '')}</b> <span style="color:var(--text-muted); font-size:0.72rem;">${this.escapeHtml(t.time || '')}</span></td>
-                      <td style="padding:4px 8px;">${this.escapeHtml(t.customer || 'Cliente General')}</td>
-                      <td style="padding:4px 8px;">${this.escapeHtml(t.paymentMethod || 'Efectivo')}</td>
+                      <td style="padding:4px 8px;">${t.isAbono ? '<span style="font-size:0.72rem;" title="Abono de Cartera">💳 </span>' : ''}<b>${this.escapeHtml(t.id)}</b> <span style="color:var(--text-muted); font-size:0.72rem;">${this.escapeHtml(t.time)}</span></td>
+                      <td style="padding:4px 8px;">${this.escapeHtml(t.customer)}</td>
+                      <td style="padding:4px 8px;">${this.escapeHtml(t.method)}</td>
                       <td style="padding:4px 8px; font-weight:700; text-align:right;">${this.formatCurrency(t.total)}</td>
                     </tr>
                   `).join('')}
@@ -16680,10 +16993,10 @@ class NexusApp {
         }
       </div>
 
-      ${dayExpenses.length > 0 ? `
+      ${dayOutflows.length > 0 ? `
       <div style="margin-top:1rem;">
         <h4 style="margin:0 0 0.5rem 0; font-size:0.88rem; font-weight:700; color:var(--text-main); display:flex; justify-content:space-between; align-items:center;">
-          <span>📋 Salidas y Egresos (${dayExpenses.length})</span>
+          <span>📋 Salidas y Egresos (${dayOutflows.length})</span>
           <span style="font-size:0.75rem; color:var(--rose-text); font-weight:700;">-${this.formatCurrency(totalExpenses)}</span>
         </h4>
         <div style="max-height:140px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
@@ -16697,18 +17010,14 @@ class NexusApp {
               </tr>
             </thead>
             <tbody>
-              ${dayExpenses.map(e => {
-                const isBank = (e.method || '').toLowerCase().includes('transfer') || (e.method || '').toLowerCase().includes('banco') || (e.method || '').toLowerCase().includes('tarjeta') || !!e.targetAccount;
-                const acct = e.targetAccount || (e.method && e.method.includes('(') ? e.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (isBank ? 'Cuenta Bancaria' : 'Caja'));
-                return `
+              ${dayOutflows.map(e => `
                   <tr style="border-bottom:1px solid var(--border-color);">
-                    <td style="padding:4px 8px;"><b>${this.escapeHtml(e.id || '')}</b></td>
-                    <td style="padding:4px 8px;">${this.escapeHtml(e.description || e.category || 'Gasto Operativo')}</td>
-                    <td style="padding:4px 8px;"><span class="badge" style="font-size:0.7rem; font-weight:700; padding:1px 6px;">${isBank ? '🏦 ' + this.escapeHtml(acct) : '💵 Caja'}</span></td>
+                    <td style="padding:4px 8px;"><b>${this.escapeHtml(e.id)}</b></td>
+                    <td style="padding:4px 8px;">${this.escapeHtml(e.concept)}</td>
+                    <td style="padding:4px 8px;"><span class="badge" style="font-size:0.7rem; font-weight:700; padding:1px 6px;">${e.isBank ? '🏦 ' + this.escapeHtml(e.acct) : '💵 Caja'}</span></td>
                     <td style="padding:4px 8px; font-weight:700; color:var(--rose-text); text-align:right;">-${this.formatCurrency(e.amount)}</td>
                   </tr>
-                `;
-              }).join('')}
+                `).join('')}
             </tbody>
           </table>
         </div>
@@ -17170,7 +17479,7 @@ class NexusApp {
   renderAbonosVentasTable() {
     const tbody = document.getElementById('abonos-ventas-tbody');
     if (!tbody) return;
-    const list = this.data.abonosVentas || [];
+    const list = (this.data.abonosVentas || []).filter(ab => ab && ab.status !== 'Reversado' && ab.status !== 'Reversada' && ab.status !== 'Anulado' && ab.status !== 'Anulada');
     if (list.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);"><div style="font-size:1.6rem; margin-bottom:0.5rem;">🧾</div><div style="font-weight:700; color:var(--text-main);">No hay abonos a ventas registrados</div><div style="font-size:0.85rem; margin-top:0.25rem;">Los cobros registrados desde Créditos de Clientes o Plan Separe aparecerán aquí.</div></td></tr>`;
       return;
@@ -20039,7 +20348,7 @@ class NexusApp {
   }
 
   exportAbonosVentasExcel() {
-    const list = this.data.abonosVentas || [];
+    const list = (this.data.abonosVentas || []).filter(ab => ab && ab.status !== 'Reversado' && ab.status !== 'Reversada' && ab.status !== 'Anulado' && ab.status !== 'Anulada');
     if (list.length === 0) {
       this.showToast('No hay abonos a ventas registrados para exportar', 'warning');
       return;
@@ -22512,10 +22821,12 @@ class NexusApp {
       return;
     }
 
-    const dateStr = new Date().toISOString().split('T')[0];
+    const pad2 = n => String(n).padStart(2, '0');
+    const toLocalYmd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const dateStr = toLocalYmd(new Date());
     const storeName = this.data.store?.name || 'Charles Joyas';
     const periodText = (this.repProdStartDate && this.repProdEndDate)
-      ? `Período: ${this.repProdStartDate.toISOString().split('T')[0]} al ${this.repProdEndDate.toISOString().split('T')[0]}`
+      ? `Período: ${toLocalYmd(this.repProdStartDate)} al ${toLocalYmd(this.repProdEndDate)}`
       : 'Histórico Completo Consolidado';
 
     const xmlRows = list.map((p, idx) => {
@@ -23282,12 +23593,15 @@ class NexusApp {
         catMap[catName] = { count: 0, grams: 0, units: 0, cost: 0, price: 0 };
       }
       catMap[catName].count++;
+      const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const g = this.getGramsFromProduct ? this.getGramsFromProduct(p) : (Number(p.gramStock) || Number(p.grams) || 0);
       const u = Number(p.stock) || 0;
       const c = this.getProductTotalCost(p) || 0;
       const pr = Number(p.price) || 0;
       catMap[catName].grams += g;
-      catMap[catName].units += u;
+      if (!isPesaje) {
+        catMap[catName].units += u;
+      }
       catMap[catName].cost += c;
       catMap[catName].price += (u * pr);
     });
@@ -23353,8 +23667,16 @@ class NexusApp {
 
     // Proveedores con Deuda para Hoja 3
     const activeSuppliers = suppliers.filter(s => (Number(s.creditBalance) || 0) > 0);
+    const pendingOrphanCredits = (this.data.supplierCredits || []).filter(sc => {
+      if (!sc || (Number(sc.pendingAmount) || 0) <= 0) return false;
+      if (suppBalanceTotal <= 0) return true;
+      const sName = (sc.supplier || '').toLowerCase().trim();
+      return !suppliers.some(s => (s.name || '').toLowerCase().trim() === sName);
+    });
+    let supplierRowsCount = 0;
     let rowsSuppliers = '';
     activeSuppliers.forEach(s => {
+      supplierRowsCount++;
       const bal = Math.round(Number(s.creditBalance) || 0);
       const part = totalLiabilities > 0 ? (bal / totalLiabilities) : 0;
       const doc = s.nit || s.document || 'N/A';
@@ -23365,6 +23687,21 @@ class NexusApp {
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(doc)}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(s.phone || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(bank)}</Data></Cell>
+        <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${bal}</Data></Cell>
+        <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${Number(part.toFixed(4))}</Data></Cell>
+        <Cell ss:StyleID="BadgeRose"><Data ss:Type="String">Obligacion Pendiente</Data></Cell>
+      </Row>`;
+    });
+    pendingOrphanCredits.forEach(sc => {
+      supplierRowsCount++;
+      const bal = Math.round(Number(sc.pendingAmount) || 0);
+      const part = totalLiabilities > 0 ? (bal / totalLiabilities) : 0;
+      rowsSuppliers += `
+      <Row ss:Height="20">
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(sc.supplier || 'Proveedor (Credito Directo)')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(sc.id || 'N/A')}</Data></Cell>
+        <Cell ss:StyleID="CellCenter"><Data ss:Type="String">N/A</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(sc.poId ? `Orden ${sc.poId}` : 'Credito Registrado')}</Data></Cell>
         <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${bal}</Data></Cell>
         <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${Number(part.toFixed(4))}</Data></Cell>
         <Cell ss:StyleID="BadgeRose"><Data ss:Type="String">Obligacion Pendiente</Data></Cell>
@@ -23919,7 +24256,7 @@ class NexusApp {
    <Row ss:Height="24">
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL INVENTARIO AL COSTO</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${products.length} skus</Data></Cell>
-    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalCatGrams * 100) / 100}</Data></Cell>
+    <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${Math.round(totalCatGrams * 100) / 100}</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${totalCatUnits} u.</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${invVal}</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalCatPrice)}</Data></Cell>
@@ -24028,7 +24365,7 @@ class NexusApp {
     <Cell ss:MergeAcross="3" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL OBLIGACIONES CORRIENTES CON PROVEEDORES</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${supplierDebtVal}</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
-    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${activeSuppliers.length} proveedores</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${supplierRowsCount} proveedores</Data></Cell>
    </Row>
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
@@ -24738,13 +25075,65 @@ class NexusApp {
       const from = this.infPeriodoDateFrom || '';
       const to = this.infPeriodoDateTo || '';
       if (from || to) {
-        filteredPeriodList = periodListAll.filter(p => {
-          const startOfMonth = `${p.key}-01`;
-          const endOfMonth = `${p.key}-31`;
-          if (from && endOfMonth < from) return false;
-          if (to && startOfMonth > to) return false;
-          return true;
-        });
+        const pad2 = n => String(n).padStart(2, '0');
+        const toLocalYmd = (val) => {
+          const d = this.parseDateSafe(val);
+          if (!d || isNaN(d.getTime())) return '';
+          return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        };
+        filteredPeriodList = periodListAll.map(p => {
+          const matchedTxs = (p.txList || []).filter(t => {
+            const ymd = toLocalYmd(t.date || t.timestamp);
+            if (!ymd) return false;
+            if (from && ymd < from) return false;
+            if (to && ymd > to) return false;
+            return true;
+          });
+          const matchedExps = (p.expList || []).filter(e => {
+            const ymd = toLocalYmd(e.date || e.createdAt);
+            if (!ymd) return false;
+            if (from && ymd < from) return false;
+            if (to && ymd > to) return false;
+            return true;
+          });
+          let sales = 0;
+          let cogs = 0;
+          matchedTxs.forEach(t => {
+            const total = Number(t.total) || 0;
+            sales += total;
+            const isTxService = String(t.type || '').toLowerCase().includes('servicio');
+            if (Array.isArray(t.items) && t.items.length > 0) {
+              t.items.forEach(it => {
+                cogs += this.calculateTransactionItemCOGS(it);
+              });
+            } else {
+              cogs += isTxService ? 0 : Math.round(total * 0.65);
+            }
+          });
+          const expenses = matchedExps.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+          const grossProfit = sales - cogs;
+          const utilidadNetaReal = sales - cogs - expenses;
+          const marginGross = sales > 0 ? ((grossProfit / sales) * 100) : 0;
+          const marginNetoReal = sales > 0 ? ((utilidadNetaReal / sales) * 100) : 0;
+          const ticketPromedio = matchedTxs.length > 0 ? (sales / matchedTxs.length) : 0;
+          return {
+            ...p,
+            sales,
+            expenses,
+            cogs,
+            grossProfit,
+            utilidad: utilidadNetaReal,
+            utilidadNetaReal,
+            margin: marginNetoReal,
+            marginNetoReal,
+            marginGross,
+            salesCount: matchedTxs.length,
+            expensesCount: matchedExps.length,
+            ticketPromedio,
+            txList: matchedTxs,
+            expList: matchedExps
+          };
+        }).filter(p => p.salesCount > 0 || p.expensesCount > 0);
         periodLabel = `Rango: ${from || 'Inicio'} al ${to || 'Hoy'}`;
       } else {
         periodLabel = 'Rango Personalizado';
@@ -24883,6 +25272,7 @@ class NexusApp {
       optHtml += `<option value="current" ${activeFilter === 'current' ? 'selected' : ''}>📅 Mes Actual (En Curso)</option>`;
       optHtml += `<option value="prev" ${activeFilter === 'prev' ? 'selected' : ''}>⏪ Mes Anterior</option>`;
       optHtml += `<option value="year" ${activeFilter === 'year' ? 'selected' : ''}>🗓️ Año Actual (${new Date().getFullYear()})</option>`;
+      optHtml += `<option value="custom" ${activeFilter === 'custom' ? 'selected' : ''}>📆 Rango Personalizado...</option>`;
       optHtml += `<optgroup label="── Períodos Específicos ──">`;
       periodListAll.forEach(p => {
         const isSel = activeFilter === p.key;
@@ -24890,6 +25280,11 @@ class NexusApp {
       });
       optHtml += `</optgroup>`;
       select.innerHTML = optHtml;
+    }
+
+    const customDiv = document.getElementById('inf-periodos-custom-dates');
+    if (customDiv) {
+      customDiv.style.display = activeFilter === 'custom' ? 'inline-flex' : 'none';
     }
 
     // Actualizar estado de las pills de filtrado rápido
@@ -25157,8 +25552,8 @@ class NexusApp {
       <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(exp.category || 'Gasto General')}</Data></Cell>
       <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.description || 'Sin detalle')}</Data></Cell>
       <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${Number(exp.amount) || 0}</Data></Cell>
-      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.paymentMethod || 'Efectivo Caja')}</Data></Cell>
-      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.responsible || exp.user || 'Administración')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.method || exp.paymentMethod || 'Efectivo Caja')}</Data></Cell>
+      <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(exp.cashier || exp.user || exp.responsible || 'Administración')}</Data></Cell>
     </Row>`;
     });
 
@@ -25875,6 +26270,7 @@ class NexusApp {
 
     // 1. Process customerCredits records
     customerCredits.forEach((cc, index) => {
+      if (!cc || cc.status === 'Anulado' || cc.status === 'Anulada') return;
       const cust = customers.find(c =>
         (c.name && cc.customer && c.name.trim().toLowerCase() === cc.customer.trim().toLowerCase()) ||
         (cc.customerId && c.id === cc.customerId)
@@ -25883,21 +26279,43 @@ class NexusApp {
       const balance = Number(cc.currentBalance) || 0;
       const granted = Number(cc.totalGranted) || (Number(cust.creditLimit) || balance);
 
-      // Match abonos prioritizando creditId exacto si está presente para evitar doble conteo multi-crédito
-      const custAbonos = abonosVentas.filter(ab =>
-        ab.creditId
-          ? (ab.creditId === cc.id)
-          : (ab.customer && cc.customer && ab.customer.trim().toLowerCase() === cc.customer.trim().toLowerCase())
-      );
+      // Match abonos prioritizando creditId exacto si está presente para evitar doble conteo multi-crédito;
+      // para abonos legados sin creditId, vincular por factura cuando el crédito tenga txId/mergedTxIds
+      const hasLinkedTx = Boolean(cc.txId || (Array.isArray(cc.mergedTxIds) && cc.mergedTxIds.length > 0));
+      const custAbonos = abonosVentas.filter(ab => {
+        if (ab.creditId) return ab.creditId === cc.id;
+        if (hasLinkedTx) {
+          return Boolean(ab.invoiceId && (
+            ab.invoiceId === cc.id ||
+            (cc.txId && ab.invoiceId === cc.txId) ||
+            (Array.isArray(cc.mergedTxIds) && cc.mergedTxIds.includes(ab.invoiceId))
+          ));
+        }
+        return Boolean(ab.customer && cc.customer && ab.customer.trim().toLowerCase() === cc.customer.trim().toLowerCase());
+      });
 
       const sortedAbonos = [...custAbonos].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
       const lastAbono = sortedAbonos[0] || null;
       const lastAbonoDate = lastAbono ? (lastAbono.date || '').slice(0, 10) : 'Sin abonos';
       const lastAbonoAmount = lastAbono ? (Number(lastAbono.amount) || 0) : 0;
 
-      let totalAbonado = custAbonos.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-      if (totalAbonado === 0 && granted > balance) {
+      // Para Plan Separe, incluir el abono inicial registrado en la factura si no está duplicado en abonosVentas
+      let initialSepareAbono = 0;
+      const isSepare = cc.status === 'Plan Separe' || String(cc.id || '').toUpperCase().startsWith('SEP');
+      if (isSepare && cc.txId) {
+        const sepTx = (this.data.recentTransactions || []).find(t => t && t.id === cc.txId && t.status !== 'Reversada' && t.status !== 'Anulada');
+        if (sepTx && Number(sepTx.separeAbono) > 0) {
+          initialSepareAbono = Number(sepTx.separeAbono) || 0;
+        }
+      }
+
+      const abonosSum = custAbonos.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+      let totalAbonado = abonosSum + initialSepareAbono;
+      if (granted > balance && totalAbonado < (granted - balance)) {
         totalAbonado = granted - balance;
+      }
+      if (granted > 0 && totalAbonado > granted) {
+        totalAbonado = granted;
       }
       const amortizedPct = granted > 0 ? (totalAbonado / granted) : (balance === 0 ? 1 : 0);
 
