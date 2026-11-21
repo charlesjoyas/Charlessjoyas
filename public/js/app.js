@@ -3642,13 +3642,14 @@ class NexusApp {
             return;
           }
           const nextMeasureType = document.getElementById('edit-prod-measure-type').value;
-          const nextWeightUnit = nextMeasureType === 'Pesaje' ? (document.getElementById('edit-prod-weight-unit')?.value || 'g') : 'u.';
+          const nextWeightUnit = nextMeasureType === 'Pesaje' ? (document.getElementById('edit-prod-weight-unit')?.value || 'g') : (p.weightUnit || 'u.');
           const pieceWeight = nextMeasureType === 'Unidades'
             ? (this.parseCleanNumber(document.getElementById('edit-prod-piece-weight')?.value) || 0)
-            : 0;
+            : Number(p.pieceWeight ?? p.weight ?? 0);
 
           const editCatId = document.getElementById('edit-prod-cat').value;
           const catObj = (this.data.categories || []).find(c => c.id === editCatId || c.name === editCatId);
+          if (!catObj) throw new Error('La categoría seleccionada ya no está disponible. Revisa el producto antes de guardar.');
           const isExtraCat = catObj && (catObj.type === 'extras' || catObj.isExtra);
 
           if (nextMeasureType === 'Unidades' && !isExtraCat && pieceWeight <= 0) {
@@ -3665,19 +3666,21 @@ class NexusApp {
           p.name = nextProdName;
           p.measureType = nextMeasureType;
           p.weightUnit = nextWeightUnit;
-          p.unit = nextWeightUnit;
-          p.pieceWeight = isExtraCat ? 0 : pieceWeight;
-          p.weight = isExtraCat ? 0 : pieceWeight;
+          p.unit = nextMeasureType === 'Unidades' ? (p.unit || nextWeightUnit) : nextWeightUnit;
+          if (nextMeasureType === 'Unidades') {
+            p.pieceWeight = isExtraCat ? 0 : pieceWeight;
+            p.weight = isExtraCat ? 0 : pieceWeight;
+          }
           p.isExtra = isExtraCat ? true : false;
           p.category = editCatId;
-          p.categoryName = catObj ? catObj.name : 'General';
+          p.categoryName = editCatId === oldCatId ? oldCatName : catObj.name;
           if (isExtraCat) {
             p.measureType = 'Unidades';
             p.weightUnit = 'u.';
             p.unit = 'u.';
           }
           p.supplier = document.getElementById('edit-prod-supplier').value;
-          p.cost = Math.max(0, this.parseCleanNumber(document.getElementById('edit-prod-cost')?.value) || 0);
+          p.cost = Math.max(0, this.parseMoneyInput(document.getElementById('edit-prod-cost')?.value) || 0);
           p.price = Number(p.price || 0); // Preserva precio previo si existía, o 0 para fijar en POS
 
           // GRAMAJE / CANTIDAD TOTAL DEL ARTÍCULO
@@ -4592,11 +4595,15 @@ class NexusApp {
   onEditAvailabilityChange() {}
   updateEditProductLiveStatus() {}
 
-  populateProductCategorySelect(selectId, selectedVal = '') {
+  populateProductCategorySelect(selectId, selectedVal = null) {
     const select = document.getElementById(selectId);
     if (!select) return;
-    select.innerHTML = (this.data.categories || []).map(cat => {
-      return `<option value="${this.escapeHtml(cat.id)}" ${cat.id === selectedVal || cat.name === selectedVal ? 'selected' : ''}>${this.escapeHtml(cat.name)}</option>`;
+    const selected = selectedVal ?? select.value;
+    const categories = this.data.categories || [];
+    const category = categories.find(c => c.id === selected) || categories.find(c => c.name === selected);
+    const missing = selected && !category ? `<option value="${this.escapeHtml(selected)}" selected disabled>Categoría no disponible: ${this.escapeHtml(selected)}</option>` : '';
+    select.innerHTML = missing + categories.map(cat => {
+      return `<option value="${this.escapeHtml(cat.id)}" ${cat.id === category?.id ? 'selected' : ''}>${this.escapeHtml(cat.name)}</option>`;
     }).join('');
   }
 
@@ -4716,9 +4723,10 @@ class NexusApp {
       pieceWeightInput.value = pW !== '' ? this.formatNumberWithCommas(pW, true) : '';
     }
 
-    const resolvedCatId = (this.data.categories || []).find(c =>
-      c.id === p.category || (p.categoryName && c.name?.toLowerCase().trim() === p.categoryName.toLowerCase().trim())
-    )?.id || p.category;
+    const categories = this.data.categories || [];
+    const resolvedCatId = (categories.find(c => c.id === p.category) || categories.find(c =>
+      p.categoryName && c.name?.toLowerCase().trim() === p.categoryName.toLowerCase().trim()
+    ))?.id || p.category;
     this.populateProductCategorySelect('edit-prod-cat', resolvedCatId);
     this.populateProductSupplierSelect('edit-prod-supplier', p.supplier || 'ANONIMO');
     this.onProductCategoryChange('edit');
