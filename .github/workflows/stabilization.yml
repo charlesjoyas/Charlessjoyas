@@ -1,0 +1,25 @@
+name: Stabilization checks (isolated data)
+on:
+  push:
+    branches: [codex/preopening-stabilization]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXUS_LOCAL_ONLY: '1'
+      MONGO_URI: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run check

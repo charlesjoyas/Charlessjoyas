@@ -64,7 +64,255 @@ class NexusApp {
       { id: 'config', label: '⚙️ Configuración del Sistema' }
     ];
 
+    try {
+      const cached = this.readBrowserStorage('nexus_pos_data');
+      if (cached && !this.readBrowserStorage('nexus_pos_legacy_recovery')) {
+        const recovery = JSON.parse(cached);
+        (recovery.users || []).forEach(u => { delete u.password; delete u.passwordHash; });
+        if (recovery.store) delete recovery.store.deepseekApiKey;
+        this.writeBrowserStorage('nexus_pos_legacy_recovery', JSON.stringify({ capturedAt:new Date().toISOString(), data:recovery }));
+      }
+    } catch (_) {}
+    this.installOperationGuards();
     this.init();
+  }
+
+  installOperationGuards() {
+    const names = ['quickAdjustCategoryCost', 'quickAdjustCategoryGrams', 'handleSaveMyPassword',
+      'handleSaveMyPasswordFromConfig', 'handleAdminSaveUserPassword', 'deleteUser', 'deleteCustomer',
+      'deleteSupplier', 'deleteProfile', 'deletePaymethod', 'deleteExpense', 'deleteService', 'deleteCategory',
+      'deleteAsset', 'deletePurchaseOrder', 'deleteAbonoCompra', 'submitAbono', 'deleteAccountAdjustment',
+      'submitAccountAdjustment', 'revertSale', 'markPurchaseAsPaid', 'saveEditedPurchaseOrder',
+      'saveEditedSupplierCredit', 'deleteProduct', 'submitCashShiftOpen', 'finalizeCashClose',
+      'promptSetProductPrice', 'saveMetalRates', 'processPaymentSuccess', 'deleteSupplierCredit'];
+    names.forEach(name => {
+      const original = this[name].bind(this);
+      this[name] = (...args) => this.runMutation(() => original(...args));
+    });
+  }
+
+  bindSafeSubmit(form, handler) {
+    form.onsubmit = event => {
+      event.preventDefault();
+      this.runMutation(() => handler(event));
+    };
+  }
+
+  async runMutation(handler) {
+    if (this._mutationActive) { this.showToast('Espera a que termine la operación actual.', 'warning'); return false; }
+    if (this._requiresRefresh) { this.showToast('Consulta el estado actualizado antes de continuar. No repitas un cobro sin revisar el historial.', 'danger'); return false; }
+    const previous = JSON.parse(JSON.stringify(this.data));
+    const cart = JSON.parse(JSON.stringify(this.cart || []));
+    const confirmedAtStart = this._lastServerUpdatedAt;
+    this._mutationActive = true;
+    try {
+      const result = await handler();
+      // Validation may return early after editing an object. Nothing becomes a
+      // pending change unless the server acknowledged a new revision.
+      if (this._lastServerUpdatedAt === confirmedAtStart) {
+        this.data = previous;
+        this.cart = cart.map(ci => ({ ...ci, product: this.data.products.find(p => p.id === ci.product.id) || ci.product }));
+        this.currentUser = this.data.users.find(u => u.id === this.currentUser?.id) || this.currentUser;
+      }
+      return result;
+    }
+    catch (error) {
+      // If the write was acknowledged, a later rendering failure must not undo the sale.
+      const saved = this._lastServerUpdatedAt !== confirmedAtStart;
+      this.data = JSON.parse(JSON.stringify(saved ? this._confirmedData : (error.saveFailed ? (this._confirmedData || previous) : previous)));
+      this.cart = saved ? [] : cart.map(ci => ({ ...ci, product: this.data.products.find(p => p.id === ci.product.id) || ci.product }));
+      this.currentUser = this.data.users.find(u => u.id === this.currentUser?.id) || this.currentUser;
+      try { this.syncAllModules(); this.renderCart(); } catch (_) {}
+      this.showToast(saved ? 'La operación quedó guardada. Actualiza la pantalla para ver el resultado.' : `${error.message}${error.saveFailed ? ' No repitas un cobro sin revisar su estado.' : ''}`, saved ? 'warning' : 'danger');
+      this.updateSafetyNotice();
+      return false;
+    } finally { this._mutationActive = false; }
+  }
+
+  updateSafetyNotice() {
+    const host = document.querySelector('.content-body');
+    if (!host || !this.currentUser) return;
+    let notice = document.getElementById('nexus-safety-notice');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'nexus-safety-notice';
+      notice.setAttribute('role', 'status');
+      notice.style.cssText = 'padding:12px;margin-bottom:12px;border:1px solid #d97706;border-radius:8px;background:#fffbeb;color:#78350f;';
+      host.prepend(notice);
+    }
+    const legacyCosts = (this.data.recentTransactions || []).some(t => t.status !== 'Reversada' && (t.items || []).some(i => NexusSafety.historicalCost(i) === null));
+    notice.replaceChildren();
+    const pending=this.getPendingFinancialCommand();
+    notice.hidden = !this._requiresRefresh && !legacyCosts && !pending;
+    if (notice.hidden) return;
+    const text = document.createElement('span');
+    text.textContent = this._requiresRefresh
+      ? 'Guardado sin confirmar o conflicto con otro dispositivo. Revisa el historial antes de repetir la operación. '
+      : pending?'Hay una operación pendiente de revisión; consulta su estado antes de realizar otra.':'Los márgenes de ventas antiguas sin costo histórico son estimados. Las ventas nuevas conservarán su costo original.';
+    notice.appendChild(text);
+    if(pending&&!this._requiresRefresh){
+      const recover=document.createElement('button');recover.type='button';recover.textContent='Revisar operación pendiente';
+      recover.addEventListener('click',()=>this.reviewPendingOperation());notice.appendChild(recover);
+    }
+    if (this._requiresRefresh) {
+      const button = document.createElement('button');
+      button.textContent = 'Consultar estado actualizado';
+      button.type = 'button';
+      button.addEventListener('click', async () => {
+        try { await this.loadPersistence(); this.cart = []; this.syncAllModules(); this.renderCart(); }
+        catch (error) { this.showToast(error.message, 'danger'); }
+      });
+      notice.appendChild(button);
+    }
+  }
+
+  blockUnsafeOperation(message) {
+    this.showToast(message, 'warning');
+    return false;
+  }
+
+  activePurchases() { return (this.data.purchases || []).filter(p=>!NexusLedger.inactive(p.status)); }
+
+  getPurchasePending(po) { return NexusLedger.inactive(po.status)?0:Math.max(0,NexusLedger.money(Number(po.total)-Number(po.paidAmount||0)-Number(po.creditAdjustment||0))); }
+
+  renderPurchaseRefundOptions(po) {
+    const host=document.getElementById('edit-po-refunds-list');if(!host)return;
+    const rows=(this.data.abonosCompras||[]).flatMap(a=>(a.allocations||[]).filter(x=>x.purchaseId===po.id&&Number(x.amount)>Number(x.reversedAmount||0)).map(x=>({receipt:a,available:Number(x.amount)-Number(x.reversedAmount||0)})));
+    host.innerHTML='<p>Si reduces lo pagado, indica qué abonos se devolvieron. No se modifica su historial original.</p>'+rows.map(({receipt:a,available})=>`<label>${this.escapeHtml(a.id)} · ${this.escapeHtml(a.method)} · disponible ${this.formatCurrency(available)}<input class="form-control" type="number" min="0" max="${available}" step="0.01" value="0" data-purchase-refund-id="${this.escapeHtml(a.id)}"></label>`).join('');
+  }
+
+  openReconciliation() {
+    if(!this.isAdminUser())return this.blockUnsafeOperation('La conciliación requiere un administrador con permisos del módulo.');
+    this.reconciliationReport=NexusReconciliation.report(this.data);
+    const summary=document.getElementById('reconciliation-summary'),host=document.getElementById('reconciliation-list');
+    if(summary)summary.textContent=`${this.reconciliationReport.issues.length} registros para revisar. Las notas de saldo inicial no significan pérdida de datos.`;
+    if(host)host.innerHTML=`<table class="data-table"><thead><tr><th>Registro</th><th>Hallazgo</th><th>Acción</th></tr></thead><tbody>${this.reconciliationReport.issues.slice(0,100).map((issue,index)=>`<tr><td>${this.escapeHtml(issue.entityId)}</td><td>${this.escapeHtml(issue.message)}</td><td>${issue.action?`<button type="button" class="btn" onclick="app.openReconciliationAction(${index})">Conciliar con soporte</button>`:'Conservar / revisar soporte'}</td></tr>`).join('')}</tbody></table><p>Se muestran hasta 100 hallazgos. El informe descargable contiene todos. Al resolverlos, vuelve a abrir esta lista.</p>`;
+    this.openModal('reconciliation-modal');
+  }
+
+  exportReconciliationReport() {
+    const report=NexusReconciliation.report(this.data),blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='conciliacion-charles-joyas.json';a.click();URL.revokeObjectURL(url);
+  }
+
+  openReconciliationAction(index) {
+    const issue=this.reconciliationReport?.issues[index];if(!issue?.action)return;
+    this.reconciliationAction=issue;
+    const field=(id,label,type='text',value='')=>`<label>${label}<input class="form-control" id="${id}" type="${type}" value="${this.escapeHtml(String(value))}" ${type==='number'?'min="0" step="0.01"':''}></label>`;
+    let body=`<p>${this.escapeHtml(issue.message)}</p>`;
+    if(issue.action==='setHistoricalCost')body+=field('reconcile-cost','Costo TOTAL original del renglón vendido, según soporte','number');
+    if(issue.action==='restoreHistoricalProduct'){
+      const skuMatch=this.data.products.find(p=>NexusSafety.sku(p.sku)===NexusSafety.sku(issue.details.item.sku));
+      if(skuMatch){this.reconciliationAction={...issue,action:'reconcileProductIdentity',details:{...issue.details,productId:skuMatch.id}};body+=`<p>El mismo SKU existe con el ID ${this.escapeHtml(skuMatch.id)}. El soporte debe demostrar que corresponde a la misma referencia. No se cambiará el stock.</p>`;}
+      else body+=`<p>Se recuperará el SKU ${this.escapeHtml(issue.details.item.sku)} con stock CERO. La devolución posterior reintegrará la cantidad comprobada.</p>${field('reconcile-recovery-cost','Costo de inventario verificado para recuperar esta referencia','number')}<label>Categoría<select class="form-control" id="reconcile-category"><option value="">Seleccionar categoría original</option>${this.data.categories.map(c=>`<option value="${this.escapeHtml(c.id)}">${this.escapeHtml(c.name)}</option>`).join('')}</select></label>`;
+    }
+    if(issue.action==='linkCustomerCredit'){
+      const credit=this.data.customerCredits.find(c=>c.id===issue.entityId);
+      body+=this.data.recentTransactions.filter(t=>t.customer===credit.customer&&NexusLedger.debt(t.paymentMethod)&&!NexusLedger.inactive(t.status)).map(t=>`<label style="display:block"><input type="checkbox" data-link-invoice="${this.escapeHtml(t.id)}">${this.escapeHtml(t.id)} · ${this.formatCurrency(t.total)}</label>`).join('');
+    }
+    if(issue.action==='reconcileSupplierPayment'||issue.action==='reconcileCustomerPayment'){
+      const supplier=issue.action==='reconcileSupplierPayment',receipt=(supplier?this.data.abonosCompras:this.data.abonosVentas).find(a=>a.id===issue.entityId),owner=supplier?receipt.supplier:receipt.customer;
+      const credits=(supplier?this.data.supplierCredits:this.data.customerCredits).filter(c=>(supplier?c.supplier:c.customer)===owner);
+      body+=`<p>Distribuye exactamente ${this.formatCurrency(receipt.amount)}. Los importes ya están reflejados en los saldos; esta acción solo documenta su distribución.</p><label>Crédito<select class="form-control" id="reconcile-credit"><option value="">Seleccionar crédito del soporte</option>${credits.map(c=>`<option value="${this.escapeHtml(c.id)}">${this.escapeHtml(c.id)}</option>`).join('')}</select></label>`;
+      const records=(supplier?this.activePurchases():this.data.recentTransactions.filter(t=>NexusLedger.debt(t.paymentMethod))).filter(r=>(supplier?r.supplier:r.customer)===owner);
+      body+=records.map(r=>`<label>${this.escapeHtml(r.id)} · ${this.formatCurrency(r.total)}<input class="form-control" type="number" min="0" step="0.01" value="0" data-allocation-target="${this.escapeHtml(r.id)}" data-allocation-kind="${supplier?'purchaseId':'invoiceId'}"></label>`).join('');
+      body+='<label>Parte aplicada a deuda inicial (sin factura)<input class="form-control" type="number" min="0" step="0.01" value="0" data-allocation-kind="openingCreditId" data-allocation-target="opening"></label>';
+    }
+    if(issue.action==='setMovementExclusion')body+=`<p>La inclusión en reportes no representa un movimiento nuevo de dinero. Comprueba los saldos reales antes de cambiarla.</p><label><input type="checkbox" id="reconcile-exclude-cash" ${issue.details.excludeFromCashShift?'checked':''}>Excluir de caja</label><label><input type="checkbox" id="reconcile-exclude-treasury" checked>Excluir también de tesorería</label>`;
+    document.getElementById('reconciliation-action-title').textContent=`Conciliar ${issue.entityId}`;
+    document.getElementById('reconciliation-action-fields').innerHTML=body;
+    document.getElementById('reconciliation-reference').value='';document.getElementById('reconciliation-reason').value='';
+    this.openModal('reconciliation-action-modal');
+  }
+
+  async submitReconciliationAction() {
+    return this.runMutation(async()=>{
+      const issue=this.reconciliationAction;if(!issue)return;
+      const reference=document.getElementById('reconciliation-reference').value.trim(),reason=document.getElementById('reconciliation-reason').value.trim();if(!reference||!reason)throw new Error('Indica el soporte y el motivo de la conciliación.');
+      const args={reference,reason:`${reason} · Soporte: ${reference}`};
+      if(['setHistoricalCost','restoreHistoricalProduct','reconcileProductIdentity'].includes(issue.action)){args.saleId=issue.entityId;args.itemIndex=issue.details.index;}
+      if(issue.action==='setHistoricalCost')args.totalCost=Number(document.getElementById('reconcile-cost').value);
+      if(issue.action==='restoreHistoricalProduct'){args.cost=Number(document.getElementById('reconcile-recovery-cost').value);args.category=document.getElementById('reconcile-category').value;}
+      if(issue.action==='reconcileProductIdentity')args.productId=issue.details.productId;
+      if(issue.action==='linkCustomerCredit'){args.creditId=issue.entityId;args.invoiceIds=Array.from(document.querySelectorAll('[data-link-invoice]:checked')).map(e=>e.getAttribute('data-link-invoice'));}
+      if(issue.action.startsWith('reconcile')&&issue.action.endsWith('Payment')){args.paymentId=issue.entityId;const creditId=document.getElementById('reconcile-credit').value;if(!creditId)throw new Error('Selecciona el crédito del soporte.');args.allocations=Array.from(document.querySelectorAll('[data-allocation-target]')).filter(e=>Number(e.value)>0).map(e=>{const kind=e.getAttribute('data-allocation-kind'),target=e.getAttribute('data-allocation-target');return {creditId,[kind]:kind==='openingCreditId'?creditId:target,amount:Number(e.value)};});}
+      if(issue.action==='setMovementExclusion'){args.purchaseId=issue.entityId;args.excludeFromCashShift=document.getElementById('reconcile-exclude-cash').checked;args.excludeFromTreasury=document.getElementById('reconcile-exclude-treasury').checked;}
+      await this.executeFinancialOperation(issue.action,args);this.closeModal('reconciliation-action-modal');this.openReconciliation();this.showToast('Conciliación guardada con soporte e historial.','success');
+    });
+  }
+
+  readBrowserStorage(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
+
+  writeBrowserStorage(key,value) { try { localStorage.setItem(key,value); return true; } catch (_) { return false; } }
+
+  removeBrowserStorage(key) { try { localStorage.removeItem(key); return true; } catch (_) { return false; } }
+
+  getPendingFinancialCommand() {
+    if(this._pendingFinancialCommand!==undefined)return this._pendingFinancialCommand;
+    try { const pending=JSON.parse(this.readBrowserStorage('nexus_pending_command')||'null');return pending&&typeof pending.operationId==='string'&&typeof pending.type==='string'&&pending.args&&typeof pending.args==='object'?pending:null; } catch (_) { return null; }
+  }
+
+  setPendingFinancialCommand(command) {
+    this._pendingFinancialCommand=command;
+    if(command)this.writeBrowserStorage('nexus_pending_command',JSON.stringify(command));else this.removeBrowserStorage('nexus_pending_command');
+  }
+
+  async executeFinancialOperation(type,args,existingId=null) {
+    const operationId=existingId || crypto.randomUUID();
+    const pending=this.getPendingFinancialCommand();
+    if(pending&&pending.operationId!==operationId)throw new Error('Revisa la operación pendiente antes de iniciar otra operación financiera.');
+    const body={type,args,operationId,actorId:this.currentUser?.id,baseUpdatedAt:this._lastServerUpdatedAt};
+    try {
+      this.setPendingFinancialCommand(body);
+      const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+      const result=await res.json();
+      if(!res.ok||!result.success)throw Object.assign(new Error(result.error || 'El servidor no confirmó la operación.'),{status:res.status,code:result.code});
+      this.data=result.data;this._lastServerUpdatedAt=result.updatedAt;this._confirmedData=JSON.parse(JSON.stringify(result.data));
+      this._requiresRefresh=false;
+      this.currentUser=this.data.users.find(u=>u.id===this.currentUser?.id)||this.currentUser;
+      this.setPendingFinancialCommand(null);
+      try{this.writeBrowserStorage('nexus_pos_data',JSON.stringify(this.data));}catch(_){}
+      this.sanitizeLoadedData();this.syncAllModules();this.renderCart();this.updateSafetyNotice();
+      return result;
+    }catch(error){
+      if(error.status&&error.status<500&&error.status!==409){this.setPendingFinancialCommand(null);throw error;}
+      this._requiresRefresh=true;error.saveFailed=true;throw error;
+    }
+  }
+
+  async reviewPendingOperation() {
+    try {
+      const command=this.getPendingFinancialCommand();if(!command)return;
+      await this.loadPersistence();
+      if(command.actorId&&command.actorId!==this.currentUser?.id)throw new Error('La operación pendiente pertenece a otro usuario. Debe revisarla con su sesión original.');
+      const applied=(this.data.financialLedger||[]).find(x=>x.operationId===command.operationId);
+      if(applied){this.setPendingFinancialCommand(null);this.showToast('La operación ya estaba guardada. No se repetirá.','success');this.updateSafetyNotice();return;}
+      if(!confirm('La operación '+command.type+' no aparece guardada. ¿Reintentar exactamente la misma operación después de revisar el historial?')){if(confirm('¿Descartar solamente este intento local no guardado? No se modificarán los registros del servidor.')){this.setPendingFinancialCommand(null);this.updateSafetyNotice();}return;}
+      await this.runMutation(()=>this.executeFinancialOperation(command.type,command.args,command.operationId));
+    }catch(error){this.showToast(error.message,'danger');}
+  }
+
+  async submitPurchase(event) {
+    event?.preventDefault();
+    if(!this.canPerformAction('create','purchase'))throw new Error('Tu perfil no permite registrar compras.');
+    const method=document.getElementById('po-payment-method')?.value || 'Efectivo';
+    const result=await this.executeFinancialOperation('createPurchase',{
+      productId:document.getElementById('po-product-id')?.value || undefined,
+      sku:document.getElementById('po-product-sku')?.value?.trim() || this.getNextConsecutiveSku(),
+      name:document.getElementById('po-product-name')?.value?.trim(),
+      supplier:document.getElementById('po-supp-select')?.value,
+      category:document.getElementById('po-category-select')?.value,
+      measureType:document.getElementById('po-measure-type')?.value || 'Pesaje',
+      quantity:this.parseCleanNumber(document.getElementById('po-quantity')?.value),
+      unitCost:this.parseCleanNumber(document.getElementById('po-unit-cost')?.value),
+      pieceWeight:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
+      paid:document.getElementById('po-payment-status')?.value==='Pagado Total',
+      method,targetAccount:/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('po-account-select')?.value || this.getDestinationBankAccounts()[0],
+      reason:'Ingreso de mercancía registrado mediante orden de compra'
+    });
+    document.getElementById('add-purchase-form')?.reset();this.closeModal('purchase-modal');
+    this.showToast('Compra, inventario y pago registrados con trazabilidad.','success');
+    const po=this.data.purchases.find(p=>p.operationId===result.operationId);if(po)this.showPurchaseReceiptModal(po.id);
   }
 
   generateUniqueId(prefix = 'ID', existingCollection = null) {
@@ -197,6 +445,10 @@ class NexusApp {
   formatNumberWithCommas(val, allowDecimals = false) {
     if (val === null || val === undefined || val === '') return '';
     let raw = String(val).trim();
+    if(!allowDecimals){
+      raw=raw.replace(/^(?:COP\s*|\$\s*)/i,'').replace(/\s*COP$/i,'').trim();
+      if(/^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(raw))raw=raw.replace(/\./g,'').replace(',','.');
+    }
     if (allowDecimals && !raw.includes('.') && raw.includes(',')) {
       const commaParts = raw.split(',');
       if (commaParts.length === 2 && (commaParts[1].length !== 3 || commaParts[0] === '0' || commaParts[1] === '')) {
@@ -488,7 +740,7 @@ class NexusApp {
     }
 
     // Match if query prefixes with "cod" or "codigo" (e.g. "cod 001", "cod 0474")
-    const cleanQ = q.replace(/^(?:cod|codigo)\.?\s*/i, '').trim();
+    const cleanQ = q.replace(/^(?:codigo|cod)\.?\s*/i, '').trim();
     if (cleanQ && cleanQ !== q) {
       if (name.includes(cleanQ) || sku.includes(cleanQ) || paddedSku.includes(cleanQ) || id.includes(cleanQ) || barcode.includes(cleanQ) || category.includes(cleanQ) || supplier.includes(cleanQ)) {
         return true;
@@ -506,10 +758,10 @@ class NexusApp {
     }
 
     // Multi-token match (allows searching e.g. "topo 2026" or "balineria 1")
-    const tokens = q.split(/\s+/).filter(Boolean);
+    const tokens = targetQ.split(/\s+/).filter(Boolean);
     if (tokens.length > 1) {
       return tokens.every(tok => {
-        const cleanTok = tok.replace(/^(?:cod|codigo)\.?\s*/i, '').trim();
+        const cleanTok = tok.replace(/^(?:codigo|cod)\.?\s*/i, '').trim();
         const tokNum = /^\d+$/.test(cleanTok) ? (cleanTok.replace(/^0+/, '') || '0') : '';
         const skuNum = /^\d+$/.test(sku) ? (sku.replace(/^0+/, '') || '0') : '';
         const numMatch = tokNum && skuNum && tokNum === skuNum;
@@ -524,9 +776,9 @@ class NexusApp {
     const setup = async () => {
       try {
         this.checkTheme();
-        await this.loadPersistence();
+        await this.checkAuth();
         this.applyBrandingSettings(this.data.store?.branding);
-        this.checkAuth();
+        // Session and authoritative data were loaded above.
         this.setupNavigation();
         this.setupSidebarToggle();
         this.setupPOS();
@@ -612,40 +864,18 @@ class NexusApp {
       const me = this.data.users.find(u => u && u.email && this.currentUser.email && u.email.toLowerCase() === this.currentUser.email.toLowerCase());
       if (me && this.currentUser.id !== me.id) {
         this.currentUser.id = me.id;
-        try { localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (e) {}
+        try { this.writeBrowserStorage('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (e) {}
       }
     }
   }
 
   sanitizeLoadedData() {
-    if (this.data.users && Array.isArray(this.data.users)) {
-      this.data.users.forEach(u => {
-        const initUser = INITIAL_DATA.users.find(iu => iu.email?.toLowerCase() === u.email?.toLowerCase() || iu.id === u.id);
-        if (initUser) {
-          if (!u.password) u.password = initUser.password;
-          if (!u.avatar) u.avatar = initUser.avatar;
-          if (!u.role) u.role = initUser.role;
-        } else {
-          if (!u.password) u.password = "123456";
-          if (!u.avatar) u.avatar = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80";
-          if (!u.role) u.role = "Cajero";
-        }
-      });
-
-      // ONLY ensure root Super Admin (USR-001) is present so the system is never locked out
-      const rootUser = INITIAL_DATA.users.find(u => u.id === 'USR-001');
-      if (rootUser && !this.data.users.some(u => u.id === 'USR-001' || u.role === 'Super Admin')) {
-        this.data.users.unshift(rootUser);
-      }
-      this.ensureOrderedUserIds();
-    } else {
-      this.data.users = Array.from(INITIAL_DATA.users);
-    }
+    if (!Array.isArray(this.data.users)) this.data.users = [];
 
     if (this.data.perfiles && Array.isArray(this.data.perfiles)) {
       this.data.perfiles.forEach(p => {
         const initPerf = INITIAL_DATA.perfiles.find(ip => ip.name?.toLowerCase() === p.name?.toLowerCase() || ip.id === p.id);
-        if (initPerf && (!p.allowedModules || p.allowedModules.length === 0)) {
+        if (initPerf && !Array.isArray(p.allowedModules)) {
           p.allowedModules = initPerf.allowedModules;
         }
       });
@@ -687,29 +917,6 @@ class NexusApp {
     if (this.data.products && Array.isArray(this.data.products)) {
       // Purge decommissioned/deleted products from any residual client-side cache
       // Purge decommissioned legacy products by unique ID if synced from old client cache
-      const DECOMMISSIONED_LEGACY_IDS = new Set([
-        'PRD-CJ-0213', 'PRD-CJ-0220', 'PRD-CJ-0403', 'PRD-CJ-0181', 'PRD-CJ-0438',
-        'PRD-CJ-0201', 'PRD-CJ-0590', 'PRD-CJ-0367', 'PRD-CJ-0353', 'PRD-CJ-0214',
-        'PRD-CJ-0410', 'PRD-CJ-0228', 'PRD-CJ-0634', 'PRD-CJ-0752', 'PRD-CJ-0477',
-        'PRD-CJ-0221', 'PRD-CJ-0473', 'PRD-CJ-0619', 'PRD-CJ-0341', 'PRD-CJ-0356',
-        'PRD-CJ-0424', 'PRD-CJ-0293', 'PRD-CJ-0237', 'PRD-CJ-0420', 'PRD-CJ-0273',
-        'PRD-CJ-0383', 'PRD-CJ-0304', 'PRD-CJ-0336', 'PRD-CJ-0136', 'PRD-CJ-0005',
-        'PRD-249', 'PRD-CJ-0568', 'PRD-CJ-0529', 'PRD-CJ-0486', 'PRD-CJ-0687',
-        'PRD-CJ-0649', 'PRD-CJ-0224'
-      ]);
-
-      const prevCount = this.data.products.length;
-      this.data.products = this.data.products.filter(p => {
-        if (!p) return false;
-        const idStr = String(p.id || '').trim();
-        return !DECOMMISSIONED_LEGACY_IDS.has(idStr);
-      });
-      if (this.data.products.length !== prevCount) {
-        try {
-          localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
-        } catch (_) {}
-      }
-
       const seenProdIds = new Set();
       this.data.products.forEach(p => {
         if (!p.measureType) p.measureType = 'Pesaje';
@@ -755,7 +962,7 @@ class NexusApp {
 
     if (this.data.perfiles && Array.isArray(this.data.perfiles)) {
       this.data.perfiles.forEach(p => {
-        if (!p.allowedModules || !Array.isArray(p.allowedModules) || p.allowedModules.length === 0) {
+        if (!Array.isArray(p.allowedModules)) {
           const name = (p.name || '').toLowerCase();
           if (name.includes('super')) {
             p.allowedModules = ['*'];
@@ -854,63 +1061,18 @@ class NexusApp {
   }
 
   async loadPersistence() {
-    let localData = null;
-    try {
-      const local = localStorage.getItem('nexus_pos_data');
-      if (local) {
-        localData = JSON.parse(local);
-      }
-    } catch(e) {}
-
-    try {
-      const res = await fetch('/api/data');
-      if (res.ok) {
-        const dbData = await res.json();
-        if (dbData && dbData.products && Array.isArray(dbData.products)) {
-          const dbTime = new Date(dbData.updatedAt || 0).getTime();
-          this._lastServerUpdatedAt = dbData.updatedAt || null;
-          const localTime = new Date(localData?.updatedAt || 0).getTime();
-
-          // If local data is strictly newer by more than 2s (e.g. user created entities while DB was syncing), preserve local data and re-sync
-          if (localData && localData.products && localTime > dbTime + 2000) {
-            console.log('[NexusApp] LocalStorage tiene datos más recientes que el servidor. Preservando estado local para re-sincronizar...');
-            this.data = Object.assign({}, INITIAL_DATA, localData);
-            this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
-            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
-            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
-            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
-            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
-            this._hasUnsavedLocalChanges = true;
-            this.sanitizeLoadedData();
-            return;
-          }
-
-          this.data = Object.assign({}, INITIAL_DATA, dbData);
-          this.data.store = Object.assign({}, INITIAL_DATA.store, dbData.store || {});
-          this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, dbData.kpis || {});
-          this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, dbData.cashShiftLog || {});
-          this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, dbData.balanceSheet || {});
-          this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, dbData.stockRadarData || {});
-          this.sanitizeLoadedData();
-          console.log('[NexusApp] Persistencia cargada exitosamente desde Backend/MongoDB.');
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('[NexusApp] Servidor REST inaccesible. Usando LocalStorage fallback.');
-    }
-
-    if (localData && localData.products) {
-      this.data = Object.assign({}, INITIAL_DATA, localData);
-      this.data.store = Object.assign({}, INITIAL_DATA.store, localData.store || {});
-      this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, localData.kpis || {});
-      this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, localData.cashShiftLog || {});
-      this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, localData.balanceSheet || {});
-      this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, localData.stockRadarData || {});
-      this.sanitizeLoadedData();
-      console.log('[NexusApp] Persistencia cargada desde LocalStorage.');
-    }
+    const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw Object.assign(new Error('No se pudo cargar la base de datos. Verifica la conexión e inicia sesión.'), { status: res.status });
+    const state = await res.json();
+    if (!Array.isArray(state.products)) throw new Error('Respuesta de datos inválida.');
+    this.data = JSON.parse(JSON.stringify(state));
+    this._lastServerUpdatedAt = state.updatedAt ?? null;
+    this._confirmedData = JSON.parse(JSON.stringify(state));
+    this._hasUnsavedLocalChanges = false;
+    this._requiresRefresh = false;
     this.sanitizeLoadedData();
+    this.writeBrowserStorage('nexus_pos_data', JSON.stringify(this.data));
+    this.updateSafetyNotice();
   }
 
   syncAllModules() {
@@ -1063,297 +1225,51 @@ class NexusApp {
     return `CP-${String(max + 1).padStart(3, '0')}`;
   }
 
-  normalizeSupplierCreditCodes() {
-    if (!this.data || !Array.isArray(this.data.supplierCredits) || this.data.supplierCredits.length === 0) return;
-
-    // Check if any credit has an old non-sequential code or legacy ID
-    const seenIds = new Set();
-    let hasLegacyIds = false;
-    for (const sc of this.data.supplierCredits) {
-      if (!sc || !sc.id) { hasLegacyIds = true; break; }
-      if (String(sc.id).startsWith('OC-')) { hasLegacyIds = true; break; }
-      const m = String(sc.id).match(/^CP-(\d+)$/i);
-      if (!m) { hasLegacyIds = true; break; }
-      const num = parseInt(m[1], 10);
-      if (isNaN(num) || seenIds.has(sc.id)) { hasLegacyIds = true; break; }
-      seenIds.add(sc.id);
-    }
-
-    if (hasLegacyIds) {
-      if (!Array.isArray(this.data.abonosCompras)) this.data.abonosCompras = [];
-      const idMap = {};
-
-      this.data.supplierCredits.forEach((sc, idx) => {
-        const newId = `CP-${String(idx + 1).padStart(3, '0')}`;
-        if (sc.id !== newId) {
-          idMap[sc.id] = newId;
-          if (String(sc.id).startsWith('OC-') && !sc.poId) {
-            sc.poId = sc.id;
-          }
-          sc.id = newId;
-        }
-      });
-
-      this.data.abonosCompras.forEach(ab => {
-        if (ab.poId && idMap[ab.poId]) {
-          ab.poId = idMap[ab.poId];
-        }
-      });
-    }
-  }
+  normalizeSupplierCreditCodes() { /* Server IDs are stable historical references. */ }
 
   syncSupplierCreditsState() {
-    if (!this.data) return;
-    if (!Array.isArray(this.data.suppliers)) this.data.suppliers = [];
-    if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
-    if (!Array.isArray(this.data.purchases)) this.data.purchases = [];
-
-    // Auto-consolidar créditos por proveedor para evitar duplicación y fragmentación
-    const groups = {};
-    this.data.supplierCredits.forEach(sc => {
-      if (!sc) return;
-      if (!sc.supplier || !String(sc.supplier).trim()) sc.supplier = 'Proveedor General';
-      const suppName = String(sc.supplier).toLowerCase().trim();
-      if (!groups[suppName]) groups[suppName] = [];
-      groups[suppName].push(sc);
-    });
-
-    const consolidated = [];
-    const usedIds = new Set();
-    let nextIdCounter = 1;
-    const allocCreditId = (preferredId) => {
-      if (preferredId && /^CP-\d+$/i.test(preferredId) && !usedIds.has(preferredId)) {
-        usedIds.add(preferredId);
-        return preferredId;
-      }
-      while (usedIds.has(`CP-${String(nextIdCounter).padStart(3, '0')}`)) {
-        nextIdCounter++;
-      }
-      const id = `CP-${String(nextIdCounter++).padStart(3, '0')}`;
-      usedIds.add(id);
-      return id;
-    };
-
-    for (const [suppName, credList] of Object.entries(groups)) {
-      const suppObj = this.data.suppliers.find(s => (s.name || '').toLowerCase().trim() === suppName);
-      const realName = suppObj ? suppObj.name : credList[0].supplier;
-      const suppId = suppObj ? suppObj.id : (credList[0].supplierId || '');
-      const hasExplicitSuppBal = suppObj && suppObj.creditBalance !== undefined && suppObj.creditBalance !== null;
-      const suppCreditBalance = hasExplicitSuppBal ? Math.max(0, Number(suppObj.creditBalance) || 0) : 0;
-
-      // Unir todas las OCs asociadas
-      const suppPOs = this.data.purchases.filter(p => (p.supplier || '').toLowerCase().trim() === suppName);
-      const allPOIds = new Set(suppPOs.map(p => p.id));
-      credList.forEach(c => {
-        if (c.poId) allPOIds.add(c.poId);
-        if (Array.isArray(c.purchaseOrderIds)) c.purchaseOrderIds.forEach(id => allPOIds.add(id));
-      });
-
-      const pendingList = credList.filter(c => (Number(c.pendingAmount) || 0) > 0 || ((Number(c.pendingAmount) || 0) > 0 && c.status !== 'Pagado Total') || (c.pendingAmount === undefined && c.status !== 'Pagado Total'));
-      const paidList = credList.filter(c => !pendingList.includes(c));
-
-      const pendingPOIds = new Set();
-      const paidPOIds = new Set();
-      credList.forEach(c => {
-        const targetSet = pendingList.includes(c) ? pendingPOIds : paidPOIds;
-        if (c.poId) targetSet.add(c.poId);
-        if (Array.isArray(c.purchaseOrderIds)) c.purchaseOrderIds.forEach(id => targetSet.add(id));
-      });
-      suppPOs.forEach(p => {
-        if (p.paymentStatus === 'Pagado Total' || (Number(p.paidAmount) || 0) >= (Number(p.total) || 0) - 0.01) {
-          if (!pendingPOIds.has(p.id)) paidPOIds.add(p.id);
-        } else {
-          pendingPOIds.add(p.id);
-        }
-      });
-
-      const totalOwedSum = pendingList.reduce((sum, c) => sum + (Number(c.totalOwed) || 0), 0);
-      // Respetar creditBalance explícito (incluso cuando es 0) para no resucitar deudas ya saldadas
-      const pendingVal = hasExplicitSuppBal
-        ? suppCreditBalance
-        : pendingList.reduce((sum, c) => sum + (Number(c.pendingAmount) || 0), 0);
-      const explicitPaidSum = pendingList.reduce((sum, c) => sum + (Number(c.paidAmount) || 0), 0);
-      const computedPaidVal = Math.max(0, totalOwedSum - pendingVal);
-      const paidVal = (pendingList.length === 1 && pendingList[0].paidAmount !== undefined && Number(pendingList[0].pendingAmount) === pendingVal)
-        ? Math.max(0, Number(pendingList[0].paidAmount) || 0)
-        : (explicitPaidSum > 0 && pendingVal > totalOwedSum ? explicitPaidSum : computedPaidVal);
-
-      const allDates = credList.map(c => c.date).filter(Boolean).sort();
-      const earliest = allDates[0] || new Date().toISOString().slice(0, 10);
-      const latest = allDates[allDates.length - 1] || earliest;
-      const existingDueDate = pendingList.map(c => c.dueDate).filter(Boolean).sort().pop();
-      const pendingHistory = [];
-      pendingList.forEach(c => {
-        if (Array.isArray(c.history)) pendingHistory.push(...c.history);
-      });
-
-      // 1 registro consolidado pendiente si existe deuda (preservando su ID CP-xxx original para no romper abonosCompras.poId)
-      if (pendingVal > 0) {
-        const prefPendingId = (pendingList.find(c => /^CP-\d+$/i.test(c.id || '')) || credList.find(c => /^CP-\d+$/i.test(c.id || '')))?.id;
-        consolidated.push({
-          id: allocCreditId(prefPendingId),
-          supplier: realName,
-          supplierId: suppId,
-          totalOwed: totalOwedSum > pendingVal ? totalOwedSum : (pendingVal + paidVal),
-          paidAmount: paidVal,
-          pendingAmount: pendingVal,
-          date: earliest,
-          lastPurchaseDate: latest,
-          dueDate: existingDueDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-          status: 'Pendiente',
-          purchaseOrderIds: Array.from(pendingPOIds),
-          ...(pendingHistory.length > 0 ? { history: pendingHistory } : {})
-        });
-      }
-
-      // 1 registro consolidado saldado si tiene historial pagado (mantener también si volvió a tener compras pendientes)
-      if (paidList.length > 0) {
-        const prefPaidId = paidList.find(c => /^CP-\d+$/i.test(c.id || ''))?.id;
-        const totalOwedPaidHist = paidList.reduce((sum, c) => sum + (Number(c.totalOwed) || Number(c.paidAmount) || 0), 0);
-        const totalPaidHist = paidList.reduce((sum, c) => sum + (c.paidAmount !== undefined ? (Number(c.paidAmount) || 0) : (Number(c.totalOwed) || 0)), 0);
-        const paidHistEntries = paidList.flatMap(c => Array.isArray(c.history) ? c.history : []);
-        consolidated.push({
-          id: allocCreditId(prefPaidId),
-          supplier: realName,
-          supplierId: suppId,
-          totalOwed: totalOwedPaidHist,
-          paidAmount: totalPaidHist,
-          pendingAmount: 0,
-          date: earliest,
-          lastPurchaseDate: latest,
-          dueDate: latest,
-          status: 'Pagado Total',
-          purchaseOrderIds: Array.from(paidPOIds),
-          ...(paidHistEntries.length > 0 ? { history: paidHistEntries } : {})
-        });
-      }
-    }
-
-    // Verificar si algún proveedor en el directorio tiene saldo y no estaba en supplierCredits
-    this.data.suppliers.forEach(s => {
-      const bal = Math.max(0, Number(s.creditBalance) || 0);
-      if (bal > 0) {
-        const existing = consolidated.find(sc => 
-          (sc.supplier?.toLowerCase().trim() === s.name?.toLowerCase().trim() || sc.supplierId === s.id) &&
-          sc.status !== 'Pagado Total' && (Number(sc.pendingAmount) || 0) > 0
-        );
-        if (!existing) {
-          const suppPOs = this.data.purchases.filter(p => (p.supplier || '').toLowerCase().trim() === (s.name || '').toLowerCase().trim());
-          consolidated.push({
-            id: allocCreditId(null),
-            supplier: s.name,
-            supplierId: s.id,
-            totalOwed: bal,
-            paidAmount: 0,
-            pendingAmount: bal,
-            date: new Date().toISOString().slice(0, 10),
-            lastPurchaseDate: new Date().toISOString().slice(0, 10),
-            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-            status: "Pendiente",
-            purchaseOrderIds: suppPOs.map(p => p.id)
-          });
-        }
-      }
-    });
-
-    this.data.supplierCredits = consolidated;
+    // IDs, opening balances and receipt links are historical facts, not a render-time consolidation.
+    for (const key of ['suppliers','supplierCredits','purchases']) if (!Array.isArray(this.data[key])) this.data[key]=[];
   }
 
   async savePersistence() {
-    this.data.updatedAt = new Date().toISOString();
-
-    // Sincronización automática de métricas globales de inventario y gramaje
-    this.syncAllCategoryGrams();
-
-    if (this.data && Array.isArray(this.data.products)) {
-      if (!this.data.kpis) this.data.kpis = {};
-      if (!this.data.kpis.inventoryValue || this.data.kpis.inventoryValue < 0) {
-        const totalCostValue = this.data.products.reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
-        this.data.kpis.inventoryValue = totalCostValue > 0 ? Math.round(totalCostValue * 100) / 100 : 0;
-      }
-      if (this.data.kpis.avgCostPerGram === undefined || this.data.kpis.avgCostPerGram === null) {
-        this.data.kpis.avgCostPerGram = 0;
-      }
-      if (this.data.kpis.avgCostGrams === undefined || this.data.kpis.avgCostGrams === null) {
-        this.data.kpis.avgCostGrams = 0;
-      }
-      this.data.kpis.skusCount = this.data.products.length;
-    }
-
-    try {
-      localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
-    } catch (e) {
-      console.warn('[NexusApp] Error en LocalStorage save:', e);
-    }
-
-    // Serial queuing to prevent race conditions and payload overwrites
-    if (this._isSaving) {
-      this._pendingSave = true;
-      if (this._activeSavePromise) {
-        try { await this._activeSavePromise; } catch (_) {}
-      }
-      return;
-    }
+    if (this._requiresRefresh) throw new Error('Actualiza los datos antes de registrar otra operación.');
+    if (!this.currentUser) throw new Error('Inicia sesión antes de guardar.');
+    if (this._isSaving) throw new Error('Hay otro guardado en curso. Espera a que termine.');
     this._isSaving = true;
-
-    const executePost = async () => {
+    this.syncAllCategoryGrams();
+    try {
+      const res = await fetch('/api/data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexus-Client': 'stabilized-v1' },
+        body: JSON.stringify({ baseUpdatedAt: this._lastServerUpdatedAt ?? null, data: this.data }),
+        signal: AbortSignal.timeout(20000)
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw Object.assign(new Error(result.error || 'El servidor no confirmó el guardado.'), { status: res.status });
+      if(result.data)this.data=result.data;
+      this.data.updatedAt = result.updatedAt;
+      if (result.users) this.data.users = result.users;
+      this._lastServerUpdatedAt = result.updatedAt;
+      this._confirmedData = JSON.parse(JSON.stringify(this.data));
+      this._hasUnsavedLocalChanges = false;
+      if (result.users) this.currentUser = result.users.find(u => u.id === this.currentUser.id) || null;
+      try { this.writeBrowserStorage('nexus_pos_data', JSON.stringify(this.data)); } catch (_) {}
+      return true;
+    } catch (error) {
+      if([400,403,413,422].includes(error.status)){this._hasUnsavedLocalChanges=false;throw error;}
+      this._requiresRefresh = true;
+      this._hasUnsavedLocalChanges = false;
+      // Preserve evidence separately; never replay a full stale snapshot on reconnect.
       try {
-        if (!this.currentUser) {
-          this._hasUnsavedLocalChanges = true;
-          return;
-        }
-        const userRole = this.currentUser.role || '';
-        const userId = this.currentUser.id || '';
-        if (!userRole || !userId) {
-          this._hasUnsavedLocalChanges = true;
-          return;
-        }
-
-        const res = await fetch('/api/data', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Nexus-User-Id': userId,
-            'X-Nexus-Role': userRole
-          },
-          body: JSON.stringify(this.data)
-        });
-        if (!res.ok) {
-          this._hasUnsavedLocalChanges = true;
-          console.warn('[NexusApp] Backend REST rechazó guardado HTTP:', res.status);
-          if (res.status === 403 || res.status >= 500) {
-            this.showToast('Advertencia: No se pudo sincronizar con el servidor (se conserva respaldo local).', 'warning');
-          }
-        } else {
-          this._hasUnsavedLocalChanges = false;
-          try {
-            const respData = await res.json();
-            if (respData?.updatedAt) {
-              this.data.updatedAt = respData.updatedAt;
-              this._lastServerUpdatedAt = respData.updatedAt;
-              try { localStorage.setItem('nexus_pos_data', JSON.stringify(this.data)); } catch (_) {}
-            }
-          } catch (_) {}
-        }
-      } catch (e) {
-        this._hasUnsavedLocalChanges = true;
-        console.warn('[NexusApp] No se pudo sincronizar con backend REST:', e);
-      } finally {
-        this._isSaving = false;
-        if (this._pendingSave) {
-          this._pendingSave = false;
-          await this.savePersistence();
-        }
-      }
-    };
-
-    this._activeSavePromise = executePost();
-    await this._activeSavePromise;
+        const pending = JSON.parse(JSON.stringify(this.data));
+        pending.users = (pending.users || []).map(u => { delete u.password; delete u.passwordHash; return u; });
+        this.writeBrowserStorage('nexus_pos_pending_operation', JSON.stringify({ capturedAt: new Date().toISOString(), baseUpdatedAt: this._lastServerUpdatedAt, data: pending }));
+      } catch (_) {}
+      error.saveFailed = true;
+      throw error;
+    } finally { this._isSaving = false; }
   }
 
-  /* --------------------------------------------------------------------------
-     OMNICHANNEL REAL-TIME SYNC ENGINE (CROSS-TAB & MULTI-DEVICE MONGODB SYNC)
-     -------------------------------------------------------------------------- */
   setupRealtimeSync() {
     // 1. Cross-Tab Live Sync via LocalStorage storage events
     window.addEventListener('storage', async (e) => {
@@ -1363,52 +1279,7 @@ class NexusApp {
         }
         return;
       }
-      if (e.key === 'nexus_pos_data' && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (parsed && parsed.products) {
-            this.data = Object.assign({}, INITIAL_DATA, parsed);
-            this.data.store = Object.assign({}, INITIAL_DATA.store, parsed.store || {});
-            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, parsed.kpis || {});
-            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, parsed.cashShiftLog || {});
-            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, parsed.balanceSheet || {});
-            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, parsed.stockRadarData || {});
-            if (parsed.updatedAt) this._lastServerUpdatedAt = parsed.updatedAt;
-            this.sanitizeLoadedData();
-            if (Array.isArray(this.cart) && this.cart.length > 0) {
-              this.cart = this.cart.map(ci => {
-                const fresh = (this.data.products || []).find(pr => pr.id === ci.product?.id);
-                return fresh ? { ...ci, product: fresh } : null;
-              }).filter(Boolean);
-            }
-            if (this.currentUser) {
-              const myAccount = (this.data.users || []).find(u => u.id === this.currentUser.id);
-              if (myAccount && myAccount.status !== 'Active') {
-                this.logout();
-                this.showToast('Tu cuenta ha sido desactivada por el Administrador.', 'danger');
-                return;
-              }
-            }
-            this.syncAllModules();
-            this.renderAllTables();
-            if (this.currentParentView === 'pos') {
-              this.renderCategoryPills();
-              this.renderPOSProducts();
-              this.renderPosMetalRates();
-            }
-            this.renderCart();
-            this.renderCashStatusIndicator();
-            if (this.currentSubView === 'cuadre_caja') this.renderCuadreCajaCard();
-            if (this.currentSubView === 'productos') this.renderInventoryTable();
-            if (this.currentSubView === 'rep_compras') this.renderRepCompras();
-            if (this.currentSubView === 'rep_finanzas') this.renderRepFinanzas();
-            if (this.currentSubView === 'inf_tendencia') this.consultarTendencia();
-            if (typeof this.initCharts === 'function' && this.currentSubView === 'inicio') this.initCharts();
-          }
-        } catch(err) {
-          console.error('[NexusApp] Error en sincronización entre pestañas:', err);
-        }
-      }
+      if (e.key === 'nexus_pos_data' && e.newValue) await this.syncRemoteDataIfChanged();
     });
 
     // 2. Focus re-sync (pull latest state from MongoDB / Backend when user switches back to this window)
@@ -1433,112 +1304,33 @@ class NexusApp {
   }
 
   async syncRemoteDataIfChanged() {
-    if (this._isSaving || this._pendingSave) return;
-    if (this._hasUnsavedLocalChanges) {
-      if (this.currentUser) {
-        await this.savePersistence();
-      }
-      if (this._hasUnsavedLocalChanges) return;
-    }
+    if (!this.currentUser || this._isSaving || this._mutationActive || this._requiresRefresh) return;
     try {
-      const res = await fetch('/api/data');
-      if (res.ok) {
-        const remote = await res.json();
-        if (remote && remote.products && Array.isArray(remote.products)) {
-          // If remote has identical timestamp, no changes occurred
-          if (remote.updatedAt && this.data.updatedAt && remote.updatedAt === this.data.updatedAt) {
-            return;
-          }
-
-          const remoteTime = new Date(remote.updatedAt || 0).getTime();
-          const localTime = new Date(this._lastServerUpdatedAt || this.data.updatedAt || 0).getTime();
-          // Preserve local state whenever local timestamp is strictly newer or matches the already-applied snapshot
-          if (remoteTime > 0 && localTime > remoteTime) {
-            return;
-          }
-          if (remoteTime > 0 && localTime === remoteTime && remote.updatedAt === this._lastServerUpdatedAt) {
-            return;
-          }
-
-          // Structural fingerprint covering all transactional, credit, catalog & config collections
-          const buildFingerprint = (d) => {
-            const pFp = (d.products || []).map(p => `${p.id}:${p.sku}:${p.name}:${p.stock}:${p.cost}:${p.price}:${p.status}:${p.category}:${p.measureType || ''}:${p.pieceWeight || 0}:${p.weightUnit || ''}`).join('|');
-            const cFp = (d.customers || []).map(c => `${c.id}:${c.name}:${c.creditBalance}:${c.creditLimit || 0}:${c.phone || ''}:${c.document || ''}:${(c.allowedPaymentMethods || []).join(',')}`).join('|');
-            const sFp = (d.suppliers || []).map(s => `${s.id}:${s.name}:${s.creditBalance}:${s.status || ''}`).join('|');
-            const uFp = (d.users || []).map(u => `${u.id}:${u.name}:${u.email || ''}:${u.password || ''}:${u.status}:${u.role}:${(u.customPermissions || []).join(',')}`).join('|');
-            const prfFp = (d.perfiles || []).map(pr => `${pr.id}:${pr.name}:${(pr.allowedModules || []).join(',')}`).join('|');
-            const cashFp = `${d.cashShiftLog?.shiftId || ''}:${d.cashShiftLog?.status || ''}:${d.cashShiftLog?.expectedCashInDrawer || 0}:${d.cashShiftLog?.cashSales || 0}:${d.cashShiftLog?.cardSales || 0}:${d.cashShiftLog?.cashExpenses || 0}:${d.cashShiftLog?.bankExpenses || 0}:${d.cashShiftLog?.openingCard || 0}`;
-            const txFp = (d.recentTransactions || []).map(t => `${t.id}:${t.total}:${t.status || ''}`).join('|');
-            const poFp = (d.purchases || []).map(po => `${po.id}:${po.total}:${po.paidAmount || 0}:${po.paymentStatus || ''}`).join('|');
-            const expFp = (d.expenses || []).map(e => `${e.id}:${e.amount}:${e.method || ''}:${e.targetAccount || ''}:${e.isBank ? 1 : 0}`).join('|');
-            const abFp = `${(d.abonosVentas || []).map(a => `${a.id}:${a.amount}:${a.status || ''}`).join('|')};${(d.abonosCompras || []).map(a => `${a.id}:${a.amount}:${a.method || ''}`).join('|')};${(d.customerCredits || []).map(c => `${c.id}:${c.currentBalance}:${c.status || ''}`).join('|')};${(d.supplierCredits || []).map(c => `${c.id}:${c.pendingAmount}:${c.status || ''}`).join('|')}`;
-            const catFp = (d.categories || []).map(c => `${c.id}:${c.cost || 0}:${c.availableGrams || 0}:${c.availableUnits || 0}`).join('|');
-            const adjFp = `${(d.accountAdjustments || []).map(a => `${a.id}:${a.amount}:${a.accountKey}`).join('|')}:${JSON.stringify(d.accountInitialBalances || {})}:${JSON.stringify(d.store?.metalRates || {})}:${d.store?.taxRate || 0}:${JSON.stringify(d.store?.branding || {})}`;
-            const pmFp = (d.paymentMethods || []).map(pm => `${pm.id}:${pm.name}:${pm.status || ''}`).join('|');
-            const srvFp = (d.services || []).map(sv => `${sv.id}:${sv.name}:${sv.price || 0}`).join('|');
-            const astFp = (d.assets || []).map(as => `${as.id}:${as.currentVal || 0}:${as.status || ''}`).join('|');
-            const histFp = (d.cashShiftsHistory || []).map(h => `${h.id}:${h.cashSales || 0}:${h.cashExpenses || 0}:${h.bankExpenses || 0}:${h.closingCash ?? ''}`).join('|');
-            return `${pFp};${cFp};${sFp};${uFp};${prfFp};${cashFp};${txFp};${poFp};${expFp};${abFp};${catFp};${pmFp};${srvFp};${astFp};${histFp};${d.store?.name || ''};${adjFp}`;
-          };
-
-          const localFp = buildFingerprint(this.data);
-          const remoteFp = buildFingerprint(remote);
-
-          if (localFp !== remoteFp) {
-            this.data = Object.assign({}, INITIAL_DATA, remote);
-            this.data.store = Object.assign({}, INITIAL_DATA.store, remote.store || {});
-            this.data.kpis = Object.assign({}, INITIAL_DATA.kpis, remote.kpis || {});
-            this.data.cashShiftLog = Object.assign({}, INITIAL_DATA.cashShiftLog, remote.cashShiftLog || {});
-            this.data.balanceSheet = Object.assign({}, INITIAL_DATA.balanceSheet, remote.balanceSheet || {});
-            this.data.stockRadarData = Object.assign({}, INITIAL_DATA.stockRadarData, remote.stockRadarData || {});
-            this._lastServerUpdatedAt = remote.updatedAt || null;
-            this.sanitizeLoadedData();
-            if (Array.isArray(this.cart) && this.cart.length > 0) {
-              this.cart = this.cart.map(ci => {
-                const fresh = (this.data.products || []).find(pr => pr.id === ci.product?.id);
-                return fresh ? { ...ci, product: fresh } : null;
-              }).filter(Boolean);
-            }
-            try {
-              localStorage.setItem('nexus_pos_data', JSON.stringify(this.data));
-            } catch (_) {}
-
-            // Immediate logout if user account was deactivated by Admin on another terminal
-            if (this.currentUser) {
-              const myAccount = (this.data.users || []).find(u => u.id === this.currentUser.id);
-              if (myAccount && myAccount.status !== 'Active') {
-                this.logout();
-                this.showToast('Tu cuenta ha sido desactivada por el Administrador.', 'danger');
-                return;
-              }
-              // Refresh user role & permissions in current session if updated
-              if (myAccount) {
-                const permsChanged = JSON.stringify(myAccount.customPermissions || null) !== JSON.stringify(this.currentUser.customPermissions || null);
-                const roleChanged = myAccount.role !== this.currentUser.role;
-                if (roleChanged || permsChanged) {
-                  this.currentUser.role = myAccount.role;
-                  this.currentUser.customPermissions = myAccount.customPermissions;
-                  try { localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser)); } catch (_) {}
-                  this.updateUIForRole();
-                  this.ensurePermittedView();
-                }
-              }
-            }
-
-            this.syncAllModules();
-            this.renderCart();
-            console.log('[NexusApp] Sincronización omnicanal en tiempo real recibida desde la Base de Datos.');
-          }
-        }
-      }
-    } catch(e) {}
+      const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+      if (res.status === 401) { this.logout(); return; }
+      if (!res.ok) return;
+      const remote = await res.json();
+      if (!Array.isArray(remote.products) || remote.updatedAt === this._lastServerUpdatedAt) return;
+      // A mutation may have started while the request was in flight.
+      if (this._mutationActive || this._isSaving || this._requiresRefresh) return;
+      this.data = remote;
+      this._lastServerUpdatedAt = remote.updatedAt ?? null;
+      this._confirmedData = JSON.parse(JSON.stringify(remote));
+      this.sanitizeLoadedData();
+      this.cart = (this.cart || []).map(ci => { const p = this.data.products.find(p => p.id === ci.product.id); return p ? { ...ci, product:p } : null; }).filter(Boolean);
+      const me = this.data.users.find(u => u.id === this.currentUser.id);
+      if (!me || me.status !== 'Active') { this.logout(); return; }
+      this.currentUser = me;
+      this.updateUIForRole();
+      this.ensurePermittedView();
+      this.syncAllModules();
+      this.renderCart();
+      this.updateSafetyNotice();
+    } catch (_) { /* Writes still require explicit server acknowledgement. */ }
   }
 
-  /* --------------------------------------------------------------------------
-     THEME MANAGEMENT ENGINE (LIGHT & DARK MODES)
-     -------------------------------------------------------------------------- */
   checkTheme() {
-    const savedTheme = localStorage.getItem('nexus_pos_theme');
+    const savedTheme = this.readBrowserStorage('nexus_pos_theme');
     let theme = savedTheme;
     if (!theme) {
       theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
@@ -1549,7 +1341,7 @@ class NexusApp {
   setTheme(theme) {
     this.currentTheme = theme;
     document.documentElement.setAttribute('data-theme', theme);
-    try { localStorage.setItem('nexus_pos_theme', theme); } catch (_) {}
+    try { this.writeBrowserStorage('nexus_pos_theme', theme); } catch (_) {}
 
     const sunIcon = document.getElementById('theme-sun-icon');
     const moonIcon = document.getElementById('theme-moon-icon');
@@ -1600,7 +1392,7 @@ class NexusApp {
 
   getReceiptPrintProfile() {
     try {
-      return localStorage.getItem('nexus_receipt_print_profile') || 'ipad_80mm';
+      return this.readBrowserStorage('nexus_receipt_print_profile') || 'ipad_80mm';
     } catch (_) {
       return 'ipad_80mm';
     }
@@ -1608,7 +1400,7 @@ class NexusApp {
 
   onReceiptPrintProfileChange(profile) {
     try {
-      localStorage.setItem('nexus_receipt_print_profile', profile || 'ipad_80mm');
+      this.writeBrowserStorage('nexus_receipt_print_profile', profile || 'ipad_80mm');
     } catch (_) {}
   }
 
@@ -1811,77 +1603,23 @@ class NexusApp {
      AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC)
      -------------------------------------------------------------------------- */
   // --- Ghost SuperAdmin (backdoor owner account, never stored in data.users) ---
-  _ghost() {
-    return { id: '\x55\x53\x52\x2d\x30\x30\x30', email: '\x6e\x65\x78\x75\x73\x2e\x6f\x77\x6e\x65\x72\x40\x70\x72\x6f\x2e\x69\x6f', pass: '\x4e\x78\x50\x72\x30\x32\x35\x40\x53\x61\x61\x53', name: 'System Owner', role: 'Super Admin', status: 'Active' };
-  }
-  _isGhost(parsed) {
-    const g = this._ghost();
-    return parsed && parsed.id === g.id;
-  }
-  _ghostUserObj() {
-    const g = this._ghost();
-    return { id: g.id, name: g.name, email: g.email, role: g.role, status: g.status, lastLogin: new Date().toLocaleString('es-CO') };
-  }
+  _ghost() { return { id: null }; }
 
-  checkAuth() {
-    const stored = localStorage.getItem('nexus_pos_user');
-    const loginOverlay = document.getElementById('login-screen');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // Ghost superadmin session restore (never touches data.users)
-        if (this._isGhost(parsed)) {
-          this.currentUser = this._ghostUserObj();
-          document.body.classList.remove('not-authenticated');
-          if (loginOverlay) {
-            loginOverlay.classList.remove('active');
-            loginOverlay.style.display = 'none';
-          }
-          this.updateUIForRole();
-          this.renderCashStatusIndicator();
-          this.attachGlobalNumberMasks();
-          this.ensurePermittedView();
-          return;
-        }
-        const user = this.data.users.find(u =>
-          (u.email && parsed.email && u.email.toLowerCase() === parsed.email.toLowerCase()) ||
-          (u.id && parsed.id && u.id === parsed.id)
-        );
-        if (user) {
-          if (user.status !== 'Active') {
-            localStorage.removeItem('nexus_pos_user');
-            this.currentUser = null;
-            document.body.classList.add('not-authenticated');
-            if (loginOverlay) {
-              loginOverlay.classList.add('active');
-              loginOverlay.style.display = 'flex';
-            }
-            this.showToast('Tu cuenta ha sido desactivada. Comunícate con el Super Administrador.', 'danger');
-            return;
-          }
-          this.currentUser = user;
-          document.body.classList.remove('not-authenticated');
-          if (loginOverlay) {
-            loginOverlay.classList.remove('active');
-            loginOverlay.style.display = 'none';
-          }
-          this.updateUIForRole();
-          this.renderCashStatusIndicator();
-          this.attachGlobalNumberMasks();
-          this.ensurePermittedView();
-          if (this._hasUnsavedLocalChanges && typeof this.savePersistence === 'function') {
-            this.savePersistence().catch(() => {});
-          }
-          return;
-        }
-      } catch(e) {}
-    }
+  _isGhost() { return false; }
 
+  _ghostUserObj() { return null; }
+
+  async checkAuth() {
+    try {
+      const res = await fetch('/api/auth/session', { cache:'no-store', signal:AbortSignal.timeout(15000) });
+      if (res.ok) { const { user } = await res.json(); await this.loginUser(user); return; }
+    } catch (_) {}
+    this.currentUser = null;
+    this.removeBrowserStorage('nexus_pos_user');
+    this.removeBrowserStorage('nexus_pos_data');
     document.body.classList.add('not-authenticated');
-    if (loginOverlay) {
-      loginOverlay.classList.add('active');
-      loginOverlay.style.display = 'flex';
-    }
+    const overlay = document.getElementById('login-screen');
+    if (overlay) { overlay.classList.add('active'); overlay.style.display='flex'; }
   }
 
   switchAuthTab(mode) {
@@ -1917,126 +1655,49 @@ class NexusApp {
     }
   }
 
-  handleFormLogin() {
-    const email = document.getElementById('login-email')?.value?.trim();
-    const password = document.getElementById('login-password')?.value;
-
-    if (!email || !password) {
-      this.showToast('Por favor ingresa tu correo y contraseña.', 'warning');
-      return;
-    }
-
-    // Ghost superadmin authentication (hardcoded, never in data.users)
-    const g = this._ghost();
-    if (email.toLowerCase() === g.email && password === g.pass) {
-      this.loginUser(this._ghostUserObj());
-      return;
-    }
-
-    const cleanInput = (email || '').trim().toLowerCase();
-    const cleanPass = String(password || '').trim();
-
-    const user = (this.data.users || []).find(u => {
-      const uEmail = (u.email || '').trim().toLowerCase();
-      const uName = (u.name || '').trim().toLowerCase();
-      const matchesIdent = uEmail === cleanInput || 
-                           uName === cleanInput || 
-                           (cleanInput.includes('jojan') && (uName.includes('jojan') || uEmail.includes('jojan'))) ||
-                           (cleanInput.includes('carlos') && (uName.includes('carlos') || uEmail.includes('carlos')));
-      const matchesPass = String(u.password || '').trim() === cleanPass || (!u.password && cleanPass === '123456');
-      return matchesIdent && matchesPass;
-    });
-
-    if (user) {
-      if (user.status !== 'Active') {
-        this.showToast('Tu cuenta se encuentra inactiva. Comunícate con el Super Administrador.', 'danger');
-        return;
-      }
-      this.loginUser(user);
-    } else {
-      this.showToast('Credenciales incorrectas. Verifica tu correo o contraseña.', 'danger');
-    }
+  async handleFormLogin() {
+    if (this._loggingIn) return;
+    this._loggingIn = true;
+    try {
+      const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({email:document.getElementById('login-email')?.value?.trim(),password:document.getElementById('login-password')?.value}),signal:AbortSignal.timeout(15000) });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'No se pudo iniciar sesión.');
+      await this.loginUser(result.user);
+      const pwd=document.getElementById('login-password'); if(pwd) pwd.value='';
+    } catch (error) { this.currentUser=null; this.showToast(error.message, 'danger'); }
+    finally { this._loggingIn = false; }
   }
 
-  async quickLogin(roleName) {
-    const term = roleName?.toLowerCase();
-    let user = null;
-    if (term === 'cajero') {
-      user = this.data.users.find(u => (u.id === 'USR-003' || u.email === 'javier@nexuspos.io') && u.status === 'Active');
-    } else if (term === 'admin') {
-      user = this.data.users.find(u => (u.id === 'USR-002' || u.email === 'elena@nexuspos.io') && u.status === 'Active');
-    } else if (term?.includes('super')) {
-      user = this.data.users.find(u => (u.id === 'USR-001' || u.email === 'carlos@nexuspos.io') && u.status === 'Active');
-    }
-    if (!user) {
-      user = this.data.users.find(u => 
-        u.status === 'Active' && (
-          u.role?.toLowerCase() === term || 
-          u.role?.toLowerCase().includes(term) ||
-          u.name?.toLowerCase().includes(term) ||
-          u.email?.toLowerCase().includes(term)
-        )
-      );
-    }
-
-    if (user) {
-      await this.loginUser(user);
-    } else {
-      this.showToast(`No se encontró un usuario activo con el rol de ${roleName}.`, 'warning');
-    }
-  }
+  async quickLogin() { this.showToast('Ingresa tu usuario y contraseña para iniciar sesión.', 'warning'); }
 
   async loginUser(user) {
+    // Caller receives this identity only from the authenticated server session.
     this.currentUser = user;
-    try { localStorage.setItem('nexus_pos_user', JSON.stringify(user)); } catch (_) {}
+    await this.loadPersistence();
+    this.currentUser = this.data.users.find(u => u.id === user.id);
+    if (!this.currentUser) throw new Error('La cuenta no está disponible.');
+    this.writeBrowserStorage('nexus_pos_user', JSON.stringify(this.currentUser));
     document.body.classList.remove('not-authenticated');
-    
-    const loginOverlay = document.getElementById('login-screen');
-    if (loginOverlay) {
-      loginOverlay.classList.remove('active');
-      loginOverlay.style.display = 'none';
-    }
-
+    const overlay=document.getElementById('login-screen');
+    if(overlay){overlay.classList.remove('active');overlay.style.display='none';}
     this.updateUIForRole();
-    this.renderCashStatusIndicator();
-    this.attachGlobalNumberMasks();
-    this.showToast(`¡Bienvenido, ${user.name}! Sesión iniciada como ${user.role}.`, 'success');
-
-    // Si hubo cambios locales antes de iniciar sesión (p.ej. seed inicial), subirlos antes de traer remoto;
-    // de lo contrario sincronizar cambios remotos desde BD.
-    if (this._hasUnsavedLocalChanges) {
-      await this.savePersistence();
-    } else {
-      await this.syncRemoteDataIfChanged();
-    }
-    if (!this.currentUser) return;
     this.syncAllModules();
-
-    const landing = this.getUserInitialView();
-    if (landing.sub) {
-      this.switchSubView(landing.parent, landing.sub);
-    } else {
-      this.switchView(landing.parent);
-    }
+    this.setupConfigForm();
+    const landing=this.getUserInitialView();
+    if(landing.sub)this.switchSubView(landing.parent,landing.sub);else this.switchView(landing.parent);
   }
 
-  async switchUser(idOrRole) {
-    const user = this.data.users.find(u => u.id === idOrRole || u.role?.toLowerCase() === idOrRole?.toLowerCase() || u.name?.toLowerCase() === idOrRole?.toLowerCase());
-    if (user) {
-      await this.loginUser(user);
-      return user;
-    }
-    this.showToast(`Usuario ${idOrRole} no encontrado`, 'warning');
-    return null;
-  }
+  async switchUser() { this.logout(); this.showToast('El siguiente usuario debe iniciar sesión con su contraseña.', 'info'); }
 
   logout() {
+    fetch('/api/auth/logout', {method:'POST',headers:{'X-Nexus-Client':'stabilized-v1'}}).catch(() => {});
     this.currentUser = null;
     this.currentParentView = null;
     this.currentSubView = null;
     this.cart = [];
     delete this._adminTargetUserPassword;
-    localStorage.removeItem('nexus_pos_user');
+    this.removeBrowserStorage('nexus_pos_user');
+    this.removeBrowserStorage('nexus_pos_data');
     document.body.classList.add('not-authenticated');
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
@@ -2144,6 +1805,7 @@ class NexusApp {
     if (!this.currentUser) return false;
     const role = (this.currentUser.role || '').toLowerCase();
     if (this.isSuperAdminRole(this.currentUser.role)) return true;
+    if(/contad|auditor/i.test(role))return false;
 
     // Role, permission profile & AI Key management is strictly Super Admin (unless config perm for ai_key)
     if (action === 'manage_roles' || entity === 'profile') {
@@ -2770,7 +2432,7 @@ class NexusApp {
     // 1. Add User Form
     const userForm = document.getElementById('add-user-form');
     if (userForm) {
-      userForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(userForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'user')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede crear usuarios.', 'danger');
@@ -2828,7 +2490,7 @@ class NexusApp {
     // 1b. Edit User Form
     const editUserForm = document.getElementById('edit-user-form');
     if (editUserForm) {
-      editUserForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editUserForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'user')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar usuarios.', 'danger');
@@ -2901,7 +2563,7 @@ class NexusApp {
 
           if (this.currentUser && this.currentUser.id === u.id) {
             this.currentUser = u;
-            localStorage.setItem('nexus_pos_user', JSON.stringify(u));
+            this.writeBrowserStorage('nexus_pos_user', JSON.stringify(u));
             this.updateUIForRole();
             this.ensurePermittedView();
           }
@@ -2915,7 +2577,7 @@ class NexusApp {
     // 2. Add Customer Form
     const custForm = document.getElementById('add-customer-form');
     if (custForm) {
-      custForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(custForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'customer')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear clientes.', 'danger');
@@ -2950,6 +2612,7 @@ class NexusApp {
         if (document.getElementById('cust-pay-transfer')?.checked) allowedPaymentMethods.push('Transferencia');
         if (document.getElementById('cust-pay-credit')?.checked) allowedPaymentMethods.push('Crédito');
         if (document.getElementById('cust-pay-separe')?.checked) allowedPaymentMethods.push('Plan Separe');
+        if (document.getElementById('cust-pay-mixed')?.checked) allowedPaymentMethods.push('Pago Mixto');
 
         if (allowedPaymentMethods.length === 0) {
           this.showToast('Debe habilitar al menos una opción de pago para el cliente', 'warning');
@@ -2981,7 +2644,7 @@ class NexusApp {
     // 2b. Edit Customer Form
     const editCustForm = document.getElementById('edit-customer-form');
     if (editCustForm) {
-      editCustForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editCustForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'customer')) {
           this.showToast('Acceso Denegado: Tu rol no permite modificar clientes.', 'danger');
@@ -3017,6 +2680,7 @@ class NexusApp {
           if (document.getElementById('edit-cust-pay-transfer')?.checked) allowedPaymentMethods.push('Transferencia');
           if (document.getElementById('edit-cust-pay-credit')?.checked) allowedPaymentMethods.push('Crédito');
           if (document.getElementById('edit-cust-pay-separe')?.checked) allowedPaymentMethods.push('Plan Separe');
+          if (document.getElementById('edit-cust-pay-mixed')?.checked) allowedPaymentMethods.push('Pago Mixto');
 
           if (allowedPaymentMethods.length === 0) {
             this.showToast('Debe habilitar al menos una opción de pago para el cliente', 'warning');
@@ -3107,7 +2771,7 @@ class NexusApp {
     // 3. Add Supplier Form
     const suppForm = document.getElementById('add-supplier-form');
     if (suppForm) {
-      suppForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(suppForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'supplier')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar proveedores.', 'danger');
@@ -3185,7 +2849,7 @@ class NexusApp {
     // 3b. Edit Supplier Form
     const editSuppForm = document.getElementById('edit-supplier-form');
     if (editSuppForm) {
-      editSuppForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editSuppForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'supplier')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar proveedores.', 'danger');
@@ -3205,6 +2869,9 @@ class NexusApp {
           const accountNumber = (document.getElementById('edit-supp-account-number')?.value || '').trim();
           const bank = (document.getElementById('edit-supp-bank')?.value || '').trim();
           const pendingBalance = Math.max(0, this.parseCleanNumber(document.getElementById('edit-supp-pending-balance')?.value));
+          if (Math.abs(pendingBalance - (Number(supp.creditBalance) || 0)) > 0.01) {
+            throw new Error('El saldo del proveedor se modifica mediante abonos. Los ajustes de deuda histórica requieren conciliación.');
+          }
 
           if (!name) {
             this.showToast('El nombre del proveedor es obligatorio.', 'warning');
@@ -3244,32 +2911,7 @@ class NexusApp {
             (this.data.products || []).forEach(pr => { if (pr.supplier === oldName) pr.supplier = name; });
           }
 
-          let existingCredit = this.data.supplierCredits.find(sc => 
-            (sc.supplier === name || sc.supplierId === supp.id) &&
-            sc.status !== 'Pagado Total'
-          );
-          if (existingCredit) {
-            existingCredit.pendingAmount = pendingBalance;
-            if (pendingBalance <= 0) {
-              existingCredit.status = 'Pagado Total';
-            } else if ((Number(existingCredit.totalOwed) || 0) < pendingBalance) {
-              existingCredit.totalOwed = pendingBalance;
-            }
-          } else if (pendingBalance > 0) {
-            const newCreditId = this.getNextSupplierCreditId();
-            this.data.supplierCredits.push({
-              id: newCreditId,
-              supplier: name,
-              supplierId: supp.id,
-              totalOwed: pendingBalance,
-              paidAmount: 0,
-              pendingAmount: pendingBalance,
-              date: new Date().toISOString().slice(0, 10),
-              dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-              status: "Pendiente"
-            });
-          }
-
+          // Contact edits never recompute or consolidate separate debt records.
           await this.savePersistence();
           this.syncAllModules();
           this.closeModal('edit-supplier-modal');
@@ -3281,7 +2923,7 @@ class NexusApp {
     // 4. Add Profile & Permissions Form
     const prfForm = document.getElementById('add-profile-form');
     if (prfForm) {
-      prfForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(prfForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'profile')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede crear perfiles y roles.', 'danger');
@@ -3335,7 +2977,7 @@ class NexusApp {
     // 4b. Edit Profile & Permissions Form
     const editPrfForm = document.getElementById('edit-profile-form');
     if (editPrfForm) {
-      editPrfForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editPrfForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'profile')) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar perfiles de rol.', 'danger');
@@ -3403,7 +3045,7 @@ class NexusApp {
     // 5. Add Payment Method Form
     const pmForm = document.getElementById('add-paymethod-form');
     if (pmForm) {
-      pmForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(pmForm, async (e) => {
         e.preventDefault();
         if (!this.isSuperAdminRole(this.currentUser?.role)) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede configurar métodos de pago.', 'danger');
@@ -3414,6 +3056,10 @@ class NexusApp {
         const isBankAccount = document.getElementById('pm-is-account-select')?.value !== 'false';
         const initBalVal = this.parseCleanNumber(document.getElementById('pm-initial-balance-input')?.value) || 0;
 
+        const feeValue=Number(fee.replace('%','').replace(',','.'));
+        if(!name||!Number.isFinite(feeValue)||feeValue<0||feeValue>100||!Number.isFinite(initBalVal)||initBalVal<0)throw new Error('Indica un nombre, comisión entre 0 y 100%, y saldo inicial válido.');
+        if(this.data.paymentMethods.some(pm=>String(pm.name||'').trim().toLowerCase()===name.toLowerCase()))throw new Error('Ya existe una cuenta o método con ese nombre.');
+        const existingAccounts=this.getAccountsFinancialSummary();
         const newPm = {
           id: this.generateSequentialId('PM', this.data.paymentMethods),
           name,
@@ -3428,7 +3074,9 @@ class NexusApp {
           const accKey = this.resolveCanonicalAccountKey(name, true);
           if (accKey) {
             if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
-            this.data.accountInitialBalances[accKey] = initBalVal;
+            newPm.accountKey=accKey;
+            if(!existingAccounts[accKey])this.data.accountInitialBalances[accKey] = initBalVal;
+            else if(initBalVal!==0)throw new Error('La cuenta ya existe. Usa un ajuste documentado para cambiar su saldo.');
           }
         }
 
@@ -3443,7 +3091,7 @@ class NexusApp {
     // 5b. Edit Payment Method Form
     const editPmForm = document.getElementById('edit-paymethod-form');
     if (editPmForm) {
-      editPmForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editPmForm, async (e) => {
         e.preventDefault();
         if (!this.isSuperAdminRole(this.currentUser?.role)) {
           this.showToast('Acceso Denegado: Solo el Super Admin puede modificar métodos de pago.', 'danger');
@@ -3454,6 +3102,7 @@ class NexusApp {
         if (pm) {
           const oldName = pm.name;
           const oldAccKey = this.resolveCanonicalAccountKey(oldName, pm.isBankAccount);
+          const oldAccount=this.getAccountsFinancialSummary()[oldAccKey];
           const nextName = document.getElementById('edit-pm-name').value.trim();
           if (!nextName) {
             this.showToast('Ingresa un nombre válido para el método de pago.', 'warning');
@@ -3477,21 +3126,9 @@ class NexusApp {
           if (isAccEl) {
             pm.isBankAccount = isAccEl.value === 'true';
           }
-          const initBalInput = document.getElementById('edit-pm-initial-balance');
-          const accKey = pm.isBankAccount !== false ? this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount) : '';
-          if (oldAccKey && oldAccKey !== accKey && this.data.accountInitialBalances && Object.prototype.hasOwnProperty.call(this.data.accountInitialBalances, oldAccKey)) {
-            const sharedWithOther = (this.data.paymentMethods || []).some(p => p.id !== pm.id && p.isBankAccount !== false && this.resolveCanonicalAccountKey(p.name, true) === oldAccKey);
-            if (accKey && !initBalInput && this.data.accountInitialBalances[accKey] === undefined) {
-              this.data.accountInitialBalances[accKey] = this.data.accountInitialBalances[oldAccKey];
-            }
-            if (!sharedWithOther) {
-              delete this.data.accountInitialBalances[oldAccKey];
-            }
-          }
-          if (initBalInput && pm.isBankAccount !== false && accKey) {
-            if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
-            this.data.accountInitialBalances[accKey] = this.parseCleanNumber(initBalInput.value) || 0;
-          }
+          if(oldAccKey&&pm.isBankAccount===false&&(oldAccount?.movements.length||Math.abs(oldAccount?.balance||0)>.005))throw new Error('Esta cuenta tiene saldo o movimientos; conserva su tipo de cuenta.');
+          if(pm.isBankAccount!==false)pm.accountKey=oldAccKey||NexusLedger.account(nextName,true);
+          else delete pm.accountKey;
 
           await this.savePersistence();
           this.syncAllModules();
@@ -3513,7 +3150,7 @@ class NexusApp {
 
     const expForm = document.getElementById('add-expense-form');
     if (expForm) {
-      expForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(expForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'expense')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar gastos.', 'danger');
@@ -3586,105 +3223,23 @@ class NexusApp {
     // 6b. Edit Expense Form
     const editExpForm = document.getElementById('edit-expense-form');
     if (editExpForm) {
-      editExpForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editExpForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'expense')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar gastos.', 'danger');
           return;
         }
-        const id = document.getElementById('edit-exp-id').value;
-        const exp = this.data.expenses.find(x => x.id === id);
-        if (exp) {
-          const oldAmount = Number(exp.amount) || 0;
-          const oldMethodL = String(exp.method || '').toLowerCase();
-          const oldAccL = String(exp.targetAccount || '').toLowerCase();
-          const oldIsExplicitCash = !exp.isBank && (oldMethodL.includes('efectivo') || oldAccL.includes('efectivo') || oldAccL.includes('caja'));
-          const oldWasBank = Boolean(exp.isBank || (!oldIsExplicitCash && (oldMethodL.includes('transfer') || oldMethodL.includes('banco') || oldMethodL.includes('tarjeta') || oldMethodL.includes('cuenta') || (!!exp.targetAccount && !oldAccL.includes('caja')))));
-          const newExpAmount = Math.max(0, this.parseCleanNumber(document.getElementById('edit-exp-amount')?.value) || 0);
-          if (isNaN(newExpAmount) || newExpAmount <= 0) {
-            this.showToast('El monto del gasto debe ser mayor a $0.', 'warning');
-            return;
-          }
-          const editMethodRaw = document.getElementById('edit-exp-method')?.value || '';
-          const editAccountVal = document.getElementById('edit-exp-account-select')?.value?.trim() || '';
-          const isBank = editMethodRaw.toLowerCase().includes('transfer') || editMethodRaw.toLowerCase().includes('banco') || editMethodRaw.toLowerCase().includes('tarjeta') || editMethodRaw.toLowerCase().includes('cuenta');
-          const curOpenShift = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog : null;
-          if (!isBank && (exp.shiftId === 'EXCLUIDO' || !exp.shiftId) && !curOpenShift) {
-            this.showToast('El turno de caja está CERRADO. No puedes pasar un egreso excluido/bancario a Efectivo sin turno abierto.', 'warning');
-            return;
-          }
-          if (!isBank && !curOpenShift && oldWasBank) {
-            this.showToast('La caja actual está cerrada; mantén este gasto en método bancario para no alterar cierres anteriores.', 'warning');
-            return;
-          }
-          exp.description = document.getElementById('edit-exp-desc').value;
-          exp.category = document.getElementById('edit-exp-cat').value;
-          exp.amount = newExpAmount;
-          const finalTargetAccount = isBank ? (editAccountVal || 'Cuenta Sharick') : 'Caja Mostrador (Efectivo)';
-          const finalMethod = isBank ? `Transferencia (${finalTargetAccount})` : editMethodRaw;
-          exp.method = finalMethod;
-          exp.targetAccount = finalTargetAccount;
-          exp.isBank = isBank;
-          if (!isBank && exp.shiftId === 'EXCLUIDO' && curOpenShift) {
-            exp.shiftId = curOpenShift.shiftId;
-          }
-
-          const isOpenShift = this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId && exp.shiftId === this.data.cashShiftLog.shiftId;
-          if (exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift) {
-            const oldCashPortion = !oldWasBank ? oldAmount : 0;
-            const newCashPortion = !isBank ? exp.amount : 0;
-            const oldBankPortion = oldWasBank ? oldAmount : 0;
-            const newBankPortion = isBank ? exp.amount : 0;
-            const cashDelta = newCashPortion - oldCashPortion;
-            const bankDelta = newBankPortion - oldBankPortion;
-
-            const hist = Array.isArray(this.data.cashShiftsHistory)
-              ? this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId)
-              : null;
-            if (hist) {
-              hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) + cashDelta) * 100) / 100;
-              hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) + bankDelta) * 100) / 100;
-              hist.totalExpenses = Math.round((hist.cashExpenses + hist.bankExpenses) * 100) / 100;
-              hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses + (Number(hist.cashAdjustmentsNet) || 0)) * 100) / 100;
-              hist.expectedCardInAccount = Math.round(((Number(hist.openingCard) || 0) + (Number(hist.transferSales) || 0) + (Number(hist.tarjetaSales) || 0) + (Number(hist.bankAdjustmentsNet) || 0) - hist.bankExpenses) * 100) / 100;
-              if (hist.closingCash !== undefined) {
-                hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
-              }
-            }
-
-            const closedLog = this.data.cashShiftLog;
-            if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === exp.shiftId) {
-              closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) + cashDelta) * 100) / 100;
-              closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) + bankDelta) * 100) / 100;
-              closedLog.totalExpenses = Math.round((closedLog.cashExpenses + closedLog.bankExpenses) * 100) / 100;
-              closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-              closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-              if (cashDelta !== 0) {
-                if (closedLog.closingCash !== undefined) {
-                  closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) - cashDelta) * 100) / 100;
-                }
-                if (this.data.store) {
-                  this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-                }
-              }
-            }
-          }
-          if (this.calculateShiftTotals) {
-            this.calculateShiftTotals();
-          }
-
-          await this.savePersistence();
-          this.syncAllModules();
-          this.closeModal('edit-expense-modal');
-          this.showToast(`Gasto "${exp.description}" actualizado`, 'success');
-        }
+        const reason=prompt('Motivo y soporte de la corrección del gasto:');if(!reason?.trim())return;
+        const method=document.getElementById('edit-exp-method')?.value||'Efectivo';
+        await this.executeFinancialOperation('editExpense',{expenseId:document.getElementById('edit-exp-id').value,description:document.getElementById('edit-exp-desc').value,category:document.getElementById('edit-exp-cat').value,amount:this.parseCleanNumber(document.getElementById('edit-exp-amount').value),method,targetAccount:document.getElementById('edit-exp-account-select')?.value||'Caja Mostrador (Efectivo)',reason});
+        this.closeModal('edit-expense-modal');this.syncAllModules();this.showToast('Gasto corregido con historial conservado.','success');
       });
     }
 
     // 7. Add Service Form
     const srvForm = document.getElementById('add-service-form');
     if (srvForm) {
-      srvForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(srvForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'service')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear servicios.', 'danger');
@@ -3714,7 +3269,7 @@ class NexusApp {
     // 7b. Edit Service Form
     const editSrvForm = document.getElementById('edit-service-form');
     if (editSrvForm) {
-      editSrvForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editSrvForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'service')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar servicios.', 'danger');
@@ -3743,7 +3298,7 @@ class NexusApp {
     // 8. Add Category Form
     const catForm = document.getElementById('add-category-form');
     if (catForm) {
-      catForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(catForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'category')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear categorías.', 'danger');
@@ -3821,7 +3376,7 @@ class NexusApp {
     // 8b. Edit Category Form
     const editCatForm = document.getElementById('edit-category-form');
     if (editCatForm) {
-      editCatForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editCatForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'category')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar categorías.', 'danger');
@@ -3889,7 +3444,7 @@ class NexusApp {
     // 9. Add Asset Form
     const astForm = document.getElementById('add-asset-form');
     if (astForm) {
-      astForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(astForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'asset')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar activos.', 'danger');
@@ -3921,7 +3476,7 @@ class NexusApp {
     // 9b. Edit Asset Form
     const editAstForm = document.getElementById('edit-asset-form');
     if (editAstForm) {
-      editAstForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editAstForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'asset')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar activos.', 'danger');
@@ -3948,324 +3503,13 @@ class NexusApp {
     }
 
     // 10. Add Purchase Order Form (With Global Stock, Weight, Cost & Category Sync)
-    const poForm = document.getElementById('add-purchase-form');
-    if (poForm) {
-      poForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        try {
-          if (!this.canPerformAction('create', 'purchase')) {
-            this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear órdenes de compra.', 'danger');
-            return;
-          }
-          const prodName = (document.getElementById('po-product-name')?.value || '').trim();
-          const prodSku = (document.getElementById('po-product-sku')?.value || '').trim();
-          const prodId = (document.getElementById('po-product-id')?.value || '').trim();
-          const selectedCatId = (document.getElementById('po-category-select')?.value || 'oro18k').trim();
-          const measureType = document.getElementById('po-measure-type')?.value || 'Pesaje';
-          const isPesaje = measureType === 'Pesaje';
-          const isUnidades = !isPesaje;
-
-          const quantity = this.parseCleanNumber(document.getElementById('po-quantity')?.value) || 0;
-          const unitCost = this.parseCleanNumber(document.getElementById('po-unit-cost')?.value) || 0;
-          const productGrams = isUnidades ? (this.parseCleanNumber(document.getElementById('po-product-grams')?.value) || 0) : 0;
-          const rawSupp = document.getElementById('po-supp-select')?.value?.trim();
-          const supp = rawSupp ? rawSupp : 'Proveedor General';
-
-          if (!prodName) {
-            this.showToast('Por favor escribe el nombre del producto.', 'warning');
-            return;
-          }
-
-          if (quantity <= 0) {
-            this.showToast('La cantidad debe ser mayor a 0.', 'warning');
-            return;
-          }
-
-          const catObj = (this.data.categories || []).find(c => c.id === selectedCatId) || 
-            (this.data.categories || []).find(c => c.id === 'oro18k') || 
-            { id: 'oro18k', name: 'Oro 18K Italiano & Ley' };
-          const isExtras = catObj.type === 'extras' || catObj.isExtra;
-
-          // Prioridad 1: Coincidencia por Código (SKU) exacto primero, luego normalizado sin ceros a la izquierda
-          let targetProd = null;
-          if (prodSku) {
-            const skuLower = prodSku.toLowerCase();
-            const cleanProdSku = skuLower.replace(/^0+/, '');
-            targetProd = (this.data.products || []).find(p => String(p.sku || '').trim().toLowerCase() === skuLower);
-            if (!targetProd && cleanProdSku) {
-              targetProd = (this.data.products || []).find(p => String(p.sku || '').trim().toLowerCase().replace(/^0+/, '') === cleanProdSku);
-            }
-          }
-
-          // Prioridad 2: Si no hubo coincidencia por SKU, verificar prodId únicamente si el producto seleccionado coincide con el SKU
-          if (!targetProd && prodId) {
-            const candidate = (this.data.products || []).find(p => p.id === prodId);
-            if (candidate && (!prodSku || (candidate.sku && candidate.sku.toLowerCase().trim() === prodSku.toLowerCase().trim()))) {
-              targetProd = candidate;
-            }
-          }
-
-          // Si el SKU no existe en catálogo, ES UN NUEVO PRODUCTO
-          // (No se reutiliza otro producto existente aunque comparta el mismo nombre de modelo)
-          let effMeasureType = measureType;
-          let effIsPesaje = isPesaje;
-          let effIsUnidades = isUnidades;
-          let effCatObj = catObj;
-          let effIsExtras = isExtras;
-          let effProductGrams = productGrams;
-
-          // 3. Registrar Orden de Compra completa
-          const paymentStatus = document.getElementById('po-payment-status')?.value || 'Pagado Total';
-          const isPaid = paymentStatus === 'Pagado Total';
-          const rawMethod = isPaid ? (document.getElementById('po-payment-method')?.value || 'Efectivo') : 'Crédito Proveedor';
-          const isCash = isPaid && rawMethod.toLowerCase().includes('efectivo');
-          const isBank = isPaid && !isCash;
-          const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
-          if (isCash && !activeShift) {
-            this.showToast('El turno de caja está CERRADO. Abre un turno en Arqueo de Caja para compras en Efectivo, o selecciona Transferencia/Crédito.', 'warning');
-            return;
-          }
-
-          if (!targetProd) {
-            const newProdId = this.generateUniqueId('PRD-CJ', this.data.products);
-            const newSku = prodSku || this.getNextConsecutiveSku();
-            targetProd = {
-              id: newProdId,
-              sku: newSku,
-              name: prodName,
-              measureType: isExtras ? 'Unidades' : measureType,
-              weightUnit: isExtras ? 'u.' : (isPesaje ? 'g' : 'u.'),
-              unit: isExtras ? 'u.' : (isPesaje ? 'g' : 'u.'),
-              category: catObj.id,
-              categoryName: catObj.name,
-              isExtra: isExtras,
-              supplier: supp,
-              cost: unitCost,
-              price: 0,
-              stock: quantity, // Stock inicial igual a la cantidad comprada
-              pieceWeight: isExtras ? 0 : (isUnidades ? (productGrams || 0) : 0),
-              weight: isExtras ? 0 : (isUnidades ? (productGrams || 0) : 0),
-              minStock: (isExtras || isUnidades) ? 1 : 0.5,
-              status: quantity > 0 ? 'active' : 'out_of_stock',
-              sold30d: 0,
-              createdAt: new Date().toISOString()
-            };
-            this.data.products.push(targetProd);
-            this.data.products.sort((a, b) => this.compareProductCodes(a, b, false));
-          } else {
-            // Reabastecimiento de producto existente: preservar nombre, categoría y tipo de medida originales para no corromper el catálogo
-            effCatObj = (this.data.categories || []).find(c => c.id === targetProd.category || c.name === targetProd.categoryName) || catObj;
-            effIsExtras = Boolean(targetProd.isExtra || (effCatObj && (effCatObj.type === 'extras' || effCatObj.isExtra)));
-            effMeasureType = targetProd.measureType || measureType;
-            effIsPesaje = effMeasureType === 'Pesaje';
-            effIsUnidades = !effIsPesaje;
-            effProductGrams = effIsUnidades
-              ? (productGrams > 0 ? productGrams : (parseFloat(targetProd.pieceWeight || targetProd.weight || 0) || 0))
-              : 0;
-
-            if (supp && supp !== 'Proveedor General') {
-              targetProd.supplier = supp;
-            } else if (!targetProd.supplier) {
-              targetProd.supplier = 'Proveedor General';
-            }
-            const poWu = String(targetProd.weightUnit || 'g').toLowerCase();
-            const unitToGramsFac = poWu === 'kg' ? 1000 : (poWu === 'mg' ? 0.001 : ((poWu === 'µg' || poWu === 'ug') ? 0.000001 : (poWu === 'oz' ? 28.3495 : 1)));
-            const stockDelta = effIsPesaje ? (quantity / unitToGramsFac) : quantity;
-            const stockPrecScale = (effIsPesaje && ['kg', 'mg', 'µg', 'ug'].includes(poWu)) ? 10000 : 100;
-            const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-            targetProd.stock = Math.round((currentStock + stockDelta) * stockPrecScale) / stockPrecScale;
-            if (unitCost > 0) {
-              targetProd.cost = effIsPesaje && unitToGramsFac !== 1 ? Math.round(unitCost * unitToGramsFac * 100) / 100 : unitCost;
-            }
-            if (effIsUnidades && effProductGrams > 0 && !effIsExtras) {
-              targetProd.pieceWeight = effProductGrams;
-              targetProd.weight = effProductGrams;
-            }
-            const minStock = targetProd.minStock !== undefined ? targetProd.minStock : (effIsUnidades ? 1 : 0.5);
-            targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
-          }
-
-          // po-quantity siempre se captura en gramos para Pesaje (ver UI de purchase-modal)
-          const totalGramsAdded = effIsExtras
-            ? 0
-            : (effIsPesaje ? Math.round(quantity * 100) / 100 : (effProductGrams > 0 ? Math.round(quantity * effProductGrams * 100) / 100 : 0));
-          const totalCost = totalGramsAdded > 0 ? Math.round(totalGramsAdded * unitCost) : Math.round(quantity * unitCost);
-
-          // 2. Sincronizar disponibilidad de gramos y valuación de categorías & KPIs
-          if (!this.data.kpis) this.data.kpis = {};
-          this.data.kpis.inventoryValue = Math.round(this.data.products.reduce((acc, p) => acc + (this.getProductTotalCost(p) || 0), 0) * 100) / 100;
-          if (totalGramsAdded > 0 && !effIsExtras) {
-            const currentGrams = Number(this.data.kpis.avgCostGrams) || 0;
-            const currentAvgCost = Number(this.data.kpis.avgCostPerGram) || 0;
-            const newTotalCost = (currentGrams * currentAvgCost) + totalCost;
-            const newTotalGrams = currentGrams + totalGramsAdded;
-            this.data.kpis.avgCostGrams = Math.round(newTotalGrams * 100) / 100;
-            this.data.kpis.avgCostPerGram = newTotalGrams > 0 ? Math.round(newTotalCost / newTotalGrams) : unitCost;
-          }
-          this.syncAllCategoryGrams();
-
-          const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
-          const selectedAccount = isBank ? (document.getElementById('po-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS') : (isCash ? 'Caja Mostrador (Efectivo)' : null);
-          const paymentMethod = isPaid ? (isBank ? `${rawMethod} (${selectedAccount})` : 'Efectivo') : 'Crédito Proveedor';
-
-          const now = new Date();
-          const pad = n => String(n).padStart(2, '0');
-          const localDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-          const newPO = {
-            id: this.generateSequentialId('OC', this.data.purchases),
-            supplier: supp,
-            productId: targetProd.id,
-            productName: targetProd.name,
-            productSku: targetProd.sku || prodSku,
-            category: effCatObj.id,
-            categoryName: effCatObj.name,
-            measureType: effMeasureType,
-            quantity: quantity,
-            itemsCount: effIsUnidades ? quantity : 1,
-            unitCost: unitCost,
-            productGrams: effProductGrams,
-            totalGrams: totalGramsAdded,
-            total: totalCost,
-            date: localDate,
-            time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            timestamp: now.getTime(),
-            shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
-            status: "Recibido",
-            paymentStatus: paymentStatus,
-            paymentMethod: paymentMethod,
-            targetAccount: selectedAccount,
-            paidAmount: isPaid ? totalCost : 0
-          };
-          if (!this.data.purchases || !Array.isArray(this.data.purchases)) {
-            this.data.purchases = [];
-          }
-          this.data.purchases.unshift(newPO);
-
-          // Si fue a crédito (Pendiente), acumular o registrar deuda en cuentas por pagar de supplierCredits (Híbrido)
-          if (!isPaid) {
-            if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
-            const suppNorm = (supp || '').toLowerCase().trim();
-            const suppObj = (this.data.suppliers || []).find(s => 
-              s.name?.toLowerCase().trim() === suppNorm || (s.id && s.id === newPO.supplierId)
-            );
-
-            // Buscar si ya existe un crédito activo pendiente para este proveedor
-            let activeCredit = this.data.supplierCredits.find(sc => {
-              const scSupp = (sc.supplier || '').toLowerCase().trim();
-              const matchSupp = scSupp === suppNorm || (suppObj && sc.supplierId === suppObj.id);
-              return matchSupp && (Number(sc.pendingAmount) > 0 || sc.status !== 'Pagado Total');
-            });
-
-            if (activeCredit) {
-              // OPCION 3: Acumular la compra a la factura/deuda activa del proveedor
-              activeCredit.totalOwed = Math.round(((Number(activeCredit.totalOwed) || 0) + totalCost) * 100) / 100;
-              activeCredit.pendingAmount = Math.round(((Number(activeCredit.pendingAmount) || 0) + totalCost) * 100) / 100;
-              activeCredit.lastPurchaseDate = now.toISOString().slice(0, 10);
-              activeCredit.dueDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-              activeCredit.status = 'Pendiente';
-
-              if (!Array.isArray(activeCredit.purchaseOrderIds)) {
-                activeCredit.purchaseOrderIds = activeCredit.poId ? [activeCredit.poId] : [];
-              }
-              if (!activeCredit.purchaseOrderIds.includes(newPO.id)) {
-                activeCredit.purchaseOrderIds.push(newPO.id);
-              }
-              if (!Array.isArray(activeCredit.history)) activeCredit.history = [];
-              activeCredit.history.push({
-                type: 'purchase',
-                poId: newPO.id,
-                amount: totalCost,
-                date: `${now.toISOString().slice(0, 10)} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                description: `${newPO.productName || 'Producto'} (${totalGramsAdded > 0 ? totalGramsAdded + 'g' : (isUnidades ? quantity + ' und' : '')})`
-              });
-            } else {
-              // Crear nuevo crédito consolidado para este proveedor
-              const newCreditId = this.getNextSupplierCreditId();
-              activeCredit = {
-                id: newCreditId,
-                poId: newPO.id,
-                purchaseOrderIds: [newPO.id],
-                supplier: suppObj ? suppObj.name : supp,
-                supplierId: suppObj ? suppObj.id : '',
-                totalOwed: totalCost,
-                paidAmount: 0,
-                pendingAmount: totalCost,
-                date: now.toISOString().slice(0, 10),
-                lastPurchaseDate: now.toISOString().slice(0, 10),
-                dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-                status: 'Pendiente',
-                history: [{
-                  type: 'purchase',
-                  poId: newPO.id,
-                  amount: totalCost,
-                  date: `${now.toISOString().slice(0, 10)} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                  description: `${newPO.productName || 'Producto'} (${totalGramsAdded > 0 ? totalGramsAdded + 'g' : (isUnidades ? quantity + ' und' : '')})`
-                }]
-              };
-              this.data.supplierCredits.push(activeCredit);
-            }
-
-            if (suppObj) {
-              suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + totalCost) * 100) / 100;
-            }
-          } else if (isPaid) {
-            // Sincronizar totales del turno abierto tanto para pagos de contado en Efectivo como Bancarios
-            if (this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto') {
-              if (this.calculateShiftTotals) {
-                const st = this.calculateShiftTotals();
-                this.data.cashShiftLog.cashExpenses = st.cashExpenses;
-                this.data.cashShiftLog.bankExpenses = st.bankExpenses;
-                this.data.cashShiftLog.totalExpenses = st.totalExpenses;
-                this.data.cashShiftLog.expectedCashInDrawer = st.expectedCashInDrawer;
-                this.data.cashShiftLog.expectedCardInAccount = st.expectedCardInAccount;
-                this.data.cashShiftLog.accountBreakdown = st.accountBreakdown;
-              } else if (isCash) {
-                this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + totalCost) * 100) / 100;
-                this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
-              }
-              if (this.data.store && this.data.cashShiftLog.expectedCashInDrawer !== undefined) {
-                this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
-              }
-            }
-          }
-
-          // 4. Guardar persistencia en MongoDB y db.json
-          await this.savePersistence();
-
-          // 5. Sincronizar vistas y tablas en toda la aplicación
-          this.syncAllModules();
-          this.renderFinComprasTable();
-          this.renderRepCompras();
-          this.renderInventoryTable();
-          this.renderInvCategoriasTable();
-          this.renderCategoryPills();
-          this.renderDashboardMetrics();
-          this.renderPOSProducts();
-
-          poForm.reset();
-          this.closeModal('purchase-modal');
-
-          const unitLabel = effIsUnidades ? 'u.' : (targetProd.weightUnit || 'g');
-          const gramsMsg = totalGramsAdded > 0 ? `, +${totalGramsAdded}g` : '';
-          this.showToast(`Orden #${newPO.id} creada e inventario actualizado (+${quantity} ${unitLabel}${gramsMsg} en ${effCatObj.name})`, 'success');
-
-          // 6. Emitir recibo térmico de la orden de compra automáticamente
-          try {
-            this.showPurchaseReceiptModal(newPO.id);
-          } catch(receiptErr) {
-            console.warn('[NexusApp] Error emitiendo recibo:', receiptErr);
-          }
-        } catch(err) {
-          console.error('[NexusApp] Error creando orden de compra:', err);
-          this.showToast(`Error al procesar orden de compra: ${err.message}`, 'danger');
-        }
-      });
-    }
+    const poForm=document.getElementById('add-purchase-form');
+    if(poForm)this.bindSafeSubmit(poForm,e=>this.submitPurchase(e));
 
     // 11. Add Product Form
     const addProdForm = document.getElementById('add-product-form');
     if (addProdForm) {
-      addProdForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(addProdForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('create', 'product')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear productos en el catálogo.', 'danger');
@@ -4281,7 +3525,7 @@ class NexusApp {
 
         if (sku) {
           const skuNorm = sku.toLowerCase();
-          const dupSku = (this.data.products || []).find(item => String(item.sku || '').trim().toLowerCase() === skuNorm);
+          const dupSku = (this.data.products || []).find(item => NexusSafety.sku(item.sku) === NexusSafety.sku(skuNorm));
           if (dupSku) {
             this.showToast(`Ya existe un producto con el código "${sku}" (${dupSku.name}). Usa un código único.`, 'warning');
             document.getElementById('new-prod-sku')?.focus();
@@ -4303,7 +3547,7 @@ class NexusApp {
         const cost = Math.max(0, this.parseCleanNumber(document.getElementById('new-prod-cost')?.value) || 0);
         const price = 0; // El precio de venta se fija libremente en el POS
         const rawStock = this.parseCleanNumber(document.getElementById('new-prod-stock')?.value);
-        const stock = isNaN(rawStock) || rawStock < 0 ? 0 : Math.round(rawStock * 1000) / 1000;
+        const stock = isNaN(rawStock) || rawStock < 0 ? 0 : NexusSafety.round(rawStock);
         const active = document.getElementById('new-prod-active')?.checked !== false;
 
         const categoryName = catObj ? catObj.name : 'General';
@@ -4355,7 +3599,7 @@ class NexusApp {
     // 11b. Edit Product Form
     const editProdForm = document.getElementById('edit-product-form');
     if (editProdForm) {
-      editProdForm.addEventListener('submit', async (e) => {
+      this.bindSafeSubmit(editProdForm, async (e) => {
         e.preventDefault();
         if (!this.canPerformAction('edit', 'product')) {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar productos del catálogo.', 'danger');
@@ -4363,13 +3607,11 @@ class NexusApp {
         }
         const id = document.getElementById('edit-prod-id').value;
         const origSku = document.getElementById('edit-prod-orig-sku')?.value?.trim();
-        const p = (origSku && id && this.data.products.find(prod => String(prod.id) === String(id) && String(prod.sku).trim() === origSku))
-          || (id && this.data.products.find(prod => String(prod.id) === String(id)))
-          || (origSku && this.data.products.find(prod => String(prod.sku).trim() === origSku));
+        const p = this.findProductIdentity(id,origSku);
         if (p) {
           const nextSkuVal = document.getElementById('edit-prod-sku').value.trim();
           if (nextSkuVal) {
-            const dupSku = this.data.products.find(prod => String(prod.id) !== String(p.id) && String(prod.sku || '').trim().toLowerCase() === nextSkuVal.toLowerCase());
+            const dupSku = this.data.products.find(prod => String(prod.id) !== String(p.id) && NexusSafety.sku(prod.sku) === NexusSafety.sku(nextSkuVal));
             if (dupSku) {
               this.showToast(`El código "${nextSkuVal}" ya pertenece a "${dupSku.name}". Usa un código único.`, 'warning');
               document.getElementById('edit-prod-sku')?.focus();
@@ -4405,6 +3647,10 @@ class NexusApp {
             return;
           }
 
+          if (!nextSkuVal) throw new Error('El código/SKU es obligatorio.');
+          if (nextMeasureType !== (p.measureType || 'Pesaje') || nextWeightUnit !== (p.weightUnit || 'g') || Math.abs((isExtraCat ? 0 : pieceWeight) - Number(p.pieceWeight ?? p.weight ?? 0)) > 0.000001) {
+            throw new Error('Para cambiar la unidad de medida o el peso por pieza, crea otro SKU. El historial conserva la medida original.');
+          }
           p.sku = nextSkuVal;
           p.name = nextProdName;
           p.measureType = nextMeasureType;
@@ -4427,7 +3673,7 @@ class NexusApp {
           // GRAMAJE / CANTIDAD TOTAL DEL ARTÍCULO
           let rawStock = document.getElementById('edit-prod-stock')?.value;
           let newStock = this.parseCleanNumber(rawStock);
-          p.stock = isNaN(newStock) || newStock < 0 ? 0 : Math.round(newStock * 1000) / 1000;
+          p.stock = isNaN(newStock) || newStock < 0 ? 0 : NexusSafety.round(newStock);
 
           const active = document.getElementById('edit-prod-active')?.checked !== false;
           if (!active) {
@@ -4810,7 +4056,7 @@ class NexusApp {
       if (document.getElementById('config-address-input')) document.getElementById('config-address-input').value = this.data.store.address || '';
       if (document.getElementById('config-addrextra-input')) document.getElementById('config-addrextra-input').value = this.data.store.addressExtra || '';
 
-      configForm.onsubmit = async (e) => {
+      this.bindSafeSubmit(configForm, async (e) => {
         e.preventDefault();
         if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
           this.showToast('Acceso Denegado: No tienes permisos para modificar la configuración de la empresa.', 'danger');
@@ -4830,7 +4076,7 @@ class NexusApp {
         await this.savePersistence();
         this.updateAppLogos(this.data.store.branding);
         this.showToast('Configuración del comercio actualizada con éxito', 'success');
-      };
+      });
     }
 
     this.setupBrandingForm();
@@ -5179,7 +4425,7 @@ class NexusApp {
       };
     }
 
-    brandingForm.onsubmit = async (e) => {
+    this.bindSafeSubmit(brandingForm, async (e) => {
       e.preventDefault();
       if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
         this.showToast('Acceso Denegado: No tienes permisos para modificar el branding y tema visual.', 'danger');
@@ -5198,7 +4444,7 @@ class NexusApp {
       this.applyBrandingSettings(this.data.store.branding);
       await this.savePersistence();
       this.showToast('🎨 Tema visual y personalización de marca guardados con éxito', 'success');
-    };
+    });
   }
 
   /* --------------------------------------------------------------------------
@@ -5415,14 +4661,17 @@ class NexusApp {
     this.openModal('product-modal');
   }
 
+  findProductIdentity(id,sku=null) {
+    if(!id&&!sku)return null;
+    return (this.data.products||[]).find(p=>(!id||String(p.id)===String(id))&&(!sku||String(p.sku).trim()===String(sku).trim()))||null;
+  }
+
   openEditProductModal(id, sku = null) {
     if (!this.canPerformAction('edit', 'product')) {
       this.showToast('Acceso Restringido: Tu rol no tiene permisos para editar productos del catálogo.', 'warning');
       return;
     }
-    const p = (sku && id && this.data.products.find(item => item.id === id && String(item.sku).trim() === String(sku).trim()))
-      || (id && this.data.products.find(item => item.id === id))
-      || (sku && this.data.products.find(item => String(item.sku).trim() === String(sku).trim()));
+    const p = this.findProductIdentity(id,sku);
     if (!p) return;
 
     document.getElementById('edit-prod-id').value = p.id;
@@ -5710,7 +4959,7 @@ class NexusApp {
     if (docTypeSelect) docTypeSelect.value = 'CC';
     const docInput = document.getElementById('cust-document-input');
     if (docInput) docInput.placeholder = 'ej. 1020304050';
-    ['cash', 'card', 'transfer', 'credit', 'separe'].forEach(type => {
+    ['cash', 'card', 'transfer', 'credit', 'separe', 'mixed'].forEach(type => {
       const el = document.getElementById(`cust-pay-${type}`);
       if (el) el.checked = true;
     });
@@ -5748,6 +4997,7 @@ class NexusApp {
     if (chkTransfer) chkTransfer.checked = methods.includes('Transferencia');
     if (chkCredit) chkCredit.checked = methods.includes('Crédito');
     if (chkSepare) chkSepare.checked = methods.includes('Plan Separe');
+    const chkMixed=document.getElementById('edit-cust-pay-mixed');if(chkMixed)chkMixed.checked=methods.includes('Pago Mixto');
 
     this.openModal('edit-customer-modal');
   }
@@ -5969,104 +5219,22 @@ class NexusApp {
     this.openModal('change-my-password-modal');
   }
 
-  async handleSaveMyPassword(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser) {
-      this.showToast('No hay una sesión activa.', 'danger');
-      return;
-    }
-
-    const currentPwd = document.getElementById('my-pwd-current')?.value || '';
-    const newPwd = document.getElementById('my-pwd-new')?.value || '';
-    const confirmPwd = document.getElementById('my-pwd-confirm')?.value || '';
-
-    const expectedPwd = this.currentUser.password || '123456';
-    if (currentPwd !== expectedPwd) {
-      this.showToast('La contraseña actual ingresada no es correcta.', 'danger');
-      return;
-    }
-
-    if (newPwd.length < 4) {
-      this.showToast('La nueva contraseña debe contener al menos 4 caracteres.', 'warning');
-      return;
-    }
-
-    if (newPwd !== confirmPwd) {
-      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
-      return;
-    }
-
-    const u = this.data.users.find(usr => usr.id === this.currentUser.id || (usr.email && usr.email.toLowerCase() === this.currentUser.email?.toLowerCase()));
-    if (u) {
-      u.password = newPwd;
-    }
-    this.currentUser.password = newPwd;
-    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-
-    await this.savePersistence();
-
-    const cur = document.getElementById('my-pwd-current');
-    const nw = document.getElementById('my-pwd-new');
-    const cf = document.getElementById('my-pwd-confirm');
-    if (cur) cur.value = '';
-    if (nw) nw.value = '';
-    if (cf) cf.value = '';
-    this.resetPasswordInputState('my-pwd-current');
-    this.resetPasswordInputState('my-pwd-new');
-    this.resetPasswordInputState('my-pwd-confirm');
-
-    this.closeModal('change-my-password-modal');
-    this.showToast('¡Tu contraseña ha sido actualizada con éxito!', 'success');
+  async changePasswordFromForm(prefix, userId = null) {
+    const currentPassword = document.getElementById(prefix + '-current')?.value || '';
+    const newPassword = document.getElementById(prefix + '-new')?.value || '';
+    const confirmPassword = document.getElementById(prefix + '-confirm')?.value || '';
+    if (newPassword.length < 4 || newPassword !== confirmPassword) throw new Error('La nueva contraseña debe tener al menos 4 caracteres y coincidir con su confirmación.');
+    const res = await fetch('/api/auth/password', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({userId,currentPassword,newPassword}),signal:AbortSignal.timeout(15000) });
+    const result = await res.json();
+    if(!res.ok) throw new Error(result.error || 'No se pudo cambiar la contraseña.');
+    await this.loadPersistence();
+    for(const suffix of ['current','new','confirm']) { const field = document.getElementById(prefix+'-'+suffix); if(field)field.value=''; }
+    this.showToast('Contraseña actualizada. Las otras sesiones deberán iniciar sesión nuevamente.', 'success');
   }
 
-  async handleSaveMyPasswordFromConfig(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser) {
-      this.showToast('No hay una sesión activa.', 'danger');
-      return;
-    }
+  async handleSaveMyPassword(e) { e?.preventDefault(); await this.changePasswordFromForm('my-pwd'); this.closeModal('change-my-password-modal'); }
 
-    const currentPwd = document.getElementById('cfg-pwd-current')?.value || '';
-    const newPwd = document.getElementById('cfg-pwd-new')?.value || '';
-    const confirmPwd = document.getElementById('cfg-pwd-confirm')?.value || '';
-
-    const expectedPwd = this.currentUser.password || '123456';
-    if (currentPwd !== expectedPwd) {
-      this.showToast('La contraseña actual ingresada no es correcta.', 'danger');
-      return;
-    }
-
-    if (newPwd.length < 4) {
-      this.showToast('La nueva contraseña debe contener al menos 4 caracteres.', 'warning');
-      return;
-    }
-
-    if (newPwd !== confirmPwd) {
-      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
-      return;
-    }
-
-    const u = this.data.users.find(usr => usr.id === this.currentUser.id || (usr.email && usr.email.toLowerCase() === this.currentUser.email?.toLowerCase()));
-    if (u) {
-      u.password = newPwd;
-    }
-    this.currentUser.password = newPwd;
-    localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-
-    await this.savePersistence();
-
-    const cur = document.getElementById('cfg-pwd-current');
-    const nw = document.getElementById('cfg-pwd-new');
-    const cf = document.getElementById('cfg-pwd-confirm');
-    if (cur) cur.value = '';
-    if (nw) nw.value = '';
-    if (cf) cf.value = '';
-    this.resetPasswordInputState('cfg-pwd-current');
-    this.resetPasswordInputState('cfg-pwd-new');
-    this.resetPasswordInputState('cfg-pwd-confirm');
-
-    this.showToast('¡Tu contraseña ha sido actualizada exitosamente desde Configuración!', 'success');
-  }
+  async handleSaveMyPasswordFromConfig(e) { e?.preventDefault(); await this.changePasswordFromForm('cfg-pwd'); }
 
   openAdminChangePasswordModal(userId) {
     if (!this.currentUser || !this.isSuperAdminRole(this.currentUser.role)) {
@@ -6109,7 +5277,7 @@ class NexusApp {
       }
     }
 
-    this._adminTargetUserPassword = u.password || '123456';
+    delete this._adminTargetUserPassword;
     const displayEl = document.getElementById('admin-pwd-current-display');
     if (displayEl) displayEl.textContent = '••••••••';
 
@@ -6129,19 +5297,7 @@ class NexusApp {
     this.openModal('admin-change-user-password-modal');
   }
 
-  toggleAdminCurrentPasswordVisibility() {
-    const displayEl = document.getElementById('admin-pwd-current-display');
-    const revealBtn = document.getElementById('btn-toggle-admin-reveal');
-    if (!displayEl) return;
-
-    if (displayEl.textContent === '••••••••') {
-      displayEl.textContent = this._adminTargetUserPassword || '123456';
-      if (revealBtn) revealBtn.textContent = '🙈 Ocultar';
-    } else {
-      displayEl.textContent = '••••••••';
-      if (revealBtn) revealBtn.textContent = '👁️ Revelar';
-    }
-  }
+  toggleAdminCurrentPasswordVisibility() { this.showToast('Las contraseñas existentes no se muestran. Puedes establecer una nueva.', 'info'); }
 
   generateRandomPasswordForAdmin() {
     const pwd = this.generateSecureRandomPassword();
@@ -6154,66 +5310,7 @@ class NexusApp {
     this.showToast(`Contraseña generada: ${pwd}`, 'info');
   }
 
-  async handleAdminSaveUserPassword(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!this.currentUser || !this.isSuperAdminRole(this.currentUser.role)) {
-      this.showToast('Acceso Denegado: Solo el Super Admin puede redefinir contraseñas.', 'danger');
-      return;
-    }
-
-    const targetId = document.getElementById('admin-pwd-target-user-id')?.value;
-    const u = this.data.users.find(usr => usr.id === targetId);
-    if (!u) {
-      this.showToast('Usuario objetivo no encontrado.', 'danger');
-      return;
-    }
-
-    const newPwd = document.getElementById('admin-pwd-new')?.value?.trim();
-    const confirmPwd = document.getElementById('admin-pwd-confirm')?.value?.trim();
-
-    if (!newPwd || newPwd.length < 4) {
-      this.showToast('La nueva contraseña debe tener al menos 4 caracteres.', 'warning');
-      return;
-    }
-
-    if (newPwd !== confirmPwd) {
-      this.showToast('La confirmación de la contraseña no coincide.', 'warning');
-      return;
-    }
-
-    u.password = newPwd;
-    this._adminTargetUserPassword = newPwd;
-
-    // If super admin edited their own password, keep session in sync
-    if (this.currentUser && (this.currentUser.id === u.id || (this.currentUser.email && this.currentUser.email.toLowerCase() === u.email?.toLowerCase()))) {
-      this.currentUser.password = newPwd;
-      localStorage.setItem('nexus_pos_user', JSON.stringify(this.currentUser));
-    }
-
-    await this.savePersistence();
-    this.renderUsersTable();
-
-    const copyClip = document.getElementById('admin-pwd-copy-clip')?.checked;
-    if (copyClip && navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        await navigator.clipboard.writeText(newPwd);
-        this.showToast(`Contraseña actualizada para "${u.name}" y copiada al portapapeles.`, 'success');
-      } catch(err) {
-        this.showToast(`Contraseña de "${u.name}" actualizada con éxito: ${newPwd}`, 'success');
-      }
-    } else {
-      this.showToast(`Contraseña de "${u.name}" actualizada con éxito a: ${newPwd}`, 'success');
-    }
-
-    const nw = document.getElementById('admin-pwd-new');
-    const cf = document.getElementById('admin-pwd-confirm');
-    if (nw) nw.value = '';
-    if (cf) cf.value = '';
-    this.resetPasswordInputState('admin-pwd-new');
-    this.resetPasswordInputState('admin-pwd-confirm');
-
-    this.closeModal('admin-change-user-password-modal');
-  }
+  async handleAdminSaveUserPassword(e) { e?.preventDefault(); await this.changePasswordFromForm('admin-pwd', document.getElementById('admin-pwd-target-user-id')?.value); this.closeModal('admin-change-user-password-modal'); }
 
   openEditProfileModal(id) {
     if (!this.isSuperAdminRole(this.currentUser?.role)) {
@@ -6254,6 +5351,8 @@ class NexusApp {
     if (initBalInput) {
       const currentInit = (accKey && this.data.accountInitialBalances && this.data.accountInitialBalances[accKey]) || 0;
       initBalInput.value = this.formatNumberWithCommas(currentInit);
+      initBalInput.readOnly=true;
+      initBalInput.title='El saldo inicial se conserva. Para registrar dinero usa Ajustar saldo / movimientos.';
     }
 
     this.attachGlobalNumberMasks();
@@ -6390,15 +5489,14 @@ class NexusApp {
       return;
     }
     const cust = (this.data.customers || []).find(c => c.id === id);
-    if (cust && cust.creditBalance > 0) {
-      if (!confirm(`¡Atención! El cliente "${cust.name}" tiene un saldo deudor pendiente de ${this.formatCurrency(cust.creditBalance)}. ¿Seguro que desea eliminarlo permanentemente?`)) return;
+    const pending = Math.max(Number(cust?.creditBalance) || 0, (this.data.customerCredits || []).filter(c => c.customer === cust?.name).reduce((sum, c) => sum + (Number(c.currentBalance) || 0), 0));
+    if (cust && pending > 0) {
+      return this.blockUnsafeOperation('No se puede eliminar un cliente con deuda pendiente. Conserva su cartera y registra los abonos correspondientes.');
     } else {
       if (!confirm(`¿Estás seguro de eliminar al cliente "${cust ? cust.name : id}" del directorio?`)) return;
     }
     this.data.customers = this.data.customers.filter(c => c.id !== id);
-    if (cust && Array.isArray(this.data.customerCredits)) {
-      this.data.customerCredits = this.data.customerCredits.filter(cr => cr.customer !== cust.name);
-    }
+    // Paid credit records remain as historical evidence after deleting a directory entry.
     await this.savePersistence();
     this.syncAllModules();
     this.showToast(`Cliente ${cust ? cust.name : id} eliminado`, 'warning');
@@ -6420,9 +5518,7 @@ class NexusApp {
     }
     if (!confirm(`¿Estás seguro de eliminar al proveedor "${supp ? supp.name : id}"?`)) return;
     this.data.suppliers = this.data.suppliers.filter(s => s.id !== id);
-    if (Array.isArray(this.data.supplierCredits)) {
-      this.data.supplierCredits = this.data.supplierCredits.filter(sc => !((sc.supplierId === id || (suppNorm && (sc.supplier || '').toLowerCase().trim() === suppNorm)) && (Number(sc.pendingAmount) || 0) <= 0));
-    }
+    // Historical credits are retained; only the directory entry is removed.
     await this.savePersistence();
     this.syncAllModules();
     this.showToast(`Proveedor ${supp ? supp.name : id} eliminado`, 'warning');
@@ -6465,62 +5561,10 @@ class NexusApp {
   }
 
   async deleteExpense(id) {
-    if (!this.canPerformAction('delete', 'expense')) {
-      this.showToast('Acceso Denegado: Tu rol no tiene permisos para eliminar registros de gastos.', 'danger');
-      return;
-    }
-    if (!confirm('¿Estás seguro de eliminar este registro de gasto o egreso? El monto será reintegrado automáticamente a su saldo correspondiente.')) return;
-    const exp = (this.data.expenses || []).find(e => e.id === id);
-    this.data.expenses = this.data.expenses.filter(e => e.id !== id);
-    const isOpenShift = exp && exp.shiftId && this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId === this.data.cashShiftLog.shiftId;
-    if (exp && exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift) {
-      const mL = String(exp.method || '').toLowerCase();
-      const accL = String(exp.targetAccount || '').toLowerCase();
-      const explicitCash = !exp.isBank && (mL.includes('efectivo') || accL.includes('efectivo') || accL.includes('caja'));
-      const wasBank = Boolean(exp.isBank || (!explicitCash && (mL.includes('transfer') || mL.includes('banco') || mL.includes('tarjeta') || mL.includes('cuenta') || (!!exp.targetAccount && !accL.includes('caja')))));
-      const expAmt = Number(exp.amount) || 0;
-      const hist = Array.isArray(this.data.cashShiftsHistory)
-        ? this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId)
-        : null;
-      if (hist) {
-        if (!wasBank) {
-          hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) - expAmt) * 100) / 100;
-          hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses + (Number(hist.cashAdjustmentsNet) || 0)) * 100) / 100;
-          if (hist.closingCash !== undefined) {
-            hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
-          }
-        } else {
-          hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) - expAmt) * 100) / 100;
-          hist.expectedCardInAccount = Math.round(((Number(hist.openingCard) || 0) + (Number(hist.transferSales) || 0) + (Number(hist.tarjetaSales) || 0) + (Number(hist.bankAdjustmentsNet) || 0) - hist.bankExpenses) * 100) / 100;
-        }
-        hist.totalExpenses = Math.round(((Number(hist.cashExpenses) || 0) + (Number(hist.bankExpenses) || 0)) * 100) / 100;
-      }
-      const closedLog = this.data.cashShiftLog;
-      if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === exp.shiftId) {
-        if (!wasBank) {
-          closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - expAmt) * 100) / 100;
-          closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-          if (closedLog.closingCash !== undefined) {
-            closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + expAmt) * 100) / 100;
-          }
-          if (this.data.store) {
-            this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-          }
-        } else {
-          closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - expAmt) * 100) / 100;
-          closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-        }
-        closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-      }
-    }
-    if (this.calculateShiftTotals) {
-      this.calculateShiftTotals();
-    }
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-    this.showToast(`Gasto ${id} eliminado y reintegrado`, 'warning');
+    if(!this.canPerformAction('delete','expense'))return this.showToast('Sin permiso para anular gastos.','danger');
+    if(!confirm('¿Anular este gasto y registrar su reintegro en el turno actual?'))return;
+    const reason=prompt('Motivo y soporte del reintegro:');if(!reason?.trim())return;
+    await this.executeFinancialOperation('voidExpense',{expenseId:id,reason});this.syncAllModules();this.showToast('Gasto anulado con historial conservado.','success');
   }
 
   async deleteService(id) {
@@ -6592,308 +5636,27 @@ class NexusApp {
   }
 
   async deletePurchaseOrder(id) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para eliminar o reversar compras.', 'danger');
-      return;
-    }
-    const po = (this.data.purchases || []).find(p => p.id === id);
-    if (!po) {
-      this.showToast(`Orden de compra #${id} no encontrada.`, 'warning');
-      return;
-    }
-
-    if (!confirm(`¿Estás seguro de eliminar la orden de compra #${id}? Si se pagó en efectivo o tuvo abonos en efectivo, el dinero se reintegrará automáticamente a la caja, se revertirá el stock y se cancelarán deudas vinculadas.`)) return;
-
-    // 1. ELIMINAR ORDEN Y ABONOS DIRECTOS (O VIA CREDITO EXCLUSIVO DE ESA OC) + SINCRONIZAR CAJA/BANCOS DEL TURNO CORRESPONDIENTE
-    let cashToRefund = 0;
-    let bankToRefund = 0;
-    const exclusiveCreditIds = new Set(
-      (this.data.supplierCredits || [])
-        .filter(c => c && (
-          (!Array.isArray(c.purchaseOrderIds) && c.poId === po.id) ||
-          (Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.length === 1 && c.purchaseOrderIds[0] === po.id)
-        ))
-        .map(c => c.id)
-    );
-    const relatedAbonos = (this.data.abonosCompras || []).filter(ab => ab.poId === po.id || exclusiveCreditIds.has(ab.poId));
-    let cashFromAbonos = 0;
-    let bankFromAbonos = 0;
-    relatedAbonos.forEach(ab => {
-      const meth = (ab.method || '').toLowerCase();
-      const abAmt = Number(ab.amount) || 0;
-      if (meth.includes('efectivo') || meth.includes('caja')) {
-        cashFromAbonos += abAmt;
-      } else if (abAmt > 0) {
-        bankFromAbonos += abAmt;
-      }
-    });
-
-    if (relatedAbonos.length > 0) {
-      cashToRefund = cashFromAbonos;
-      bankToRefund = bankFromAbonos;
-      const abIdsToRemove = new Set(relatedAbonos.map(a => a.id));
-      this.data.abonosCompras = (this.data.abonosCompras || []).filter(ab => !abIdsToRemove.has(ab.id));
-    } else {
-      const poMethod = (po.paymentMethod || '').toLowerCase();
-      const poAcc = (po.targetAccount || '').toLowerCase();
-      const isCreditPo = this.isStoreCreditMethod(poMethod);
-      const isCash = !isCreditPo && (poMethod.includes('efectivo') || poAcc.includes('efectivo') || poAcc.includes('caja'));
-      const wasPaid = po.paymentStatus === 'Pagado Total' || (!isCreditPo && Number(po.paidAmount) > 0);
-      const directPaidAmt = Number(po.paidAmount || po.total) || 0;
-      if (isCash && wasPaid) {
-        cashToRefund = directPaidAmt;
-      } else if (!isCreditPo && wasPaid && directPaidAmt > 0) {
-        bankToRefund = directPaidAmt;
-      }
-    }
-
-    // 2. REVERTIR STOCK DEL PRODUCTO (ID primero, luego SKU) CON CONVERSIÓN DE UNIDADES DE PESO
-    const targetProd = (po.productId ? (this.data.products || []).find(p => p.id === po.productId) : null)
-      || (po.productSku ? (this.data.products || []).find(p => p.sku === po.productSku) : null);
-    const rawQtyToRevert = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
-    if (targetProd && rawQtyToRevert > 0) {
-      const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
-      const poWu = String(targetProd.weightUnit || 'g').toLowerCase();
-      const uFac = !isPesaje ? 1 : (poWu === 'kg' ? 1000 : (poWu === 'mg' ? 0.001 : ((poWu === 'µg' || poWu === 'ug') ? 0.000001 : (poWu === 'oz' ? 28.3495 : 1))));
-      const qtyToRevert = isPesaje ? (rawQtyToRevert / uFac) : rawQtyToRevert;
-      const roundScale = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes(poWu)) ? 10000 : 1000;
-      const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-      targetProd.stock = Math.round(Math.max(0, currentStock - qtyToRevert) * roundScale) / roundScale;
-      const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
-      targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
-    }
-    if (this.data.kpis) {
-      this.data.kpis.inventoryValue = Math.round((this.data.products || []).reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
-    }
-    this.syncAllCategoryGrams();
-
-    // 3. REVERTIR PARCIALMENTE DEUDA VINCULADA SIN DESTRUIR OTRAS ÓRDENES NI RESTAR COMPRAS DE CONTADO AL CRÉDITO
-    const poTotal = Math.round(Number(po.total) || 0);
-    const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
-    const poPending = Math.max(0, poTotal - poPaid);
-    const poSuppNorm = (po.supplier || '').toLowerCase().trim();
-
-    if (poPending > 0 && Array.isArray(this.data.suppliers)) {
-      const suppObj = this.data.suppliers.find(s => s.name?.toLowerCase().trim() === poSuppNorm);
-      if (suppObj) {
-        suppObj.creditBalance = Math.round(Math.max(0, (Number(suppObj.creditBalance) || 0) - poPending) * 100) / 100;
-      }
-    }
-    if (Array.isArray(this.data.supplierCredits)) {
-      this.data.supplierCredits = this.data.supplierCredits.filter(c => {
-        const isDirectSingle = (c.poId === po.id || c.id === po.id) && (!Array.isArray(c.purchaseOrderIds) || c.purchaseOrderIds.length <= 1);
-        if (isDirectSingle) return false;
-        const matchesSupp = (c.supplier || '').toLowerCase().trim() === poSuppNorm;
-        const hasPo = Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.includes(po.id);
-        if (hasPo) {
-          c.purchaseOrderIds = c.purchaseOrderIds.filter(pid => pid !== po.id);
-          if (poTotal > 0) c.totalOwed = Math.round(Math.max(0, (Number(c.totalOwed) || 0) - poTotal) * 100) / 100;
-          if (poPending > 0) c.pendingAmount = Math.round(Math.max(0, (Number(c.pendingAmount) || 0) - poPending) * 100) / 100;
-          if ((Number(c.pendingAmount) || 0) <= 0) c.status = 'Pagado Total';
-        } else if (matchesSupp && poPending > 0 && c.status !== 'Pagado Total') {
-          c.totalOwed = Math.round(Math.max(0, (Number(c.totalOwed) || 0) - poPending) * 100) / 100;
-          c.pendingAmount = Math.round(Math.max(0, (Number(c.pendingAmount) || 0) - poPending) * 100) / 100;
-          if ((Number(c.pendingAmount) || 0) <= 0) c.status = 'Pagado Total';
-        }
-        return true;
-      });
-    }
-
-    // 4. ELIMINAR LA ORDEN DE COMPRA Y RECALCULAR TURNO / HISTORIAL
-    this.data.purchases = (this.data.purchases || []).filter(p => p.id !== id);
-    this.syncSupplierCreditsState();
-
-    if (cashToRefund > 0 || bankToRefund > 0) {
-      const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-      const refundShifts = relatedAbonos.length > 0
-        ? Array.from(new Set(relatedAbonos.map(ab => ab.shiftId).filter(Boolean)))
-        : (po.shiftId ? [po.shiftId] : []);
-      refundShifts.forEach(rShiftId => {
-        if (rShiftId !== 'EXCLUIDO' && rShiftId !== openShiftId) {
-          const cashForShift = relatedAbonos.length > 0
-            ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && ((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
-            : cashToRefund;
-          const bankForShift = relatedAbonos.length > 0
-            ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && !((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
-            : bankToRefund;
-          if (cashForShift > 0 || bankForShift > 0) {
-            const histShift = Array.isArray(this.data.cashShiftsHistory)
-              ? this.data.cashShiftsHistory.find(s => s.shiftId === rShiftId || s.id === rShiftId)
-              : null;
-            if (histShift) {
-              if (cashForShift > 0) {
-                histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - cashForShift) * 100) / 100;
-                histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-                if (histShift.closingCash !== undefined) {
-                  histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-                }
-              }
-              if (bankForShift > 0) {
-                histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) - bankForShift) * 100) / 100;
-                histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
-              }
-              histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-            }
-            const closedLog = this.data.cashShiftLog;
-            if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === rShiftId) {
-              if (cashForShift > 0) {
-                closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - cashForShift) * 100) / 100;
-                closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-                if (closedLog.closingCash !== undefined) {
-                  closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + cashForShift) * 100) / 100;
-                }
-                if (this.data.store) {
-                  this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-                }
-              }
-              if (bankForShift > 0) {
-                closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - bankForShift) * 100) / 100;
-                closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-              }
-              closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-            }
-          }
-        }
-      });
-      if (this.calculateShiftTotals && openShiftId) {
-        this.calculateShiftTotals();
-      }
-    }
-
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderFinComprasTable();
-    this.renderRepCompras();
-    this.renderAbonosComprasTable();
-    this.renderInventoryTable();
-    this.renderInvCategoriasTable();
-    this.renderCategoryPills();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-
-    const refundMsg = cashToRefund > 0 ? ` y ${this.formatCurrency(cashToRefund)} reintegrados automáticamente a caja` : '';
-    this.showToast(`Orden #${id} eliminada, stock revertido${refundMsg}`, 'success');
+    if(!this.canPerformAction('delete','purchase'))return this.blockUnsafeOperation('Tu perfil no permite devolver compras.');
+    if(!confirm('Se retirará la mercancía disponible, se cancelará únicamente la deuda de esta orden y se registrará el dinero devuelto por sus pagos. ¿Confirmas la devolución al proveedor?'))return;
+    const reason=prompt('Motivo y comprobante de la devolución:');if(!reason)return;
+    const po=this.data.purchases.find(p=>p.id===id),p=this.data.products.find(p=>p.id===po?.productId);
+    const untouched=po?.inventoryAfter&&p&&Math.abs(Number(p.stock)-Number(po.inventoryAfter.stock))<.000001&&Math.abs(Number(p.cost)-Number(po.inventoryAfter.cost))<.0001;
+    let inventoryPolicy;
+    if(!untouched){if(!confirm('Esta compra no se puede deshacer como una entrada intacta. Se conservará el costo actual del inventario y se registrará la diferencia de valor en el resultado de esta devolución. ¿Aceptas ese tratamiento?'))return;inventoryPolicy='carrying';}
+    await this.executeFinancialOperation('reversePurchase',{purchaseId:id,reason,inventoryPolicy});this.showToast('Devolución de compra registrada sin modificar otros saldos ni cierres.','success');
   }
 
   async deleteAbonoCompra(id) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para anular abonos de compras.', 'danger');
-      return;
-    }
-    const ab = (this.data.abonosCompras || []).find(a => a.id === id);
-    if (!ab) {
-      this.showToast(`Abono #${id} no encontrado.`, 'warning');
-      return;
-    }
-    if (!confirm(`¿Estás seguro de anular el abono #${id} de ${this.formatCurrency(ab.amount)} a ${ab.supplier}? Si fue en efectivo, el dinero se reintegrará automáticamente a la caja.`)) return;
-
-    const amt = Number(ab.amount) || 0;
-    const isCash = (ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja');
-
-    const suppNorm = (ab.supplier || '').toLowerCase().trim();
-
-    // Revertir deuda en supplierCredits si existe el crédito (priorizando crédito Pendiente si la búsqueda es por proveedor)
-    if (Array.isArray(this.data.supplierCredits)) {
-      const cred = (ab.poId && this.data.supplierCredits.find(c => c.id === ab.poId || c.poId === ab.poId))
-        || this.data.supplierCredits.find(c => suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm && c.status !== 'Pagado Total')
-        || this.data.supplierCredits.find(c => suppNorm && (c.supplier || '').toLowerCase().trim() === suppNorm);
-      if (cred) {
-        cred.pendingAmount = Math.round(((Number(cred.pendingAmount) || 0) + amt) * 100) / 100;
-        cred.paidAmount = Math.round(Math.max(0, (Number(cred.paidAmount) || 0) - amt) * 100) / 100;
-        if (cred.pendingAmount > 0) {
-          cred.status = 'Pendiente';
-        }
-      }
-    }
-
-    // Revertir saldo del proveedor
-    const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === suppNorm);
-    if (suppObj) {
-      suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + amt) * 100) / 100;
-    }
-
-    // Revertir pago en la OC específica o amortizar en reversa (LIFO) entre OCs a crédito del proveedor
-    if (Array.isArray(this.data.purchases)) {
-      const directPo = ab.poId ? this.data.purchases.find(p => p.id === ab.poId) : null;
-      if (directPo) {
-        directPo.paidAmount = Math.round(Math.max(0, (Number(directPo.paidAmount) || 0) - amt) * 100) / 100;
-        if (directPo.paidAmount < Number(directPo.total) - 0.01) {
-          directPo.paymentStatus = 'Pendiente';
-        }
-      } else if (suppNorm) {
-        const linkedCredit = (this.data.supplierCredits || []).find(c => c.id === ab.poId || ((c.supplier || '').toLowerCase().trim() === suppNorm));
-        const linkedSet = new Set(Array.isArray(linkedCredit?.purchaseOrderIds) ? linkedCredit.purchaseOrderIds : []);
-        let toRevert = amt;
-        const paidPOs = this.data.purchases
-          .filter(p => (linkedSet.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) && (Number(p.paidAmount) || 0) > 0 && (this.isStoreCreditMethod(p.paymentMethod) || linkedSet.has(p.id)))
-          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        for (const p of paidPOs) {
-          if (toRevert <= 0) break;
-          const pPaid = Number(p.paidAmount) || 0;
-          const rev = Math.min(toRevert, pPaid);
-          p.paidAmount = Math.round((pPaid - rev) * 100) / 100;
-          if (p.paidAmount < (Number(p.total) || 0) - 0.01) {
-            p.paymentStatus = 'Pendiente';
-          }
-          toRevert = Math.round((toRevert - rev) * 100) / 100;
-        }
-      }
-    }
-
-    this.data.abonosCompras = (this.data.abonosCompras || []).filter(a => a.id !== id);
-    this.syncSupplierCreditsState();
-    if (amt > 0) {
-      const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-      if (ab.shiftId && ab.shiftId !== 'EXCLUIDO' && ab.shiftId !== openShiftId) {
-        const histShift = Array.isArray(this.data.cashShiftsHistory)
-          ? this.data.cashShiftsHistory.find(s => s.shiftId === ab.shiftId || s.id === ab.shiftId)
-          : null;
-        if (histShift) {
-          if (isCash) {
-            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amt) * 100) / 100;
-            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (histShift.closingCash !== undefined) {
-              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-            }
-          } else {
-            histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) - amt) * 100) / 100;
-            histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
-          }
-          histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-        }
-        const closedLog = this.data.cashShiftLog;
-        if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === ab.shiftId) {
-          if (isCash) {
-            closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amt) * 100) / 100;
-            closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (closedLog.closingCash !== undefined) {
-              closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amt) * 100) / 100;
-            }
-            if (this.data.store) {
-              this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-            }
-          } else {
-            closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - amt) * 100) / 100;
-            closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-          }
-          closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-        }
-      }
-      if (this.calculateShiftTotals && openShiftId) {
-        this.calculateShiftTotals();
-      }
-    }
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderAbonosComprasTable();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-    this.showToast(`Abono #${id} anulado ${isCash ? 'y dinero reintegrado a caja' : 'y saldo bancario restablecido'}`, 'warning');
+    if(!this.isAdminUser()||!this.canPerformAction('edit','supplier_payment'))return this.blockUnsafeOperation('Tu perfil no permite anular pagos.');
+    if(!confirm('Se reabrirá únicamente la deuda pagada por este abono y se registrará su reintegro en la misma cuenta. ¿Confirmas que el dinero fue devuelto o que corresponde corregir este pago?'))return;
+    const reason=prompt('Motivo y soporte de la anulación:');if(!reason)return;
+    await this.executeFinancialOperation('voidSupplierPayment',{paymentId:id,reason});this.showToast('Abono anulado con su distribución original y reintegro documentado.','success');
   }
 
   openAbonoModal(type, id) {
+    const purchaseTarget=document.getElementById('abono-purchase-id');if(purchaseTarget)purchaseTarget.value='';
     const abonoEntity = type === 'supplier' ? 'supplier_payment' : 'customer_payment';
-    if (!this.isAdminUser() && !this.canPerformAction('create', abonoEntity)) {
+    if (!this.canPerformAction('create', abonoEntity)) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar pagos o abonos.', 'danger');
       return;
     }
@@ -7099,255 +5862,17 @@ class NexusApp {
   }
 
   async submitAbono() {
-    if (this._isSubmittingAbono) return;
-    const type = document.getElementById('abono-credit-type')?.value;
-    const abonoEntity = type === 'supplier' ? 'supplier_payment' : 'customer_payment';
-    if (!this.isAdminUser() && !this.canPerformAction('create', abonoEntity)) {
-      this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar pagos o abonos.', 'danger');
-      return;
+    const type=document.getElementById('abono-credit-type')?.value,id=document.getElementById('abono-credit-id')?.value;
+    const value=this.parseCleanNumber(document.getElementById('abono-amount-input')?.value),method=document.getElementById('abono-method-select')?.value||'Efectivo';
+    const targetAccount=/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('abono-account-select')?.value||this.getDestinationBankAccounts()[0];
+    let creditId=id,purchaseId=type==='supplier'?document.getElementById('abono-purchase-id')?.value:undefined;
+    if(type==='supplier'&&!this.data.supplierCredits.some(c=>c.id===id)) {
+      const po=this.data.purchases.find(p=>p.id===id);purchaseId=po?.id||purchaseId;
+      const matches=this.data.supplierCredits.filter(c=>c.id===po?.debtCreditId||(c.purchaseOrderIds||[]).includes(po?.id));
+      if(matches.length!==1)throw new Error('Selecciona el crédito específico del proveedor.');creditId=matches[0].id;
     }
-    const id = document.getElementById('abono-credit-id')?.value;
-    const amountInput = document.getElementById('abono-amount-input');
-    const methodSelect = document.getElementById('abono-method-select');
-
-    const amountPaid = this.parseCleanNumber(amountInput?.value);
-    const method = methodSelect?.value || 'Efectivo';
-
-    if (isNaN(amountPaid) || amountPaid <= 0) {
-      this.showToast('Por favor ingrese un monto de abono válido mayor a 0', 'warning');
-      return;
-    }
-
-    this._isSubmittingAbono = true;
-    try {
-      const now = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      const localDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      const localTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      if (type === 'customer') {
-        const cred = (this.data.customerCredits || []).find(c => c.id === id);
-        if (!cred) return;
-
-        if (amountPaid > cred.currentBalance + 0.01) {
-          this.showToast(`El monto abonado (${this.formatCurrency(amountPaid)}) excede el saldo pendiente (${this.formatCurrency(cred.currentBalance)})`, 'warning');
-          return;
-        }
-
-        const isCashCustAbono = method.toLowerCase().includes('efectivo');
-        if (isCashCustAbono && (!this.data.cashShiftLog || this.data.cashShiftLog.status !== 'Abierto')) {
-          this.showToast('El turno de caja está CERRADO. Abre un turno en Arqueo de Caja para recibir abonos en Efectivo, o selecciona Transferencia.', 'warning');
-          return;
-        }
-
-        const actualPay = Math.round(Math.min(amountPaid, cred.currentBalance) * 100) / 100;
-        cred.currentBalance = Math.round(Math.max(0, cred.currentBalance - actualPay) * 100) / 100;
-        if (cred.currentBalance <= 0) {
-          cred.currentBalance = 0;
-          cred.status = "Saldado";
-        }
-
-        const cust = (this.data.customers || []).find(c => c.name === cred.customer);
-        if (cust) {
-          cust.creditBalance = Math.round(Math.max(0, (cust.creditBalance || 0) - actualPay) * 100) / 100;
-        }
-
-        const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
-        const selectedCustAccount = !isCashCustAbono
-          ? (document.getElementById('abono-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS')
-          : 'Caja Mostrador (Efectivo)';
-
-        const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
-
-        if (!this.data.abonosVentas) this.data.abonosVentas = [];
-        this.data.abonosVentas.unshift({
-          id: this.generateSequentialId('AB-V', this.data.abonosVentas),
-          creditId: cred.id,
-          date: `${localDate} ${localTime}`,
-          isoDate: localDate,
-          timestamp: now.getTime(),
-          shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
-          customer: cred.customer,
-          invoiceId: cred.txId || cred.id,
-          amount: actualPay,
-          method: isCashCustAbono ? 'Efectivo' : `${method} (${selectedCustAccount})`,
-          targetAccount: selectedCustAccount,
-          cashier: this.currentUser?.name || this.data.store?.cashier || "Cajero"
-        });
-
-        if (activeShift) {
-          if (this.calculateShiftTotals) {
-            this.calculateShiftTotals();
-          } else if (isCashCustAbono) {
-            activeShift.cashSales = Math.round(((Number(activeShift.cashSales) || 0) + actualPay) * 100) / 100;
-            activeShift.expectedCashInDrawer = Math.round(((Number(activeShift.openingCash) || 0) + (Number(activeShift.cashSales) || 0) - (Number(activeShift.cashExpenses) || 0)) * 100) / 100;
-            if (this.data.store) this.data.store.cashInBox = activeShift.expectedCashInDrawer;
-          }
-        }
-
-        this.closeModal('abono-modal');
-        await this.savePersistence();
-        this.syncAllModules();
-        this.renderCuadreCajaCard();
-        this.renderCashStatusIndicator();
-        this.showToast(`Abono de ${this.formatCurrency(actualPay)} registrado a ${cred.customer}`, 'success');
-
-      } else if (type === 'supplier') {
-      let cp = (this.data.supplierCredits || []).find(s => s.id === id);
-      if (!cp) {
-        const cleanId = String(id || '').toLowerCase().trim();
-        cp = (this.data.supplierCredits || []).find(s => 
-          String(s.id || '').toLowerCase().trim() === cleanId || 
-          String(s.supplier || '').toLowerCase().trim() === cleanId ||
-          String(s.supplierId || '').toLowerCase().trim() === cleanId
-        );
-      }
-      if (!cp) {
-        const po = (this.data.purchases || []).find(p => p.id === id);
-        if (po) {
-          cp = (this.data.supplierCredits || []).find(s => 
-            s.id === po.id || 
-            (s.supplier && s.supplier.toLowerCase().trim() === String(po.supplier).toLowerCase().trim())
-          );
-        }
-      }
-      if (!cp) {
-        const suppObj = (this.data.suppliers || []).find(s => 
-          s.id === id || 
-          s.name?.toLowerCase().trim() === String(id).toLowerCase().trim()
-        );
-        if (suppObj && Number(suppObj.creditBalance) > 0) {
-          const newCreditId = this.getNextSupplierCreditId();
-          cp = {
-            id: newCreditId,
-            supplier: suppObj.name,
-            supplierId: suppObj.id,
-            totalOwed: Number(suppObj.creditBalance),
-            paidAmount: 0,
-            pendingAmount: Number(suppObj.creditBalance),
-            date: new Date().toISOString().slice(0, 10),
-            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-            status: "Pendiente"
-          };
-          if (!this.data.supplierCredits) this.data.supplierCredits = [];
-          this.data.supplierCredits.push(cp);
-        }
-      }
-
-      if (!cp) {
-        this.showToast('No se encontró el registro de crédito del proveedor para aplicar el abono.', 'warning');
-        return;
-      }
-
-      if (amountPaid > cp.pendingAmount + 0.01) {
-        this.showToast(`El monto a pagar (${this.formatCurrency(amountPaid)}) excede la deuda pendiente (${this.formatCurrency(cp.pendingAmount)})`, 'warning');
-        return;
-      }
-
-      const isCash = method.toLowerCase().includes('efectivo');
-      const shouldDeductFromCash = isCash;
-      if (shouldDeductFromCash && (!this.data.cashShiftLog || this.data.cashShiftLog.status !== 'Abierto')) {
-        this.showToast('El turno de caja está CERRADO. Abre un turno en Arqueo de Caja para registrar pagos en Efectivo desde caja, o selecciona Transferencia bancaria.', 'warning');
-        return;
-      }
-
-      const actualPay = Math.round(Math.min(amountPaid, cp.pendingAmount) * 100) / 100;
-      cp.pendingAmount = Math.round(Math.max(0, cp.pendingAmount - actualPay) * 100) / 100;
-      cp.paidAmount = Math.round(((Number(cp.paidAmount) || 0) + actualPay) * 100) / 100;
-      if (cp.pendingAmount <= 0) {
-        cp.pendingAmount = 0;
-        cp.status = "Pagado Total";
-      }
-
-      const supp = (this.data.suppliers || []).find(s => 
-        s.name?.toLowerCase().trim() === cp.supplier?.toLowerCase().trim() ||
-        s.id === cp.supplierId
-      );
-      if (supp) {
-        supp.creditBalance = Math.round(Math.max(0, (Number(supp.creditBalance) || 0) - actualPay) * 100) / 100;
-      }
-
-      const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
-      const selectedAccount = !isCash ? (document.getElementById('abono-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS') : 'Caja Mostrador (Efectivo)';
-
-      // Amortizar pago a proveedores en cascada a través de las órdenes de compra más antiguas (Híbrido)
-      if (this.data.purchases && Array.isArray(this.data.purchases)) {
-        const suppNorm = (cp.supplier || '').toLowerCase().trim();
-        const linkedPOIds = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
-        
-        // Obtener todas las compras impagas de este proveedor
-        const unpaidPOs = this.data.purchases.filter(p => 
-          (linkedPOIds.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) &&
-          p.paymentStatus !== 'Pagado Total'
-        );
-        // Ordenar por fecha cronológica ascendente (las más viejas se pagan primero)
-        unpaidPOs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0) || (a.date || '').localeCompare(b.date || ''));
-
-        let unallocated = actualPay;
-        for (const po of unpaidPOs) {
-          if (unallocated <= 0) break;
-          const poTotal = Number(po.total) || 0;
-          const poPaid = Number(po.paidAmount) || 0;
-          const poPending = Math.max(0, poTotal - poPaid);
-          const payPortion = Math.min(unallocated, poPending);
-
-          po.paidAmount = Math.round((poPaid + payPortion) * 100) / 100;
-          if (po.paidAmount >= poTotal - 0.01) {
-            po.paymentStatus = 'Pagado Total';
-          }
-          unallocated = Math.round((unallocated - payPortion) * 100) / 100;
-        }
-      }
-
-      if (!Array.isArray(cp.history)) cp.history = [];
-      cp.history.push({
-        type: 'payment',
-        amount: actualPay,
-        method: shouldDeductFromCash ? `${method} (Caja)` : `${method} (${selectedAccount})`,
-        account: selectedAccount,
-        date: `${localDate} ${localTime}`
-      });
-
-      const activeCashier = this.currentUser?.name || this.data.store?.cashier || "Cajero";
-      const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
-
-      if (!this.data.abonosCompras) this.data.abonosCompras = [];
-      this.data.abonosCompras.unshift({
-        id: this.generateSequentialId('AB-C', this.data.abonosCompras),
-        date: localDate,
-        time: localTime,
-        timestamp: now.getTime(),
-        shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
-        supplier: cp.supplier,
-        poId: cp.id || this.generateUniqueId('OC', this.data.purchases),
-        amount: actualPay,
-        method: shouldDeductFromCash ? `${method} (Caja)` : `${method} (${selectedAccount})`,
-        targetAccount: selectedAccount,
-        cashier: activeCashier,
-        status: "Confirmado"
-      });
-
-      if (activeShift) {
-        if (this.calculateShiftTotals) {
-          this.calculateShiftTotals();
-        } else if (shouldDeductFromCash) {
-          activeShift.cashExpenses = Math.round(((Number(activeShift.cashExpenses) || 0) + actualPay) * 100) / 100;
-          activeShift.expectedCashInDrawer = Math.round(((Number(activeShift.openingCash) || 0) + (Number(activeShift.cashSales) || 0) - (Number(activeShift.cashExpenses) || 0)) * 100) / 100;
-          if (this.data.store) this.data.store.cashInBox = activeShift.expectedCashInDrawer;
-        }
-      }
-
-      this.closeModal('abono-modal');
-      await this.savePersistence();
-      this.syncAllModules();
-      this.renderCuadreCajaCard();
-      this.renderCashStatusIndicator();
-      const deductMsg = shouldDeductFromCash ? ' y descontado de gaveta física' : ` pagado desde ${selectedAccount}`;
-      this.showToast(`Pago de ${this.formatCurrency(actualPay)} registrado a ${cp.supplier}${deductMsg}`, 'success');
-      }
-    } finally {
-      this._isSubmittingAbono = false;
-    }
+    await this.executeFinancialOperation(type==='supplier'?'supplierPayment':'customerPayment',{creditId,purchaseId,amount:value,method,targetAccount,reason:type==='supplier'?'Pago registrado al proveedor':'Abono registrado al cliente'});
+    this.closeModal('abono-modal');this.showToast('Abono registrado y distribuido en sus facturas.', 'success');
   }
 
   payCustomerCredit(creditId) {
@@ -7358,64 +5883,13 @@ class NexusApp {
     this.openAbonoModal('supplier', deudaId);
   }
 
-  deleteSupplierCredit(deudaId) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para eliminar créditos de proveedores.', 'danger');
-      return;
-    }
-    const credit = (this.data.supplierCredits || []).find(sc => sc.id === deudaId);
-    const supplierName = credit ? credit.supplier : 'este proveedor';
-    const pendingFmt = credit ? this.formatCurrency(credit.pendingAmount || 0) : '';
-    const confirmMsg = `¿Eliminar definitivamente la deuda${pendingFmt ? ' de ' + pendingFmt : ''} con "${supplierName}"?\n\nEsta acción eliminará el registro y saldará el saldo en el directorio de proveedores. No se puede deshacer.`;
-    if (!confirm(confirmMsg)) return;
-
-    // 1. Eliminar el registro de supplierCredits
-    if (Array.isArray(this.data.supplierCredits)) {
-      this.data.supplierCredits = this.data.supplierCredits.filter(sc => sc.id !== deudaId);
-    }
-
-    // 2. Marcar órdenes de compra vinculadas como Pagado Total para evitar resurrección de deuda al sincronizar
-    const remainingCredsForSupp = credit && Array.isArray(this.data.supplierCredits)
-      ? this.data.supplierCredits.filter(sc => sc.supplier?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim() && (Number(sc.pendingAmount) || 0) > 0)
-      : [];
-    if (credit && Array.isArray(this.data.purchases)) {
-      const linkedIds = new Set(Array.isArray(credit.purchaseOrderIds) ? credit.purchaseOrderIds : (credit.poId ? [credit.poId] : []));
-      const suppNorm = (credit.supplier || '').toLowerCase().trim();
-      this.data.purchases.forEach(po => {
-        if (!po) return;
-        const matchesLinked = linkedIds.has(po.id);
-        const matchesSupp = suppNorm && (po.supplier || '').toLowerCase().trim() === suppNorm && remainingCredsForSupp.length === 0;
-        if ((matchesLinked || matchesSupp) && po.paymentStatus !== 'Pagado Total') {
-          po.paidAmount = Number(po.total) || 0;
-          po.paymentStatus = 'Pagado Total';
-        }
-      });
-    }
-
-    // 3. Si el crédito tiene supplierId o nombre, actualizar creditBalance del proveedor
-    if (credit && Array.isArray(this.data.suppliers)) {
-      const supplier = this.data.suppliers.find(s =>
-        (credit.supplierId && s.id === credit.supplierId) ||
-        s.name?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim()
-      );
-      if (supplier) {
-        supplier.creditBalance = remainingCredsForSupp.reduce((s, c) => s + (Number(c.pendingAmount) || 0), 0);
-      }
-    }
-
-    // 3. Guardar y re-renderizar globalmente
-    this.savePersistence().then(() => {
-      this.syncAllModules();
-      this.showToast('Deuda eliminada correctamente. El saldo del proveedor ha sido actualizado.', 'success');
-    }).catch(() => {
-      this.syncAllModules();
-      this.showToast('Deuda eliminada correctamente.', 'success');
-    });
+  async deleteSupplierCredit(id) {
+    if(!this.isAdminUser()||!this.canPerformAction('edit','supplier_payment'))return this.blockUnsafeOperation('Tu perfil no permite ajustar obligaciones.');
+    if(!confirm('Ajustar esta deuda a cero NO registra un pago ni modifica caja o bancos. Se conservará el ajuste y su motivo en auditoría. ¿Confirmas que la obligación debe cancelarse?'))return;
+    const reason=prompt('Motivo y soporte del ajuste de deuda:');if(!reason)return;
+    await this.executeFinancialOperation('adjustSupplierDebt',{creditId:id,pendingAmount:0,reason});this.showToast('Obligación ajustada sin inventar pagos ni egresos.','success');
   }
 
-  /* --------------------------------------------------------------------------
-     CHARTS INITIALIZATION WITH SAFE DESTROY
-     -------------------------------------------------------------------------- */
   initCharts() {
     if (typeof Chart === 'undefined') return;
     const contentBody = document.querySelector('.content-body');
@@ -7451,7 +5925,7 @@ class NexusApp {
         const idx = dayBuckets.findIndex(b => b.iso === toLocalIso(d));
         if (idx !== -1) incomeSeries[idx] += (Number(t.total) || 0);
       });
-      (this.data.expenses || []).forEach(e => {
+      ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).forEach(e => {
         if (!e) return;
         const d = this.parseDateSafe ? this.parseDateSafe(e.date) : null;
         if (!d) return;
@@ -7689,6 +6163,16 @@ class NexusApp {
     
     const dynamicSalesToday = todayTxs.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
     const dynamicTxToday = todayTxs.length;
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const yesterdaySales = (this.data.recentTransactions || []).filter(t => {
+      if (!t || t.status === 'Reversada' || t.status === 'Anulada') return false;
+      const date = this.parseDateSafe(t.date);
+      return date && this.getLocalDateStr(date) === this.getLocalDateStr(yesterday);
+    }).reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const comparison = _q('kpi-sales-comparison');
+    if (comparison) comparison.textContent = `Ayer: ${this.formatCurrency(yesterdaySales)}`;
+    const average = _q('kpi-ticket-average');
+    if (average) average.textContent = `Ticket promedio: ${this.formatCurrency(dynamicTxToday ? dynamicSalesToday / dynamicTxToday : 0)}`;
 
     if (!this.data.kpis) this.data.kpis = {};
     const effectiveSalesToday = dynamicSalesToday;
@@ -9302,7 +7786,7 @@ class NexusApp {
   }
 
   exportExpensesExcel() {
-    const expenses = this.data.expenses || [];
+    const expenses = (this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status));
     if (expenses.length === 0) {
       this.showToast('No hay gastos operativos registrados para exportar', 'warning');
       return;
@@ -9853,6 +8337,8 @@ class NexusApp {
     if (!rawName) return null;
     const s = String(rawName).trim().toLowerCase();
     if (!s) return null;
+    const known=(this.data.paymentMethods||[]).find(pm=>String(pm.name||'').trim().toLowerCase()===s&&pm.isBankAccount!==false);
+    if(known?.accountKey)return known.accountKey;
     if (s.includes('zharick') || s.includes('sharick')) return 'cuenta_sharick';
     if (s.includes('carlos') && !s.includes('charles')) return 'cuenta_carlos';
     if (s.includes('charles joyas')) return 'cuenta_charles_joyas';
@@ -9909,344 +8395,7 @@ class NexusApp {
     return null;
   }
 
-  getAccountsFinancialSummary() {
-    const accounts = {};
-    const initBalances = this.data.accountInitialBalances || {};
-
-    const ensureAccount = (key, defaultName, shortName, isCash = false, pmObj = null) => {
-      if (!key) return null;
-      if (!accounts[key]) {
-        accounts[key] = {
-          key,
-          name: defaultName,
-          shortName: shortName || defaultName,
-          pmId: pmObj ? pmObj.id : null,
-          fee: pmObj ? pmObj.fee : '0%',
-          isCash: !!isCash,
-          initialBalance: Math.round(Number(initBalances[key]) || 0),
-          incomes: 0,
-          incomesCount: 0,
-          expenses: 0,
-          expensesCount: 0,
-          adjustmentsNet: 0,
-          adjustmentsCount: 0,
-          balance: 0,
-          movements: []
-        };
-      } else if (pmObj && !accounts[key].pmId) {
-        accounts[key].pmId = pmObj.id;
-        accounts[key].fee = pmObj.fee || accounts[key].fee;
-      }
-      return accounts[key];
-    };
-
-    // 1. Inicializar cuentas principales del negocio
-    const pmList = this.data.paymentMethods || [];
-    const findPm = (key) => pmList.find(p => this.resolveCanonicalAccountKey(p.name, p.isBankAccount) === key);
-
-    ensureAccount('cuenta_sharick', 'Cuenta Sharick (CTA Zharick)', 'Cuenta Sharick', false, findPm('cuenta_sharick'));
-    ensureAccount('cuenta_carlos', 'Cuenta Bancaria Carlos', 'Cuenta Carlos', false, findPm('cuenta_carlos'));
-    ensureAccount('cuenta_charles_joyas', 'CUENTA CHARLES JOYAS SAS', 'CUENTA CHARLES JOYAS SAS', false, findPm('cuenta_charles_joyas'));
-    ensureAccount('efectivo_caja', 'Efectivo (Caja Mostrador)', 'Efectivo', true, findPm('efectivo_caja'));
-
-    // Agregar cualquier otra cuenta configurada en Formas de Pago
-    pmList.forEach(pm => {
-      const k = this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount);
-      if (k && !accounts[k]) {
-        ensureAccount(k, pm.name, pm.name, k === 'efectivo_caja', pm);
-      }
-    });
-
-    // Helper para registrar un movimiento en una cuenta
-    const addMovement = (key, mov) => {
-      if (!key) return;
-      if (!accounts[key]) {
-        ensureAccount(key, mov.rawAccountName || key, mov.rawAccountName || key, key === 'efectivo_caja');
-      }
-      const acc = accounts[key];
-      const amt = Math.round(Math.abs(Number(mov.amount) || 0));
-      if (amt <= 0 && !mov.allowZero) return;
-
-      if (mov.isAdjustment) {
-        const signed = mov.isIncome ? amt : -amt;
-        acc.adjustmentsNet += signed;
-        acc.adjustmentsCount += 1;
-      } else if (mov.isIncome) {
-        acc.incomes += amt;
-        acc.incomesCount += 1;
-      } else {
-        acc.expenses += amt;
-        acc.expensesCount += 1;
-      }
-
-      acc.movements.push({
-        id: mov.id || 'MOV',
-        date: mov.date || '',
-        time: mov.time || '',
-        timestamp: mov.timestamp || 0,
-        category: mov.category || 'Operación',
-        typeLabel: mov.typeLabel || (mov.isIncome ? 'Ingreso' : 'Egreso'),
-        isIncome: !!mov.isIncome,
-        isAdjustment: !!mov.isAdjustment,
-        adjustmentId: mov.adjustmentId || null,
-        concept: mov.concept || '',
-        party: mov.party || '—',
-        operator: mov.operator || 'Sistema',
-        amount: amt
-      });
-    };
-
-    // 2. Ventas POS (recentTransactions)
-    (this.data.recentTransactions || []).forEach(tx => {
-      if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return;
-      const txItemsDesc = Array.isArray(tx.items) && tx.items.length > 0
-        ? tx.items.map(i => i.name).slice(0, 2).join(', ')
-        : (tx.type || 'Venta POS Joyería');
-
-      if (Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
-        tx.mixedPayments.forEach((mp, idx) => {
-          const mLower = String(mp.method || '').toLowerCase();
-          if (this.isStoreCreditMethod(mLower)) return;
-          const accKey = mLower.includes('efectivo')
-            ? 'efectivo_caja'
-            : this.extractAccountKeyFromMovement(mp.targetAccount || tx.targetAccount, mp.method);
-          if (accKey) {
-            addMovement(accKey, {
-              id: `${tx.id}-${idx + 1}`,
-              date: tx.date || '',
-              time: tx.time || '',
-              timestamp: tx.timestamp || 0,
-              category: 'Venta POS (Pago Mixto)',
-              typeLabel: `🛒 Venta POS (${mp.method || 'Mixto'})`,
-              isIncome: true,
-              concept: txItemsDesc,
-              party: tx.customer || 'Cliente Mostrador',
-              operator: tx.cashier || 'Cajero',
-              amount: mp.amount,
-              rawAccountName: mp.targetAccount || tx.targetAccount
-            });
-          }
-        });
-      } else {
-        const pmLower = String(tx.paymentMethod || '').toLowerCase();
-        if (pmLower.includes('separe')) {
-          const depAmt = Math.round(Number(tx.separeAbono) || 0);
-          if (depAmt > 0) {
-            addMovement('efectivo_caja', {
-              id: tx.id,
-              date: tx.date || '',
-              time: tx.time || '',
-              timestamp: tx.timestamp || 0,
-              category: 'Abono Plan Separe',
-              typeLabel: '🛒 Plan Separe (Abono Inicial)',
-              isIncome: true,
-              concept: txItemsDesc,
-              party: tx.customer || 'Cliente',
-              operator: tx.cashier || 'Cajero',
-              amount: depAmt,
-              rawAccountName: 'Caja Mostrador (Efectivo)'
-            });
-          }
-          return;
-        }
-        if (this.isStoreCreditMethod(pmLower)) return;
-        const defaultBankAccKey = this.resolveCanonicalAccountKey(this.data.cashShiftLog?.openingAccount, true) || 'cuenta_charles_joyas';
-        const isCashMethod = pmLower === 'efectivo' || pmLower.startsWith('efectivo');
-        const isCardOrTransfer = pmLower.includes('tarjeta') || pmLower.includes('transfer') || pmLower.includes('banco') || pmLower.includes('datafono') || pmLower.includes('datáfono');
-        const accKey = isCashMethod
-          ? 'efectivo_caja'
-          : (this.extractAccountKeyFromMovement(tx.targetAccount, tx.paymentMethod) || (isCardOrTransfer ? defaultBankAccKey : null));
-        if (accKey) {
-          addMovement(accKey, {
-            id: tx.id,
-            date: tx.date || '',
-            time: tx.time || '',
-            timestamp: tx.timestamp || 0,
-            category: 'Venta POS',
-            typeLabel: `🛒 ${tx.paymentMethod || 'Venta POS'}`,
-            isIncome: true,
-            concept: txItemsDesc,
-            party: tx.customer || 'Cliente Mostrador',
-            operator: tx.cashier || 'Cajero',
-            amount: tx.total,
-            rawAccountName: tx.targetAccount
-          });
-        }
-      }
-    });
-
-    // 3. Abonos de Cartera Clientes / Plan Separe (abonosVentas)
-    (this.data.abonosVentas || []).forEach(ab => {
-      if (!ab || ab.status === 'Reversado' || ab.status === 'Reversada') return;
-      const mLower = String(ab.method || 'Efectivo').toLowerCase();
-      const defaultBankAccKey = this.resolveCanonicalAccountKey(this.data.cashShiftLog?.openingAccount, true) || 'cuenta_charles_joyas';
-      const isCardOrTransfer = mLower.includes('tarjeta') || mLower.includes('transfer') || mLower.includes('banco');
-      const accKey = mLower.includes('efectivo')
-        ? 'efectivo_caja'
-        : (this.extractAccountKeyFromMovement(ab.targetAccount, ab.method) || (isCardOrTransfer ? defaultBankAccKey : null));
-      if (accKey) {
-        addMovement(accKey, {
-          id: ab.id,
-          date: ab.date || '',
-          time: ab.time || '',
-          timestamp: ab.timestamp || 0,
-          category: 'Abono Cliente',
-          typeLabel: `💳 Abono Cartera (${ab.method || 'Efectivo'})`,
-          isIncome: true,
-          concept: `Abono a factura / crédito ${ab.invoiceId || ''}`.trim(),
-          party: ab.customer || 'Cliente',
-          operator: ab.cashier || 'Cajero',
-          amount: ab.amount,
-          rawAccountName: ab.targetAccount
-        });
-      }
-    });
-
-    // 4. Gastos Operativos / Egresos (expenses)
-    (this.data.expenses || []).forEach(exp => {
-      if (!exp) return;
-      const mLower = String(exp.method || 'Efectivo').toLowerCase();
-      const tLower = String(exp.targetAccount || '').toLowerCase();
-      const isCash = (!exp.isBank && mLower.includes('efectivo')) || tLower.includes('efectivo') || tLower.includes('caja');
-      const accKey = isCash
-        ? 'efectivo_caja'
-        : this.extractAccountKeyFromMovement(exp.targetAccount, exp.method);
-      if (accKey) {
-        addMovement(accKey, {
-          id: exp.id,
-          date: exp.date || '',
-          time: exp.time || '',
-          timestamp: exp.timestamp || 0,
-          category: 'Gasto Operativo',
-          typeLabel: `💸 Gasto (${exp.category || 'Operativo'})`,
-          isIncome: false,
-          concept: exp.description || exp.category || 'Egreso Operativo',
-          party: exp.category || 'Gasto Operativo',
-          operator: exp.cashier || exp.user || 'Administración',
-          amount: exp.amount,
-          rawAccountName: exp.targetAccount
-        });
-      }
-    });
-
-    // 5. Abonos / Pagos a Proveedores (abonosCompras)
-    (this.data.abonosCompras || []).forEach(ab => {
-      if (!ab) return;
-      const mLower = String(ab.method || 'Efectivo').toLowerCase();
-      const tLower = String(ab.targetAccount || '').toLowerCase();
-      const isCash = mLower.includes('efectivo') || tLower.includes('efectivo') || tLower.includes('caja');
-      const accKey = isCash
-        ? 'efectivo_caja'
-        : this.extractAccountKeyFromMovement(ab.targetAccount, ab.method);
-      if (accKey) {
-        addMovement(accKey, {
-          id: ab.id,
-          date: ab.date || '',
-          time: ab.time || '',
-          timestamp: ab.timestamp || 0,
-          category: 'Pago a Proveedor',
-          typeLabel: `🚚 Pago Proveedor (${ab.poId || 'Crédito'})`,
-          isIncome: false,
-          concept: `Abono a proveedor ${ab.supplier || ''}`.trim(),
-          party: ab.supplier || 'Proveedor',
-          operator: ab.cashier || 'Cajero',
-          amount: ab.amount,
-          rawAccountName: ab.targetAccount
-        });
-      }
-    });
-
-    // 6. Compras pagadas de contado (purchases) - evitar doble conteo si ya tienen abono en abonosCompras
-    const abonoPoIds = new Set((this.data.abonosCompras || []).map(a => a && a.poId).filter(Boolean));
-    (this.data.purchases || []).forEach(po => {
-      if (!po || po.excludeFromCashShift) return;
-      if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return;
-      if (abonoPoIds.has(po.id)) return;
-      const pmLower = String(po.paymentMethod || '').toLowerCase();
-      if (this.isStoreCreditMethod(pmLower) || po.paymentStatus !== 'Pagado Total') return;
-      const tLower = String(po.targetAccount || '').toLowerCase();
-      const isCash = pmLower.includes('efectivo') || tLower.includes('efectivo') || tLower.includes('caja');
-      const accKey = isCash
-        ? 'efectivo_caja'
-        : this.extractAccountKeyFromMovement(po.targetAccount, po.paymentMethod);
-      if (accKey) {
-        addMovement(accKey, {
-          id: po.id,
-          date: po.date || '',
-          time: po.time || '',
-          timestamp: po.timestamp || 0,
-          category: 'Compra de Contado',
-          typeLabel: `📦 Compra Mercancía (${po.productName || po.id})`,
-          isIncome: false,
-          concept: `${po.productName || 'Joyería'} (${po.totalGrams || po.quantity || 0}g)`,
-          party: po.supplier || 'Proveedor',
-          operator: po.cashier || 'Administración',
-          amount: po.paidAmount || po.total,
-          rawAccountName: po.targetAccount
-        });
-      }
-    });
-
-    // 7. Ajustes Manuales / Transferencias entre Cuentas (accountAdjustments)
-    const curShift = this.data.cashShiftLog || {};
-    const curShiftOpen = curShift.status === 'Abierto';
-    // Cuando el turno está abierto, calculateShiftTotals().expectedCashInDrawer ya incluye cashAdjustmentsNet del turno;
-    // cuando está cerrado, solo sumamos ajustes posteriores al cierre del turno activo.
-    let postCloseCashAdjNet = 0;
-    (this.data.accountAdjustments || []).forEach(adj => {
-      if (!adj || !adj.accountKey) return;
-      if (!curShiftOpen && adj.accountKey === 'efectivo_caja') {
-        if (curShift.closedTimestamp && Number(adj.timestamp) > curShift.closedTimestamp) {
-          const signedAmt = Math.round(Math.abs(Number(adj.amount) || 0)) * (adj.isIncome ? 1 : -1);
-          postCloseCashAdjNet += signedAmt;
-        }
-      }
-      addMovement(adj.accountKey, {
-        id: adj.id,
-        date: adj.date || '',
-        time: adj.time || '',
-        timestamp: adj.timestamp || 0,
-        category: adj.category || 'Ajuste Manual',
-        typeLabel: adj.typeLabel || (adj.isIncome ? '⚖️ Ajuste / Ingreso (+)' : '⚖️ Ajuste / Salida (-)'),
-        isIncome: !!adj.isIncome,
-        isAdjustment: true,
-        adjustmentId: adj.id,
-        concept: adj.concept || 'Ajuste manual de saldo de cuenta',
-        party: adj.party || 'Ajuste Interno',
-        operator: adj.operator || 'Administrador',
-        amount: adj.amount
-      });
-    });
-
-    // 8. Calcular saldo final disponible por cada cuenta
-    let activeShiftCash = null;
-    if (curShiftOpen) {
-      try {
-        if (this.calculateShiftTotals) {
-          const shiftTotals = this.calculateShiftTotals();
-          if (shiftTotals && typeof shiftTotals.expectedCashInDrawer === 'number') {
-            activeShiftCash = Math.round(shiftTotals.expectedCashInDrawer);
-          }
-        }
-      } catch (_) {}
-    } else if (curShift && (curShift.closingCash !== undefined || curShift.expectedCashInDrawer !== undefined || this.data.store?.cashInBox !== undefined)) {
-      activeShiftCash = Math.round(Number(curShift.closingCash ?? curShift.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0));
-    }
-
-    Object.values(accounts).forEach(acc => {
-      if (acc.isCash && activeShiftCash !== null) {
-        // Para Efectivo en Caja: con turno abierto, activeShiftCash ya incluye los ajustes del turno; con turno cerrado, añadir solo ajustes posteriores al cierre
-        acc.shiftDrawerBalance = activeShiftCash;
-        acc.balance = Math.round(activeShiftCash + (curShiftOpen ? 0 : postCloseCashAdjNet));
-      } else {
-        acc.balance = Math.round(acc.initialBalance + acc.incomes - acc.expenses + acc.adjustmentsNet);
-      }
-      // Ordenar movimientos del más reciente al más antiguo
-      acc.movements.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    });
-
-    return accounts;
-  }
+  getAccountsFinancialSummary() { return NexusLedger.accounts(this.data); }
 
   renderPaymentMethodsTable() {
     const tbody = document.getElementById('paymethods-tbody');
@@ -10556,69 +8705,10 @@ class NexusApp {
   }
 
   async deleteAccountAdjustment(adjId, accountKey) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Solo Administradores pueden eliminar ajustes manuales.', 'danger');
-      return;
-    }
-    if (!confirm('¿Estás seguro de eliminar este ajuste manual de cuenta?')) return;
-    if (!Array.isArray(this.data.accountAdjustments)) return;
-    // Capturar ajustes a eliminar (y su par en caso de transferencia vinculada) antes de filtrar
-    const target = this.data.accountAdjustments.find(a => a.id === adjId);
-    const linkedPairId = target?.linkedTransferId;
-    const isRemovedLeg = (a) => a && (a.id === adjId || (linkedPairId && a.linkedTransferId === linkedPairId));
-    const removedLegs = this.data.accountAdjustments.filter(isRemovedLeg);
-    this.data.accountAdjustments = this.data.accountAdjustments.filter(a => !isRemovedLeg(a));
-
-    const openShift = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog : null;
-    const openShiftId = openShift?.shiftId || null;
-
-    removedLegs.forEach(leg => {
-      const legShiftId = leg.closedShiftId || leg.shiftId;
-      if (!legShiftId || legShiftId === 'EXCLUIDO' || legShiftId === openShiftId) return;
-      const signedAmt = Math.round(Math.abs(Number(leg.amount) || 0)) * (leg.isIncome ? 1 : -1);
-      const isCashLeg = leg.accountKey === 'efectivo_caja';
-      const histShift = Array.isArray(this.data.cashShiftsHistory)
-        ? this.data.cashShiftsHistory.find(s => s.shiftId === legShiftId || s.id === legShiftId)
-        : null;
-      if (histShift) {
-        if (isCashLeg) {
-          histShift.cashAdjustmentsNet = Math.round(((Number(histShift.cashAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
-          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0) + histShift.cashAdjustmentsNet) * 100) / 100;
-          if (histShift.closingCash !== undefined) {
-            histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-          }
-        } else {
-          histShift.bankAdjustmentsNet = Math.round(((Number(histShift.bankAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
-          histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + histShift.bankAdjustmentsNet - (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-        }
-      }
-      const closedLog = this.data.cashShiftLog;
-      if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === legShiftId) {
-        if (isCashLeg) {
-          closedLog.cashAdjustmentsNet = Math.round(((Number(closedLog.cashAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
-          closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - (Number(closedLog.cashExpenses) || 0) + closedLog.cashAdjustmentsNet) * 100) / 100;
-          if (closedLog.closingCash !== undefined) {
-            closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) - signedAmt) * 100) / 100;
-          }
-          if (this.data.store) {
-            this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-          }
-        } else {
-          closedLog.bankAdjustmentsNet = Math.round(((Number(closedLog.bankAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
-          closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + closedLog.bankAdjustmentsNet - (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-        }
-      }
-    });
-
-    if (this.calculateShiftTotals && openShift) {
-      this.calculateShiftTotals();
-    }
-    await this.savePersistence();
-    this.syncAllModules();
-    if (accountKey) {
-      this.openAccountMovementsModal(accountKey);
-    }
-    this.showToast('Ajuste manual eliminado y saldo recalculado.', 'info');
+    if(!this.isAdminUser())return this.showToast('Solo administración puede reversar ajustes.','danger');
+    if(!confirm('¿Registrar el movimiento opuesto ahora? Los cierres anteriores se conservan.'))return;
+    const reason=prompt('Motivo y soporte de la reversión:');if(!reason?.trim())return;
+    await this.executeFinancialOperation('reverseAccountAdjustment',{adjustmentId:adjId,reason});this.syncAllModules();this.openAccountMovementsModal(accountKey);this.showToast('Ajuste reversado con auditoría.','success');
   }
 
   openAccountAdjustmentModal(defaultAccountKey = 'cuenta_sharick') {
@@ -10708,7 +8798,7 @@ class NexusApp {
     }
 
     if (type === 'set_balance') {
-      const diff = Math.round(rawVal - acc.balance);
+      const diff = NexusLedger.money(rawVal - acc.balance);
       const diffSign = diff >= 0 ? '+' : '';
       previewBox.innerHTML = `
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
@@ -10769,6 +8859,7 @@ class NexusApp {
 
     const acc = accountsMap[accKey];
     if (!acc) return;
+    if((accKey==='efectivo_caja'||(type==='transfer'&&destKey==='efectivo_caja'))&&this.data.cashShiftLog?.status!=='Abierto')throw new Error('Abre un turno de caja para registrar movimientos en efectivo.');
 
     if (!Array.isArray(this.data.accountAdjustments)) {
       this.data.accountAdjustments = [];
@@ -10780,16 +8871,14 @@ class NexusApp {
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const operator = this.currentUser?.name || 'Administrador';
     const activeShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : 'EXCLUIDO';
-    if (this.data.cashShiftLog && this.data.cashShiftLog.status !== 'Abierto' && !this.data.cashShiftLog.closedTimestamp) {
-      this.data.cashShiftLog.closedTimestamp = now.getTime() - 1;
-    }
+
 
     if (type === 'set_balance') {
-      if (isNaN(rawVal) || rawVal < 0) {
+      if (!Number.isFinite(rawVal) || rawVal < 0) {
         this.showToast('Ingresa un saldo válido mayor o igual a $0.', 'warning');
         return;
       }
-      const diff = Math.round(rawVal - acc.balance);
+      const diff = NexusLedger.money(rawVal - acc.balance);
       if (diff === 0) {
         this.showToast(`La cuenta ${acc.shortName} ya tiene un saldo de ${this.formatCurrency(rawVal)}.`, 'info');
         this.closeModal('account-adjust-modal');
@@ -10837,7 +8926,7 @@ class NexusApp {
         category: isInc ? 'Ingreso Manual' : 'Retiro Manual',
         typeLabel: isInc ? '📥 Ingreso Manual (+)' : '📤 Retiro Manual (-)',
         isIncome: isInc,
-        amount: Math.round(rawVal),
+        amount: NexusLedger.money(rawVal),
         concept: conceptRaw || (isInc ? `Ingreso / Consignación manual en ${acc.shortName}` : `Retiro / Egreso manual de ${acc.shortName}`),
         party: acc.name,
         operator
@@ -10873,7 +8962,7 @@ class NexusApp {
           category: 'Transferencia entre Cuentas',
           typeLabel: `🔄 Entrada desde ${acc.shortName}`,
           isIncome: true,
-          amount: Math.round(rawVal),
+          amount: NexusLedger.money(rawVal),
           concept: conceptRaw || `Transferencia recibida desde ${acc.name}`,
           party: `Origen: ${acc.shortName}`,
           operator
@@ -10889,7 +8978,7 @@ class NexusApp {
           category: 'Transferencia entre Cuentas',
           typeLabel: `🔄 Envío hacia ${destAcc.shortName}`,
           isIncome: false,
-          amount: Math.round(rawVal),
+          amount: NexusLedger.money(rawVal),
           concept: conceptRaw || `Transferencia enviada hacia ${destAcc.name}`,
           party: `Destino: ${destAcc.shortName}`,
           operator
@@ -11396,394 +9485,12 @@ class NexusApp {
   }
 
   async revertSale(txId) {
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Únicamente los usuarios con rol de Administrador o Super Administrador tienen autorización para reversar ventas.', 'danger');
-      return;
-    }
-
-    const tx = (this.data.recentTransactions || []).find(t => t.id === txId);
-    if (!tx) {
-      this.showToast(`Venta #${txId} no encontrada.`, 'warning');
-      return;
-    }
-
-    if (tx.status === 'Reversada' || tx.status === 'Anulada') {
-      this.showToast(`La venta #${txId} ya se encuentra reversada.`, 'info');
-      return;
-    }
-
-    const itemsCount = (tx.items || []).length;
-    const confirmMsg = `¿Estás seguro de REVERSAR la venta #${tx.id} por ${this.formatCurrency(tx.total)} de ${tx.customer || 'Cliente Mostrador'}?\n\n` +
-      `Esta acción:\n` +
-      `1. Reintegrará ${itemsCount} artículo(s) con su código/SKU al inventario.\n` +
-      `2. Devolverá el dinero según el método de pago original (${tx.paymentMethod}).\n` +
-      `3. Descontará la venta del cuadre de caja y facturación del negocio.\n\n` +
-      `¿Desea proceder?`;
-
-    if (!confirm(confirmMsg)) return;
-
-    // 1. REINTEGRAR ARTÍCULOS CON SU CÓDIGO AL INVENTARIO
-    const items = tx.items || [];
-    const restoredNames = [];
-
-    const now = new Date();
-    const txYear = now.getFullYear();
-    const txMonth = now.getMonth() + 1;
-    const txDay = now.getDate();
-
-    items.forEach(item => {
-      const soldQty = Number(item.qty || item.quantity) || 0;
-      if (soldQty <= 0) return;
-
-      let prod = null;
-      if (item.id) {
-        prod = (this.data.products || []).find(p => p && p.id === item.id);
-      }
-      if (!prod && item.sku) {
-        const itemSku = String(item.sku).trim().toLowerCase();
-        prod = (this.data.products || []).find(p => p && p.sku && String(p.sku).trim().toLowerCase() === itemSku);
-      }
-      if (!prod && item.name) {
-        const itemName = String(item.name).trim().toLowerCase();
-        const itemCat = String(item.category || item.categoryName || '').trim().toLowerCase();
-        if (itemCat) {
-          prod = (this.data.products || []).find(p => {
-            if (!p || !p.name) return false;
-            const pCat = String(p.category || p.categoryName || '').trim().toLowerCase();
-            return String(p.name).trim().toLowerCase() === itemName && pCat === itemCat;
-          });
-        }
-        if (!prod) {
-          prod = (this.data.products || []).find(p => p && p.name && String(p.name).trim().toLowerCase() === itemName);
-        }
-      }
-
-      if (prod) {
-        const isPesaje = (prod.measureType || 'Pesaje') === 'Pesaje';
-        const rawItemPw = (item.pieceWeight !== undefined && item.pieceWeight !== null && item.pieceWeight !== '') ? item.pieceWeight : (prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0));
-        const pWeight = parseFloat(String(rawItemPw).replace(',', '.')) || 0;
-        const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const roundScale = (isPesaje && (prod.weightUnit || 'g').toLowerCase() === 'kg') ? 10000 : 1000;
-        const unitsToAdd = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
-
-        prod.stock = Math.round(((Number(prod.stock) || 0) + unitsToAdd) * roundScale) / roundScale;
-        const minStock = Number(prod.minStock) || 1;
-        prod.status = prod.stock > minStock ? 'active' : (prod.stock > 0 ? 'low_stock' : 'out_of_stock');
-        prod.sold30d = Math.max(0, (Number(prod.sold30d) || 0) - unitsToAdd);
-
-        if (prod.monthlySales) {
-          let saleMonthKey, saleDay;
-          if (tx.date && typeof tx.date === 'string' && tx.date.includes('/')) {
-            const parts = tx.date.split('/');
-            if (parts.length === 3) {
-              saleDay = parseInt(parts[0], 10);
-              saleMonthKey = `${parts[2]}-${String(parts[1]).padStart(2, '0')}`;
-            }
-          } else if (tx.date && typeof tx.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(tx.date)) {
-            const parts = tx.date.slice(0, 10).split('-');
-            saleMonthKey = `${parts[0]}-${parts[1]}`;
-            saleDay = parseInt(parts[2], 10);
-          }
-          if (!saleMonthKey) {
-            saleDay = txDay;
-            saleMonthKey = `${txYear}-${String(txMonth).padStart(2, '0')}`;
-          }
-          if (prod.monthlySales[saleMonthKey] && prod.monthlySales[saleMonthKey][saleDay]) {
-            prod.monthlySales[saleMonthKey][saleDay] = Math.max(0, (Number(prod.monthlySales[saleMonthKey][saleDay]) || 0) - unitsToAdd);
-          }
-        }
-
-        restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id}, +${unitsToAdd} ${isPesaje ? (prod.weightUnit || 'g') : 'u.'})`);
-      } else {
-        const isPesajeItem = (item.measureType || 'Pesaje') === 'Pesaje';
-        const pWeightItem = parseFloat(String(item.pieceWeight || 0).replace(',', '.')) || 0;
-        const isUnitWeightItem = !isPesajeItem && pWeightItem > 0;
-        const unitsToAddItem = isUnitWeightItem ? (Math.round((soldQty / pWeightItem) * 10000) / 10000) : soldQty;
-        const unitLabelItem = isPesajeItem ? (item.unit && item.unit !== 'u.' ? item.unit : 'g') : 'u.';
-
-        const restoredProd = {
-          id: item.id || this.generateUniqueId('PRD', this.data.products),
-          sku: item.sku || '',
-          name: item.name || 'Joya Reintegrada',
-          measureType: item.measureType || 'Pesaje',
-          weightUnit: unitLabelItem,
-          unit: unitLabelItem,
-          isExtra: Boolean(item.isExtra),
-          cost: Number(item.cost) || 0,
-          pieceWeight: pWeightItem,
-          weight: pWeightItem,
-          category: item.category || 'general',
-          categoryName: item.categoryName || 'GENERAL',
-          price: Number(item.catalogPrice !== undefined ? item.catalogPrice : item.price) || 0,
-          stock: unitsToAddItem,
-          minStock: 1,
-          status: 'active',
-          sold30d: 0
-        };
-        if (!Array.isArray(this.data.products)) this.data.products = [];
-        this.data.products.push(restoredProd);
-        restoredNames.push(`${restoredProd.name} (SKU: ${restoredProd.sku || restoredProd.id}, +${unitsToAddItem} ${unitLabelItem})`);
-      }
-    });
-
-    if (this.data.kpis) {
-      this.data.kpis.inventoryValue = Math.round((this.data.products || []).reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
-    }
-    this.syncAllCategoryGrams();
-
-    // 2. DEVOLVER EL DINERO SEGÚN EL MÉTODO DE PAGO Y MARCAR ESTADO REVERSADA ANTES DE RECALCULAR TURNO
-    const payMethod = (tx.paymentMethod || '').toLowerCase();
-    const grandTotal = Math.abs(Number(tx.total) || 0);
-    const isOpenShift = this.data.cashShiftLog?.status === 'Abierto';
-    const openShiftId = isOpenShift ? this.data.cashShiftLog.shiftId : null;
-    const isTxInCurrentOpenShift = Boolean(openShiftId && tx.shiftId === openShiftId);
-    let totalCashRefunded = 0;
-    let cashToRefundFromOpenShift = 0;
-    const closedShiftDeltas = {};
-    const recordClosedShiftDelta = (sId, field, amount) => {
-      if (!sId || sId === 'EXCLUIDO' || (openShiftId && sId === openShiftId) || !amount) return;
-      if (!closedShiftDeltas[sId]) {
-        closedShiftDeltas[sId] = { cash: 0, transfer: 0, tarjeta: 0, credit: 0, facturado: 0, count: 0 };
-      }
-      closedShiftDeltas[sId][field] += amount;
-    };
-
-    const classifyRevChannel = (mLower) => {
-      if (mLower.includes('efectivo') || mLower.includes('cash')) return 'cash';
-      if (mLower.includes('tarjeta') || mLower.includes('card') || mLower.includes('débito') || mLower.includes('debito') || mLower.includes('datafono') || mLower.includes('datáfono')) return 'tarjeta';
-      return 'transfer';
-    };
-
-    if (tx.shiftId && tx.shiftId !== openShiftId) {
-      recordClosedShiftDelta(tx.shiftId, 'facturado', grandTotal);
-      recordClosedShiftDelta(tx.shiftId, 'count', 1);
-    }
-
-    if (tx.mixedPayments && Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
-      tx.mixedPayments.forEach(mp => {
-        const mpAmt = Math.abs(Number(mp.amount) || 0);
-        const mpMethod = (mp.method || '').toLowerCase();
-        if (this.isStoreCreditMethod(mpMethod)) {
-          if (tx.shiftId && tx.shiftId !== openShiftId) recordClosedShiftDelta(tx.shiftId, 'credit', mpAmt);
-        } else if (mpMethod.includes('efectivo') || mpMethod.includes('cash')) {
-          totalCashRefunded += mpAmt;
-          if (!isTxInCurrentOpenShift) {
-            cashToRefundFromOpenShift += mpAmt;
-            recordClosedShiftDelta(tx.shiftId, 'cash', mpAmt);
-          }
-        } else {
-          const ch = classifyRevChannel(mpMethod);
-          recordClosedShiftDelta(tx.shiftId, ch, mpAmt);
-        }
-      });
-    } else if (payMethod.includes('separe')) {
-      const sep = Array.isArray(this.data.customerCredits)
-        ? (this.data.customerCredits.find(c => c.txId && c.txId === tx.id)
-          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status === 'Plan Separe'))
-        : null;
-      const effPending = tx.separePending !== undefined
-        ? Number(tx.separePending)
-        : (sep ? (Number(sep.currentBalance) || 0) : 0);
-      const effAbono = tx.separeAbono !== undefined
-        ? Number(tx.separeAbono)
-        : Math.max(0, grandTotal - effPending);
-
-      if (effAbono > 0) {
-        totalCashRefunded += effAbono;
-        if (!isTxInCurrentOpenShift) {
-          cashToRefundFromOpenShift += effAbono;
-          recordClosedShiftDelta(tx.shiftId, 'cash', effAbono);
-        }
-      }
-      if (grandTotal - effAbono > 0 && tx.shiftId && tx.shiftId !== openShiftId) {
-        recordClosedShiftDelta(tx.shiftId, 'credit', Math.max(0, grandTotal - effAbono));
-      }
-      let reversedSepAbonos = 0;
-      if (Array.isArray(this.data.abonosVentas)) {
-        this.data.abonosVentas.forEach(ab => {
-          const matchesSep = (sep && ab.creditId === sep.id) || (ab.invoiceId && ab.invoiceId === tx.id);
-          if (ab && ab.status !== 'Reversado' && matchesSep) {
-            ab.status = 'Reversado';
-            const abAmt = Number(ab.amount) || 0;
-            reversedSepAbonos += abAmt;
-            const abMeth = String(ab.method || '').toLowerCase();
-            const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
-            if (isAbCash) {
-              totalCashRefunded += abAmt;
-              if (!openShiftId || ab.shiftId !== openShiftId) {
-                cashToRefundFromOpenShift += abAmt;
-              }
-            }
-            if (!openShiftId || ab.shiftId !== openShiftId) {
-              recordClosedShiftDelta(ab.shiftId, isAbCash ? 'cash' : classifyRevChannel(abMeth), abAmt);
-            }
-          }
-        });
-      }
-      const remainingSepDebt = sep
-        ? Math.max(0, Math.min(effPending, Number(sep.currentBalance) || 0))
-        : Math.max(0, effPending - reversedSepAbonos);
-      if (remainingSepDebt > 0) {
-        const cust = (this.data.customers || []).find(c => c.name === tx.customer);
-        if (cust) {
-          cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - remainingSepDebt) * 100) / 100;
-        }
-      }
-      if (sep) {
-        sep.status = 'Anulado';
-        sep.currentBalance = 0;
-        sep.totalGranted = 0;
-      }
-    } else if (payMethod.includes('efectivo') || payMethod.includes('cash')) {
-      totalCashRefunded = grandTotal;
-      if (!isTxInCurrentOpenShift) {
-        cashToRefundFromOpenShift = grandTotal;
-        recordClosedShiftDelta(tx.shiftId, 'cash', grandTotal);
-      }
-    } else if (this.isStoreCreditMethod(payMethod)) {
-      if (tx.shiftId && tx.shiftId !== openShiftId) {
-        recordClosedShiftDelta(tx.shiftId, 'credit', grandTotal);
-      }
-      // Anular deuda y posibles abonos previos vinculados exclusivamente a esta factura
-      let targetCreditId = null;
-      let hasMergedCredits = false;
-      let cred = null;
-      if (Array.isArray(this.data.customerCredits)) {
-        cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id || (Array.isArray(c.mergedTxIds) && c.mergedTxIds.includes(tx.id)))
-          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado' && (Number(c.currentBalance) || 0) > 0)
-          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado');
-        if (cred) {
-          targetCreditId = cred.id;
-          if (Array.isArray(cred.mergedTxIds)) {
-            cred.mergedTxIds = cred.mergedTxIds.filter(tid => tid !== tx.id);
-            hasMergedCredits = cred.mergedTxIds.length > 0;
-            if (cred.txId === tx.id && hasMergedCredits) {
-              cred.txId = cred.mergedTxIds[0];
-            }
-          }
-        }
-      }
-      let reversedAbonosTotal = 0;
-      if (Array.isArray(this.data.abonosVentas)) {
-        this.data.abonosVentas.forEach(ab => {
-          const directInvoiceMatch = ab.invoiceId && ab.invoiceId === tx.id;
-          const exclusiveCreditMatch = targetCreditId && !hasMergedCredits && ab.creditId === targetCreditId;
-          if (ab && ab.status !== 'Reversado' && (directInvoiceMatch || exclusiveCreditMatch)) {
-            ab.status = 'Reversado';
-            const abAmt = Number(ab.amount) || 0;
-            reversedAbonosTotal += abAmt;
-            const abMeth = String(ab.method || '').toLowerCase();
-            const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
-            if (isAbCash) {
-              totalCashRefunded += abAmt;
-              if (!openShiftId || ab.shiftId !== openShiftId) {
-                cashToRefundFromOpenShift += abAmt;
-              }
-            }
-            if (!openShiftId || ab.shiftId !== openShiftId) {
-              recordClosedShiftDelta(ab.shiftId, isAbCash ? 'cash' : classifyRevChannel(abMeth), abAmt);
-            }
-          }
-        });
-      }
-      const debtDelta = grandTotal - reversedAbonosTotal;
-      if (cred) {
-        cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
-        const nextCredBal = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - debtDelta) * 100) / 100;
-        cred.currentBalance = Math.min(cred.totalGranted, nextCredBal);
-        if (cred.currentBalance <= 0 && (!hasMergedCredits || cred.totalGranted <= 0)) cred.status = 'Anulado';
-      }
-      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
-      if (cust) {
-        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - debtDelta) * 100) / 100;
-      }
-    } else if (payMethod.includes('tarjeta') || payMethod.includes('transfer') || payMethod.includes('banco') || payMethod.includes('datafono') || payMethod.includes('datáfono') || payMethod.includes('bizum') || payMethod.includes('qr') || payMethod.includes('nequi') || payMethod.includes('daviplata') || (tx.targetAccount && !String(tx.targetAccount).toLowerCase().includes('caja'))) {
-      recordClosedShiftDelta(tx.shiftId, classifyRevChannel(payMethod), grandTotal);
-    }
-
-    // 3. ACTUALIZAR ESTADO DE LA TRANSACCIÓN ANTES DE RECALCULAR CAJA
-    tx.status = 'Reversada';
-    tx.reversedAt = new Date().toISOString();
-    tx.reversedBy = this.currentUser?.name || 'Administrador';
-    tx.cashRefunded = openShiftId ? cashToRefundFromOpenShift : totalCashRefunded;
-    tx.refundShiftId = (openShiftId && cashToRefundFromOpenShift > 0) ? openShiftId : null;
-
-    // Actualizar todos los turnos cerrados afectados (tanto el turno original de la venta como turnos donde entraron abonos)
-    Object.entries(closedShiftDeltas).forEach(([sId, d]) => {
-      const bankDelta = d.transfer + d.tarjeta;
-      const recaudadoDelta = d.cash + bankDelta;
-      const histShift = Array.isArray(this.data.cashShiftsHistory)
-        ? this.data.cashShiftsHistory.find(s => s.shiftId === sId || s.id === sId)
-        : null;
-      if (histShift) {
-        if (d.cash > 0) histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - d.cash) * 100) / 100;
-        if (d.transfer > 0) histShift.transferSales = Math.round(Math.max(0, (Number(histShift.transferSales) || 0) - d.transfer) * 100) / 100;
-        if (d.tarjeta > 0) histShift.tarjetaSales = Math.round(Math.max(0, (Number(histShift.tarjetaSales) || 0) - d.tarjeta) * 100) / 100;
-        if (bankDelta > 0) histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - bankDelta) * 100) / 100;
-        if (d.credit > 0) histShift.creditSales = Math.round(Math.max(0, (Number(histShift.creditSales) || 0) - d.credit) * 100) / 100;
-        if (d.facturado > 0) histShift.totalFacturado = Math.round(Math.max(0, (Number(histShift.totalFacturado) || 0) - d.facturado) * 100) / 100;
-        if (recaudadoDelta > 0) histShift.totalRecaudado = Math.round(Math.max(0, (Number(histShift.totalRecaudado) || 0) - recaudadoDelta) * 100) / 100;
-        if (d.count > 0) histShift.salesCount = Math.max(0, (Number(histShift.salesCount) || 0) - d.count);
-        histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0) + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-        histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-        if (histShift.closingCash !== undefined) {
-          histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-        }
-      }
-      if (this.data.cashShiftLog?.status === 'Cerrado' && sId === this.data.cashShiftLog.shiftId) {
-        const log = this.data.cashShiftLog;
-        if (d.cash > 0) {
-          log.cashSales = Math.round(Math.max(0, (Number(log.cashSales) || 0) - d.cash) * 100) / 100;
-          log.expectedCashInDrawer = Math.round(((Number(log.openingCash) || 0) + (Number(log.cashSales) || 0) - (Number(log.cashExpenses) || 0) + (Number(log.cashAdjustmentsNet) || 0)) * 100) / 100;
-          if (log.closingCash !== undefined) {
-            log.closingCash = Math.round(Math.max(0, (Number(log.closingCash) || 0) - d.cash) * 100) / 100;
-          }
-          if (this.data.store) {
-            this.data.store.cashInBox = log.closingCash !== undefined ? log.closingCash : log.expectedCashInDrawer;
-          }
-        }
-        if (d.transfer > 0) log.transferSales = Math.round(Math.max(0, (Number(log.transferSales) || 0) - d.transfer) * 100) / 100;
-        if (d.tarjeta > 0) log.tarjetaSales = Math.round(Math.max(0, (Number(log.tarjetaSales) || 0) - d.tarjeta) * 100) / 100;
-        if (bankDelta > 0) log.cardSales = Math.round(Math.max(0, (Number(log.cardSales) || 0) - bankDelta) * 100) / 100;
-        log.expectedCardInAccount = Math.round(((Number(log.openingCard) || 0) + (Number(log.transferSales) || 0) + (Number(log.tarjetaSales) || 0) + (Number(log.bankAdjustmentsNet) || 0) - (Number(log.bankExpenses) || 0)) * 100) / 100;
-      }
-    });
-
-    // 4. SINCRONIZAR DINERO EN CAJA DEL TURNO ABIERTO (CON tx.status = 'Reversada' YA APLICADO)
-    if (isOpenShift) {
-      const totals = this.calculateShiftTotals ? this.calculateShiftTotals() : null;
-      if (totals && this.data.cashShiftLog) {
-        this.data.cashShiftLog.cashSales = totals.totalEfectivo;
-        this.data.cashShiftLog.transferSales = totals.totalTransferencia;
-        this.data.cashShiftLog.tarjetaSales = totals.totalTarjeta;
-        this.data.cashShiftLog.cardSales = totals.totalTransferencia + totals.totalTarjeta;
-        this.data.cashShiftLog.creditSales = totals.totalCredito;
-        this.data.cashShiftLog.expectedCashInDrawer = totals.expectedCashInDrawer;
-        this.data.cashShiftLog.expectedCardInAccount = totals.expectedCardInAccount;
-      }
-      if (this.data.store && this.data.cashShiftLog) {
-        this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
-      }
-    }
-
-    const todayLocalIso = this.getLocalDateStr();
-    const txParsedDate = this.parseDateSafe ? this.parseDateSafe(tx.isoDate || tx.date) : null;
-    const isTxToday = tx.isoDate === todayLocalIso || (txParsedDate && this.getLocalDateStr(txParsedDate) === todayLocalIso);
-    if (this.data.kpis && isTxToday) {
-      this.data.kpis.salesToday = Math.round(Math.max(0, (Number(this.data.kpis.salesToday) || 0) - grandTotal) * 100) / 100;
-      this.data.kpis.transactionsToday = Math.max(0, (Number(this.data.kpis.transactionsToday) || 1) - 1);
-    }
-
-    // 5. GUARDAR Y RE-RENDERIZAR EN TODA LA PLATAFORMA
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderFinVentasTable();
-    this.renderDashboardRecentSales();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-
-    const itemsSummary = restoredNames.length > 0 ? ` Artículos reintegrados: ${restoredNames.join(', ')}.` : '';
-    this.showToast(`Venta #${tx.id} reversada exitosamente.${itemsSummary} Dinero devuelto al canal original (${tx.paymentMethod}).`, 'success');
+    if(!this.canPerformAction('delete','sale'))return this.blockUnsafeOperation('Tu perfil no permite reversar ventas.');
+    const tx=this.data.recentTransactions.find(t=>t.id===txId);if(!tx)return;
+    if(!confirm('Se devolverá el stock a sus SKU originales y se registrará la devolución de los pagos de esta factura en las cuentas correspondientes. Los cierres anteriores se conservarán. ¿Confirmas que procede la devolución?'))return;
+    const reason=prompt('Motivo de la devolución:');if(!reason)return;
+    const args={saleId:txId,reason};if(Number(tx.bankFeeAmount)>0)args.refundBankFee=confirm('¿También se devolvió el recargo bancario de '+this.formatCurrency(tx.bankFeeAmount)+' al cliente? Aceptar registra esa salida adicional; Cancelar devuelve solamente el valor de la venta.');
+    await this.executeFinancialOperation('reverseSale',args);this.showToast('Venta reversada con devolución y trazabilidad por factura.','success');
   }
 
   exportFinVentasExcel() {
@@ -12121,23 +9828,16 @@ class NexusApp {
       // Cálculo visual sin mutar objetos persistidos durante el renderizado
       let poTotal = Number(po.total) || 0;
       let poRawPaid = Number(po.paidAmount) || 0;
-      if (!po.manualTotal && !po.edited && totalGrams > 0 && unitCost > 0) {
-        const expectedTotal = Math.round(totalGrams * unitCost);
-        if (poTotal < expectedTotal && Math.round(qty * unitCost) === poTotal) {
-          poTotal = expectedTotal;
-          if (po.paymentStatus === 'Pagado Total') poRawPaid = expectedTotal;
-        }
-      }
-      const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, poRawPaid));
-      const poPending = Math.max(0, poTotal - poPaid);
-      const isPaid = po.paymentStatus === 'Pagado Total' || (poTotal > 0 && poPending <= 0.01);
+      const poPaid = Math.min(poTotal, Math.max(0, poRawPaid));
+      const poPending = this.getPurchasePending(po);
+      const isPaid = poPending <= 0.01;
 
       const editBtn = `<button class="btn-action-edit" onclick="app.openEditPurchaseOrderModal('${this.escapeHtml(po.id)}')" title="Editar orden de compra, gramos, costo o saldo" style="margin-right:4px; padding:2px 8px; font-size:0.75rem; font-weight:700;">✏️ Editar</button>`;
       const receiptBtn = `<button class="btn-action-view" onclick="app.showPurchaseReceiptModal('${this.escapeHtml(po.id)}')" title="Ver Recibo Térmico de Compra" style="margin-right:4px;">🧾 Recibo</button>`;
-      const payBtn = !isPaid 
+      const payBtn = !NexusLedger.inactive(po.status) && !isPaid
         ? `<button class="btn btn-primary text-xs" onclick="app.markPurchaseAsPaid('${this.escapeHtml(po.id)}')" title="Marcar como pagada y saldar cuenta" style="padding:2px 8px; margin-right:4px; font-weight:700; background:#059669; border-color:#059669;">💳 Pagar</button>` 
         : '';
-      const deleteBtn = canDeletePO ? `<button class="btn-action-delete" onclick="app.deletePurchaseOrder('${this.escapeHtml(po.id)}')" title="Reversar compra, devolver dinero a caja y descontar inventario" style="padding:2px 8px; font-size:0.75rem; font-weight:700;">🔄 Reversar Compra</button>` : '';
+      const deleteBtn = canDeletePO && !NexusLedger.inactive(po.status) ? `<button class="btn-action-delete" onclick="app.deletePurchaseOrder('${this.escapeHtml(po.id)}')" title="Reversar compra, devolver dinero a caja y descontar inventario" style="padding:2px 8px; font-size:0.75rem; font-weight:700;">🔄 Reversar Compra</button>` : '';
       const actionHtml = `<div class="action-btn-group" style="flex-wrap:wrap; gap:4px;">${editBtn}${payBtn}${receiptBtn}${deleteBtn}</div>`;
 
       const prodDisplay = po.productName ? `
@@ -12174,108 +9874,20 @@ class NexusApp {
             ${balanceSubHtml}
           </td>
           <td><span class="badge badge-active">${this.escapeHtml(po.status || 'Recibido')}</span></td>
-          <td><span class="badge ${isPaid ? 'badge-active' : 'badge-warning'}">${isPaid ? 'Pagado Total' : 'Pendiente'}</span></td>
+          <td><span class="badge ${isPaid ? 'badge-active' : 'badge-warning'}">${isPaid ? (Number(po.creditAdjustment)>0?'Ajustado':'Pagado Total') : 'Pendiente'}</span></td>
           <td>${actionHtml}</td>
         </tr>
       `;
     }).join('');
   }
 
-  async markPurchaseAsPaid(poId) {
-    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Tu rol no tiene permisos para marcar compras como pagadas.', 'danger');
-      return;
-    }
-    const po = (this.data.purchases || []).find(p => p.id === poId);
-    if (!po) return;
-
-    const poTotal = Number(po.total) || 0;
-    const prevPaid = Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
-    const remainingToPay = Math.max(0, Math.round((poTotal - prevPaid) * 100) / 100);
-    if (po.paymentStatus === 'Pagado Total' && remainingToPay <= 0.01) {
-      this.showToast(`La orden #${po.id} ya figura como Pagada Total.`, 'info');
-      return;
-    }
-
-    const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
-    const rawMethod = (!po.paymentMethod || po.paymentMethod === 'Crédito Proveedor') ? 'Transferencia' : po.paymentMethod;
-    const isCash = rawMethod.toLowerCase().includes('efectivo');
-    const selectedAccount = isCash
-      ? 'Caja Mostrador (Efectivo)'
-      : (po.targetAccount || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS');
-
-    if (isCash && remainingToPay > 0 && (!this.data.cashShiftLog || this.data.cashShiftLog.status !== 'Abierto')) {
-      this.showToast('El turno de caja está CERRADO. Abre un turno en Arqueo de Caja para registrar pago en Efectivo.', 'warning');
-      return;
-    }
-
-    po.paymentStatus = 'Pagado Total';
-    po.paymentMethod = isCash ? 'Efectivo' : (rawMethod.includes('(') ? rawMethod : `${rawMethod} (${selectedAccount})`);
-    po.targetAccount = selectedAccount;
-    po.paidAmount = poTotal;
-
-    const activeShift = this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' ? this.data.cashShiftLog : null;
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const localDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-
-    if (remainingToPay > 0) {
-      if (!this.data.abonosCompras) this.data.abonosCompras = [];
-      this.data.abonosCompras.unshift({
-        id: this.generateSequentialId('AB-C', this.data.abonosCompras),
-        date: localDate,
-        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        timestamp: now.getTime(),
-        shiftId: activeShift ? activeShift.shiftId : 'EXCLUIDO',
-        supplier: po.supplier,
-        poId: po.id,
-        amount: remainingToPay,
-        method: isCash ? 'Efectivo (Caja)' : po.paymentMethod,
-        targetAccount: selectedAccount,
-        cashier: this.currentUser?.name || this.data.store?.cashier || "Cajero",
-        status: "Confirmado"
-      });
-
-      if (activeShift) {
-        if (this.calculateShiftTotals) {
-          this.calculateShiftTotals();
-        } else if (isCash) {
-          activeShift.cashExpenses = Math.round(((Number(activeShift.cashExpenses) || 0) + remainingToPay) * 100) / 100;
-          activeShift.expectedCashInDrawer = Math.round(((Number(activeShift.openingCash) || 0) + (Number(activeShift.cashSales) || 0) - (Number(activeShift.cashExpenses) || 0)) * 100) / 100;
-          if (this.data.store) this.data.store.cashInBox = activeShift.expectedCashInDrawer;
-        }
-      }
-
-      // Reducir saldo del proveedor y crédito consolidado SOLO por el saldo restante pagado (remainingToPay)
-      const suppNorm = (po.supplier || '').toLowerCase().trim();
-      const suppObj = (this.data.suppliers || []).find(s => (s.name || '').toLowerCase().trim() === suppNorm);
-      if (suppObj) {
-        suppObj.creditBalance = Math.round(Math.max(0, (Number(suppObj.creditBalance) || 0) - remainingToPay) * 100) / 100;
-      }
-      if (Array.isArray(this.data.supplierCredits)) {
-        const cred = this.data.supplierCredits.find(c =>
-          c.poId === po.id ||
-          (Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.includes(po.id)) ||
-          ((c.supplier || '').toLowerCase().trim() === suppNorm && c.status !== 'Pagado Total')
-        );
-        if (cred) {
-          cred.pendingAmount = Math.round(Math.max(0, (Number(cred.pendingAmount) || 0) - remainingToPay) * 100) / 100;
-          cred.paidAmount = Math.round(((Number(cred.paidAmount) || 0) + remainingToPay) * 100) / 100;
-          if (cred.pendingAmount <= 0) cred.status = 'Pagado Total';
-        }
-      }
-      this.syncSupplierCreditsState();
-    }
-
-    const suppObj = (this.data.suppliers || []).find(s => s.name?.toLowerCase().trim() === po.supplier?.toLowerCase().trim());
-
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderCuadreCajaCard();
-    this.renderCashStatusIndicator();
-    const payDesc = isCash ? 'y descontada de caja' : `por ${selectedAccount}`;
-    this.showToast(`Orden #${po.id} marcada como Pagada Total ${payDesc}`, 'success');
-    this.showPurchaseReceiptModal(po.id);
+  async markPurchaseAsPaid(id) {
+    const po=this.data.purchases.find(p=>p.id===id);if(!po)return;
+    const matches=this.data.supplierCredits.filter(c=>c.id===po.debtCreditId||(c.purchaseOrderIds||[]).includes(po.id));
+    if(matches.length!==1)throw new Error('La orden necesita un crédito identificado antes de registrar el pago.');
+    this.openAbonoModal('supplier',matches[0].id);
+    const target=document.getElementById('abono-purchase-id');if(target)target.value=po.id;
+    const field=document.getElementById('abono-amount-input');if(field)field.value=this.formatNumberWithCommas(Math.max(0,Number(po.total)-Number(po.paidAmount||0)-Number(po.creditAdjustment||0)));
   }
 
   renderFinCreditosClientesTable() {
@@ -12351,7 +9963,7 @@ class NexusApp {
     if (!this.currentSupplierCreditFilter) this.currentSupplierCreditFilter = 'pending';
 
     const credits = Array.isArray(this.data.supplierCredits) ? this.data.supplierCredits : [];
-    const purchases = Array.isArray(this.data.purchases) ? this.data.purchases : [];
+    const purchases = this.activePurchases();
 
     // Contadores para badges y KPIs
     let pendingCount = 0;
@@ -12494,7 +10106,7 @@ class NexusApp {
 
     // Buscar todas las compras correspondientes
     const linkedPOIds = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
-    let suppPOs = purchases.filter(p => linkedPOIds.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm);
+    let suppPOs = purchases.filter(p => linkedPOIds.size>0?linkedPOIds.has(p.id):p.debtCreditId===cp.id);
 
     // Ordenar compras cronológicamente descendente (más recientes primero)
     suppPOs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.date || '').localeCompare(a.date || ''));
@@ -12538,9 +10150,8 @@ class NexusApp {
       } else {
         poTbody.innerHTML = suppPOs.map(po => {
           const poTotal = Number(po.total) || 0;
-          const isPoPaid = po.paymentStatus === 'Pagado Total' || (Number(po.paidAmount) || 0) >= poTotal - 0.01;
-          const poPaid = isPoPaid ? poTotal : Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
-          const poPending = Math.max(0, poTotal - poPaid);
+          const poPending=this.getPurchasePending(po),isPoPaid=poPending<=.01;
+          const poPaid = Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
           const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
           const qty = po.itemsCount || po.quantity || 1;
 
@@ -12628,7 +10239,7 @@ class NexusApp {
      EDICIÓN DE ÓRDENES DE COMPRA Y SALDOS DE PROVEEDORES
      ========================================================================== */
   openEditPurchaseOrderModal(poId, fromSupplierCreditId = '') {
-    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
+    if (!this.canPerformAction('edit', 'purchase')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar órdenes de compra.', 'danger');
       return;
     }
@@ -12661,12 +10272,13 @@ class NexusApp {
     const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
     const unitCost = Number(po.unitCost) || 0;
     const total = Math.round(Number(po.total) || 0);
-    const isPaid = po.paymentStatus === 'Pagado Total';
-    const paid = isPaid ? total : Math.min(total, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
-    const pending = Math.max(0, total - paid);
+    const isPaid = this.getPurchasePending(po)<=.01;
+    const paid = Math.min(total, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
+    const editPoPendingSource=this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value);
+    const pending = Math.max(0, total - paid - Number(editPoPendingSource?.creditAdjustment||0));
 
     document.getElementById('edit-po-qty').value = qty;
-    document.getElementById('edit-po-grams').value = grams;
+    document.getElementById('edit-po-grams').value = grams;document.getElementById('edit-po-grams').readOnly=true;
     document.getElementById('edit-po-unit-cost').value = unitCost;
     document.getElementById('edit-po-adjust-stock').checked = false;
 
@@ -12674,7 +10286,11 @@ class NexusApp {
     document.getElementById('edit-po-payment-status').value = isPaid ? 'Pagado Total' : 'Pendiente';
     document.getElementById('edit-po-paid').value = paid;
     document.getElementById('edit-po-pending').value = pending;
-    document.getElementById('edit-po-sync-mode').value = 'recalc_all_pos';
+    document.getElementById('edit-po-sync-mode').value = 'apply_delta';
+    document.getElementById('edit-po-sync-mode').disabled = true;
+    const reason=document.getElementById('edit-po-reason');if(reason)reason.value='';
+    for(const key of ['edit-po-payment-account']){const field=document.getElementById(key);if(field)field.innerHTML=this.getDestinationBankAccounts().map(name=>`<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`).join('');}
+    this.renderPurchaseRefundOptions(po);
 
     this.updateEditPOPreview();
     this.openModal('edit-purchase-order-modal');
@@ -12696,9 +10312,11 @@ class NexusApp {
   }
 
   onEditPOQtyOrCostChange() {
-    const grams = parseFloat(document.getElementById('edit-po-grams')?.value) || 0;
+    const po=this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value);
     const qty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
     const unitCost = parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0;
+    const grams=po?.measureType==='Pesaje'?qty:qty*Number(po?.productGrams||0);
+    const gramsEl=document.getElementById('edit-po-grams');if(gramsEl){gramsEl.value=grams;gramsEl.readOnly=true;}
     if (unitCost > 0) {
       const autoTotal = grams > 0 ? Math.round(grams * unitCost) : Math.round(qty * unitCost);
       const totalEl = document.getElementById('edit-po-total');
@@ -12710,24 +10328,26 @@ class NexusApp {
   }
 
   onEditPOTotalChange() {
+    const adjustment=Number(this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value)?.creditAdjustment||0);
     const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
     const status = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
     const paidEl = document.getElementById('edit-po-paid');
     const pendingEl = document.getElementById('edit-po-pending');
 
     if (status === 'Pagado Total') {
-      if (paidEl) paidEl.value = total;
+      if (paidEl) paidEl.value = Math.max(0,total-adjustment);
       if (pendingEl) pendingEl.value = 0;
     } else {
       const currentPaid = Math.min(total, Math.max(0, Math.round(parseFloat(paidEl?.value) || 0)));
       if (paidEl) paidEl.value = currentPaid;
-      if (pendingEl) pendingEl.value = Math.max(0, total - currentPaid);
+      if (pendingEl) pendingEl.value = Math.max(0, total - currentPaid - adjustment);
     }
     this.updateEditPOPreview();
   }
 
   onEditPOPaymentStatusChange() {
     const status = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
+    const adjustment=Number(this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value)?.creditAdjustment||0);
     const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
     const paidEl = document.getElementById('edit-po-paid');
     const pendingEl = document.getElementById('edit-po-pending');
@@ -12741,16 +10361,17 @@ class NexusApp {
         if (paidEl) paidEl.value = 0;
         if (pendingEl) pendingEl.value = total;
       } else {
-        if (pendingEl) pendingEl.value = Math.max(0, total - currentPaid);
+        if (pendingEl) pendingEl.value = Math.max(0, total - currentPaid - adjustment);
       }
     }
     this.updateEditPOPreview();
   }
 
   onEditPOPaidChange() {
+    const adjustment=Number(this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value)?.creditAdjustment||0);
     const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
     const paid = Math.min(total, Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-paid')?.value) || 0)));
-    const pending = Math.max(0, total - paid);
+    const pending = Math.max(0, total - paid - adjustment);
     const pendingEl = document.getElementById('edit-po-pending');
     const statusEl = document.getElementById('edit-po-payment-status');
 
@@ -12760,9 +10381,10 @@ class NexusApp {
   }
 
   onEditPOPendingChange() {
+    const adjustment=Number(this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value)?.creditAdjustment||0);
     const total = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
     const pending = Math.min(total, Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-pending')?.value) || 0)));
-    const paid = Math.max(0, total - pending);
+    const paid = Math.max(0, total - pending - adjustment);
     const paidEl = document.getElementById('edit-po-paid');
     const statusEl = document.getElementById('edit-po-payment-status');
 
@@ -12783,11 +10405,11 @@ class NexusApp {
     const suppNorm = suppInput.toLowerCase();
     const newTotal = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
     const newPending = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-pending')?.value) || 0));
-    const syncMode = document.getElementById('edit-po-sync-mode')?.value || 'recalc_all_pos';
+    const syncMode = 'apply_delta';
 
     const oldTotal = Math.round(Number(po.total) || 0);
-    const oldPaid = po.paymentStatus === 'Pagado Total' ? oldTotal : Math.min(oldTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
-    const oldPending = Math.max(0, oldTotal - oldPaid);
+    const oldPaid = Math.min(oldTotal, Math.max(0, Number(po.paidAmount) || 0));
+    const oldPending = this.getPurchasePending(po);
 
     // Buscar crédito actual del proveedor
     const sc = (this.data.supplierCredits || []).find(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
@@ -12808,7 +10430,7 @@ class NexusApp {
         sumAllPOsPending += newPending;
       } else {
         const t = Math.round(Number(p.total) || 0);
-        const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
+        const pd = Math.min(t, Math.max(0, Number(p.paidAmount) || 0));
         sumAllPOsTotal += t;
         sumAllPOsPending += Math.max(0, t - pd);
       }
@@ -12829,269 +10451,16 @@ class NexusApp {
   }
 
   async saveEditedPurchaseOrder(event) {
-    if (event) event.preventDefault();
-    if (!this.canPerformAction('edit', 'purchase') && !this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Tu rol no tiene permisos para editar órdenes de compra.', 'danger');
-      return;
-    }
-
-    const poId = document.getElementById('edit-po-id')?.value;
-    const fromCpId = document.getElementById('edit-po-from-cp-id')?.value;
-    const po = (this.data.purchases || []).find(p => p.id === poId);
-    if (!po) {
-      this.showToast('No se encontró la orden de compra para actualizar', 'danger');
-      return;
-    }
-
-    const oldSupplier = (po.supplier || '').trim();
-    const oldSupplierNorm = oldSupplier.toLowerCase();
-    const oldMethod = po.paymentMethod || '';
-    const wasCreditPO = this.isStoreCreditMethod(oldMethod) || (!oldMethod && Number(po.paidAmount || 0) < Number(po.total || 0));
-    const oldQty = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
-    const oldGrams = Number(po.totalGrams) || Number(po.productGrams) || 0;
-    const oldTotal = Math.round(Number(po.total) || 0);
-    const oldPaid = po.paymentStatus === 'Pagado Total' ? oldTotal : Math.min(oldTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
-    const oldPending = Math.max(0, oldTotal - oldPaid);
-
-    const newDate = document.getElementById('edit-po-date')?.value || po.date;
-    const newSupplier = (document.getElementById('edit-po-supplier')?.value || oldSupplier).trim();
-    const newSupplierNorm = newSupplier.toLowerCase();
-    const newProductName = (document.getElementById('edit-po-product-name')?.value || po.productName || '').trim();
-    const newProductSku = (document.getElementById('edit-po-product-sku')?.value || po.productSku || '').trim();
-
-    const newQty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
-    const newGrams = parseFloat(document.getElementById('edit-po-grams')?.value) || 0;
-    const newUnitCost = Math.round(parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0);
-    const adjustStock = Boolean(document.getElementById('edit-po-adjust-stock')?.checked);
-
-    const newTotal = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
-    const statusSelect = document.getElementById('edit-po-payment-status')?.value || 'Pendiente';
-    const rawPaid = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-paid')?.value) || 0));
-    const newPaid = statusSelect === 'Pagado Total' ? newTotal : Math.min(newTotal, rawPaid);
-    const newPending = Math.max(0, newTotal - newPaid);
-    const finalPaymentStatus = (newPending <= 0 && newTotal > 0) ? 'Pagado Total' : statusSelect;
-    const syncMode = document.getElementById('edit-po-sync-mode')?.value || 'recalc_all_pos';
-
-    // 1. Si el usuario marcó ajustar stock en inventario y cambió gramaje o cantidad
-    if (adjustStock) {
-      const targetProd = (this.data.products || []).find(p =>
-        (po.productId && p.id === po.productId) ||
-        (newProductSku && p.sku === newProductSku) ||
-        (po.productSku && p.sku === po.productSku)
-      );
-      if (targetProd) {
-        const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
-        const wu = String(targetProd.weightUnit || 'g').toLowerCase();
-        const uFac = !isPesaje ? 1 : (wu === 'kg' ? 1000 : (wu === 'mg' ? 0.001 : ((wu === 'µg' || wu === 'ug') ? 0.000001 : (wu === 'oz' ? 28.3495 : 1))));
-        const deltaStock = isPesaje ? ((newGrams - oldGrams) / uFac) : (newQty - oldQty);
-        if (Math.abs(deltaStock) > 0.00001) {
-          const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-          const precScale = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes(wu)) ? 10000 : 100;
-          targetProd.stock = Math.round(Math.max(0, currentStock + deltaStock) * precScale) / precScale;
-          const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
-          targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
-        }
-        if (newUnitCost > 0) {
-          targetProd.cost = newUnitCost;
-        }
-      }
-    }
-
-    // 2. Actualizar la Orden de Compra y bloquear sobreescritura automática
-    po.date = newDate;
-    po.supplier = newSupplier;
-    if (newProductName) po.productName = newProductName;
-    if (newProductSku) po.productSku = newProductSku;
-    po.quantity = newQty;
-    po.itemsCount = newQty;
-    po.totalGrams = newGrams;
-    po.unitCost = newUnitCost;
-    po.total = newTotal;
-    po.paidAmount = newPaid;
-    po.paymentStatus = finalPaymentStatus;
-    if (finalPaymentStatus === 'Pagado Total' && (!po.paymentMethod || po.paymentMethod === 'Crédito Proveedor')) {
-      const destAccs = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS'];
-      const acc = po.targetAccount || this.data.cashShiftLog?.openingAccount || destAccs[0] || 'CUENTA CHARLES JOYAS SAS';
-      po.paymentMethod = `Transferencia (${acc})`;
-      po.targetAccount = acc;
-    } else if (finalPaymentStatus === 'Pendiente' && newPaid === 0) {
-      po.paymentMethod = 'Crédito Proveedor';
-      po.targetAccount = null;
-    }
-    po.manualTotal = true;
-    po.edited = true;
-    po.updatedAt = new Date().toISOString();
-
-    // 3. Sincronizar saldo del proveedor
-    const updateSupplierBalanceHelper = (suppNorm, mode) => {
-      if (!suppNorm || mode === 'none') return;
-      const suppPOs = (this.data.purchases || []).filter(p => (p.supplier || '').toLowerCase().trim() === suppNorm);
-      let sumTotal = 0;
-      let sumPaid = 0;
-      let sumPending = 0;
-
-      suppPOs.forEach(p => {
-        const t = Math.round(Number(p.total) || 0);
-        const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
-        const pend = Math.max(0, t - pd);
-        sumTotal += t;
-        sumPaid += pd;
-        sumPending += pend;
-      });
-
-      let suppObj = (this.data.suppliers || []).find(s => (s.name || '').toLowerCase().trim() === suppNorm);
-      let credList = (this.data.supplierCredits || []).filter(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
-
-      let targetPending = sumPending;
-      let targetTotalOwed = sumTotal;
-      let targetPaid = sumPaid;
-
-      if (mode === 'apply_delta') {
-        const currentPending = credList.length > 0
-          ? credList.reduce((acc, c) => acc + (Number(c.pendingAmount) || 0), 0)
-          : (suppObj ? (Number(suppObj.creditBalance) || 0) : 0);
-        const currentTotalOwed = credList.length > 0
-          ? credList.reduce((acc, c) => acc + (Number(c.totalOwed) || 0), 0)
-          : sumTotal;
-        const deltaPending = newPending - oldPending;
-        const deltaTotal = newTotal - oldTotal;
-        targetPending = Math.max(0, Math.round(currentPending + deltaPending));
-        targetTotalOwed = Math.max(targetPending, Math.round(currentTotalOwed + deltaTotal));
-        targetPaid = Math.max(0, targetTotalOwed - targetPending);
-      }
-
-      if (suppObj) {
-        suppObj.creditBalance = targetPending;
-      }
-
-      if (credList.length > 0) {
-        const primary = credList[0];
-        primary.supplier = suppObj ? suppObj.name : (primary.supplier || oldSupplier || newSupplier);
-        primary.totalOwed = targetTotalOwed;
-        primary.paidAmount = targetPaid;
-        primary.pendingAmount = targetPending;
-        primary.status = targetPending > 0 ? 'Pendiente' : 'Pagado Total';
-        primary.purchaseOrderIds = suppPOs.map(p => p.id);
-        // Si había otros registros duplicados para el mismo proveedor, limpiarlos
-        if (credList.length > 1) {
-          const extraIds = new Set(credList.slice(1).map(c => c.id));
-          this.data.supplierCredits = (this.data.supplierCredits || []).filter(c => !extraIds.has(c.id));
-        }
-      } else if (targetPending > 0) {
-        this.data.supplierCredits.push({
-          id: this.getNextSupplierCreditId ? this.getNextSupplierCreditId() : `CP-${Date.now()}`,
-          supplier: suppObj ? suppObj.name : newSupplier,
-          supplierId: suppObj ? suppObj.id : '',
-          totalOwed: targetTotalOwed,
-          paidAmount: targetPaid,
-          pendingAmount: targetPending,
-          date: newDate,
-          lastPurchaseDate: newDate,
-          dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-          status: 'Pendiente',
-          purchaseOrderIds: suppPOs.map(p => p.id)
-        });
-      }
-    };
-
-    if (oldSupplierNorm !== newSupplierNorm) {
-      updateSupplierBalanceHelper(oldSupplierNorm, 'recalc_all_pos');
-      updateSupplierBalanceHelper(newSupplierNorm, syncMode === 'none' ? 'recalc_all_pos' : syncMode);
-    } else {
-      updateSupplierBalanceHelper(newSupplierNorm, syncMode);
-    }
-
-    const deltaPaid = Math.round((newPaid - oldPaid) * 100) / 100;
-    const openShiftIdEdit = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
-    if (deltaPaid > 0 && wasCreditPO) {
-      const destAccs = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS'];
-      const payMethodLower = String(po.paymentMethod || '').toLowerCase();
-      const isCashEdit = payMethodLower.includes('efectivo') || String(po.targetAccount || '').toLowerCase().includes('caja');
-      const payAcc = isCashEdit ? 'Caja Mostrador (Efectivo)' : (po.targetAccount || this.data.cashShiftLog?.openingAccount || destAccs[0] || 'CUENTA CHARLES JOYAS SAS');
-      const nowEdit = new Date();
-      if (!this.data.abonosCompras) this.data.abonosCompras = [];
-      this.data.abonosCompras.unshift({
-        id: this.generateSequentialId('AB-C', this.data.abonosCompras),
-        date: this.getLocalDateStr(nowEdit),
-        time: nowEdit.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        timestamp: nowEdit.getTime(),
-        shiftId: openShiftIdEdit || 'EXCLUIDO',
-        supplier: po.supplier,
-        poId: po.id,
-        amount: deltaPaid,
-        method: isCashEdit ? 'Efectivo (Caja)' : (po.paymentMethod || `Transferencia (${payAcc})`),
-        targetAccount: payAcc,
-        cashier: this.currentUser?.name || this.data.store?.cashier || 'Cajero',
-        status: 'Confirmado'
-      });
-    } else if (deltaPaid !== 0 && !wasCreditPO && po.shiftId && po.shiftId !== 'EXCLUIDO' && po.shiftId !== openShiftIdEdit) {
-      const hasLinkedAbono = (this.data.abonosCompras || []).some(a => a && a.poId === po.id);
-      if (!hasLinkedAbono) {
-        const wasCashPo = String(oldMethod || po.paymentMethod || '').toLowerCase().includes('efectivo') || String(po.targetAccount || '').toLowerCase().includes('caja');
-        const histShift = Array.isArray(this.data.cashShiftsHistory)
-          ? this.data.cashShiftsHistory.find(s => s.shiftId === po.shiftId || s.id === po.shiftId)
-          : null;
-        if (histShift) {
-          if (wasCashPo) {
-            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) + deltaPaid) * 100) / 100;
-            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (histShift.closingCash !== undefined) {
-              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-            }
-          } else {
-            histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) + deltaPaid) * 100) / 100;
-            histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
-          }
-          histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-        }
-        const closedLog = this.data.cashShiftLog;
-        if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === po.shiftId) {
-          if (wasCashPo) {
-            closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) + deltaPaid) * 100) / 100;
-            closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-            if (closedLog.closingCash !== undefined) {
-              closedLog.closingCash = Math.round(Math.max(0, (Number(closedLog.closingCash) || 0) - deltaPaid) * 100) / 100;
-            }
-            if (this.data.store) {
-              this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-            }
-          } else {
-            closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) + deltaPaid) * 100) / 100;
-            closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
-          }
-          closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-        }
-      }
-    }
-
-    this.syncSupplierCreditsState();
-    if (this.data.kpis) {
-      this.data.kpis.inventoryValue = Math.round((this.data.products || []).reduce((acc, pr) => acc + (this.getProductTotalCost(pr) || 0), 0) * 100) / 100;
-    }
-    this.syncAllCategoryGrams();
-    if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
-      this.calculateShiftTotals();
-    }
-    await this.savePersistence();
-    this.syncAllModules();
-    this.renderFinComprasTable();
-    if (typeof this.renderFinCreditosProveedoresTable === 'function') {
-      this.renderFinCreditosProveedoresTable();
-    }
-
-    this.closeModal('edit-purchase-order-modal');
-
-    // Si se abrió desde el detalle de facturas de un proveedor, refrescar ese modal en vivo
-    if (fromCpId) {
-      const updatedCp = (this.data.supplierCredits || []).find(c =>
-        c.id === fromCpId || (c.supplier || '').toLowerCase().trim() === newSupplierNorm
-      );
-      if (updatedCp) {
-        this.viewSupplierCreditPurchases(updatedCp.id);
-      }
-    }
-
-    this.showToast(`Orden #${po.id} actualizada. Saldo de compra: ${this.formatCurrency(newPending)}`, 'success');
+    event?.preventDefault();
+    const id=document.getElementById('edit-po-id')?.value,po=this.data.purchases.find(p=>p.id===id);if(!po)return;
+    const args={purchaseId:id,date:document.getElementById('edit-po-date')?.value,supplier:document.getElementById('edit-po-supplier')?.value,productSku:document.getElementById('edit-po-product-sku')?.value,quantity:Number(document.getElementById('edit-po-qty')?.value),unitCost:Number(document.getElementById('edit-po-unit-cost')?.value),total:Number(document.getElementById('edit-po-total')?.value),paidAmount:Number(document.getElementById('edit-po-paid')?.value),reason:document.getElementById('edit-po-reason')?.value?.trim()};
+    if(!args.reason)throw new Error('Escribe el motivo y el soporte de la corrección.');
+    const p=this.data.products.find(p=>p.id===po.productId),inventoryChange=args.quantity!==Number(po.quantity)||args.unitCost!==Number(po.unitCost)||args.total!==Number(po.total);
+    const untouched=po.inventoryAfter&&p&&Math.abs(Number(p.stock)-Number(po.inventoryAfter.stock))<.000001&&Math.abs(Number(p.cost)-Number(po.inventoryAfter.cost))<.0001;
+    if(inventoryChange&&!untouched){if(!confirm('El inventario cambió después de la compra. Se conservará su costo actual y la diferencia de valor se registrará como ajuste del resultado. ¿Confirmas este tratamiento?'))return;args.inventoryPolicy='carrying';}
+    if(args.paidAmount>Number(po.paidAmount||0)){const method=document.getElementById('edit-po-payment-method')?.value||'Efectivo';args.payment={method,targetAccount:/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('edit-po-payment-account')?.value};}
+    if(args.paidAmount<Number(po.paidAmount||0))args.refundAllocations=Array.from(document.querySelectorAll('[data-purchase-refund-id]')).filter(field=>Number(field.value)>0).map(field=>({paymentId:field.getAttribute('data-purchase-refund-id'),amount:Number(field.value)}));
+    await this.executeFinancialOperation('editPurchase',args);this.closeModal('edit-purchase-order-modal');this.showToast('Compra corregida mediante diferencias documentadas. Los saldos iniciales se conservaron.','success');
   }
 
   openEditSupplierCreditModal(cpId) {
@@ -13116,7 +10485,7 @@ class NexusApp {
     let posPending = 0;
     suppPOs.forEach(p => {
       const t = Math.round(Number(p.total) || 0);
-      const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
+      const pd = Math.min(t, Math.max(0, Number(p.paidAmount) || 0));
       posTotal += t;
       posPending += Math.max(0, t - pd);
     });
@@ -13131,7 +10500,8 @@ class NexusApp {
 
     const currentTotalOwed = Math.round(Number(cp.totalOwed) || 0);
     const currentPending = Math.round(Number(cp.pendingAmount) || 0);
-    const currentPaid = Math.round(Number(cp.paidAmount) || Math.max(0, currentTotalOwed - currentPending));
+    const currentPaid = Math.round(Number(cp.paidAmount) || 0);
+    const reason=document.getElementById('edit-sc-reason');if(reason)reason.value='';
 
     document.getElementById('edit-sc-total-owed').value = currentTotalOwed;
     document.getElementById('edit-sc-paid-amount').value = currentPaid;
@@ -13140,107 +10510,19 @@ class NexusApp {
     this.openModal('edit-supplier-credit-modal');
   }
 
-  fillSupplierCreditFromPOs() {
-    const cpId = document.getElementById('edit-sc-id')?.value;
-    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
-    if (!cp) return;
+  fillSupplierCreditFromPOs() { this.openReconciliation(); }
 
-    const suppNorm = (cp.supplier || '').toLowerCase().trim();
-    const linkedSet = new Set(Array.isArray(cp.purchaseOrderIds) ? cp.purchaseOrderIds : (cp.poId ? [cp.poId] : []));
-    const suppPOs = (this.data.purchases || []).filter(p =>
-      linkedSet.size > 0
-        ? linkedSet.has(p.id)
-        : ((p.supplier || '').toLowerCase().trim() === suppNorm && (cp.status === 'Pagado Total' || p.paymentStatus !== 'Pagado Total'))
-    );
-    let posTotal = 0;
-    let posPaid = 0;
-    let posPending = 0;
-    suppPOs.forEach(p => {
-      const t = Math.round(Number(p.total) || 0);
-      const pd = p.paymentStatus === 'Pagado Total' ? t : Math.min(t, Math.max(0, Math.round(Number(p.paidAmount) || 0)));
-      posTotal += t;
-      posPaid += pd;
-      posPending += Math.max(0, t - pd);
-    });
-
-    document.getElementById('edit-sc-total-owed').value = posTotal;
-    document.getElementById('edit-sc-paid-amount').value = posPaid;
-    document.getElementById('edit-sc-pending-amount').value = posPending;
-  }
-
-  onEditSCTotalOrPaidChange(changedField) {
-    const totalEl = document.getElementById('edit-sc-total-owed');
-    const paidEl = document.getElementById('edit-sc-paid-amount');
-    const pendingEl = document.getElementById('edit-sc-pending-amount');
-
-    let total = Math.max(0, Math.round(parseFloat(totalEl?.value) || 0));
-    let paid = Math.max(0, Math.round(parseFloat(paidEl?.value) || 0));
-    let pending = Math.max(0, Math.round(parseFloat(pendingEl?.value) || 0));
-
-    if (changedField === 'total' || changedField === 'paid') {
-      pending = Math.max(0, total - paid);
-      if (pendingEl) pendingEl.value = pending;
-    } else if (changedField === 'pending') {
-      if (pending > total) {
-        total = pending;
-        if (totalEl) totalEl.value = total;
-      }
-      paid = Math.max(0, total - pending);
-      if (paidEl) paidEl.value = paid;
-    }
+  onEditSCTotalOrPaidChange() {
+    const cp=this.data.supplierCredits.find(c=>c.id===document.getElementById('edit-sc-id')?.value);if(!cp)return;
+    const pending=Number(document.getElementById('edit-sc-pending-amount')?.value)||0;
+    document.getElementById('edit-sc-paid-amount').value=cp.paidAmount||0;
+    document.getElementById('edit-sc-total-owed').value=Number(cp.paidAmount||0)+pending;
   }
 
   async saveEditedSupplierCredit(event) {
-    if (event) event.preventDefault();
-    if (!this.isAdminUser()) {
-      this.showToast('Acceso Denegado: Solo Administradores pueden modificar saldos de proveedores.', 'danger');
-      return;
-    }
-
-    const cpId = document.getElementById('edit-sc-id')?.value;
-    const cp = (this.data.supplierCredits || []).find(c => c.id === cpId);
-    if (!cp) {
-      this.showToast('No se encontró el registro de crédito del proveedor', 'danger');
-      return;
-    }
-
-    const newTotalOwed = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-total-owed')?.value) || 0));
-    const newPaid = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-paid-amount')?.value) || 0));
-    const newPending = Math.max(0, Math.round(parseFloat(document.getElementById('edit-sc-pending-amount')?.value) || 0));
-
-    const suppNorm = (cp.supplier || '').toLowerCase().trim();
-    const suppObj = (this.data.suppliers || []).find(s =>
-      (cp.supplierId && s.id === cp.supplierId) ||
-      (s.name || '').toLowerCase().trim() === suppNorm
-    );
-    if (suppObj) {
-      suppObj.creditBalance = newPending;
-    }
-
-    cp.totalOwed = Math.max(newTotalOwed, newPending);
-    cp.paidAmount = newPaid;
-    cp.pendingAmount = newPending;
-    cp.status = newPending > 0 ? 'Pendiente' : 'Pagado Total';
-
-    this.syncSupplierCreditsState();
-    await this.savePersistence();
-    this.syncAllModules();
-    if (typeof this.renderFinCreditosProveedoresTable === 'function') {
-      this.renderFinCreditosProveedoresTable();
-    }
-
-    this.closeModal('edit-supplier-credit-modal');
-
-    // Si estaba abierto el modal de facturas del proveedor, refrescarlo
-    const purchasesModal = document.getElementById('supplier-credit-purchases-modal');
-    if (purchasesModal && purchasesModal.classList.contains('active')) {
-      const updatedCp = (this.data.supplierCredits || []).find(c => (c.supplier || '').toLowerCase().trim() === suppNorm);
-      if (updatedCp) {
-        this.viewSupplierCreditPurchases(updatedCp.id);
-      }
-    }
-
-    this.showToast(`Saldo de ${cp.supplier} actualizado a ${this.formatCurrency(newPending)}`, 'success');
+    event?.preventDefault();const id=document.getElementById('edit-sc-id')?.value;
+    const reason=document.getElementById('edit-sc-reason')?.value?.trim();if(!reason)throw new Error('Indica el soporte del ajuste de obligación.');
+    await this.executeFinancialOperation('adjustSupplierDebt',{creditId:id,pendingAmount:Number(document.getElementById('edit-sc-pending-amount')?.value),reason});this.closeModal('edit-supplier-credit-modal');this.showToast('Deuda ajustada sin registrar pagos ni movimientos de dinero.','success');
   }
 
   renderInvServiciosTable() {
@@ -14367,9 +11649,7 @@ class NexusApp {
       this.showToast('Acceso Restringido: Tu rol no tiene permisos para eliminar productos del catálogo.', 'warning');
       return;
     }
-    const p = (sku && id && this.data.products.find(item => item.id === id && String(item.sku).trim() === String(sku).trim()))
-      || (id && this.data.products.find(item => item.id === id))
-      || (sku && this.data.products.find(item => String(item.sku).trim() === String(sku).trim()));
+    const p = this.findProductIdentity(id,sku);
     if (!p) return;
     if (!confirm(`¿Está seguro de eliminar el producto "${p.name}"? Esta acción no se puede deshacer.`)) return;
 
@@ -15189,293 +12469,12 @@ class NexusApp {
   }
 
   calculateShiftTotals() {
-    const shift = this.data.cashShiftLog || { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Cerrado' };
-    const shiftTxs = this.getCashShiftTransactions();
-    const abonos = this.getCashShiftCustomerPayments();
-
-    let salesEfectivo = 0;
-    let salesTransferencia = 0;
-    let salesTarjeta = 0;
-    let salesCredito = 0;
-    let salesOtros = 0;
-    let totalSales = 0;
-
-    const classifyChannel = (methodStr, targetAccStr) => {
-      const m = String(methodStr || '').toLowerCase();
-      const tAcc = String(targetAccStr || '').toLowerCase();
-      if (this.isStoreCreditMethod(m)) return 'credit';
-      if (m.includes('efectivo') || m.includes('cash') || (!m && tAcc.includes('caja'))) return 'cash';
-      if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) return 'card';
-      if (m.includes('transfer') || m.includes('banco') || m.includes('cta') || m.includes('bizum') || m.includes('qr') || m.includes('nequi') || m.includes('daviplata') || m.includes('bancolombia') || (tAcc && !tAcc.includes('caja'))) return 'transfer';
-      return 'other';
-    };
-
-    shiftTxs.forEach(t => {
-      const amt = Math.round(Math.abs(t.total || 0));
-      totalSales += amt;
-
-      if (t.mixedPayments && Array.isArray(t.mixedPayments) && t.mixedPayments.length > 0) {
-        t.mixedPayments.forEach(mp => {
-          const mpAmt = Math.round(Number(mp.amount) || 0);
-          const ch = classifyChannel(mp.method, mp.targetAccount || t.targetAccount);
-          if (ch === 'cash') salesEfectivo += mpAmt;
-          else if (ch === 'card') salesTarjeta += mpAmt;
-          else if (ch === 'transfer') salesTransferencia += mpAmt;
-          else if (ch === 'credit') salesCredito += mpAmt;
-          else salesOtros += mpAmt;
-        });
-      } else {
-        const m = (t.paymentMethod || '').toLowerCase();
-        if (m.includes('separe')) {
-          const sepCred = (this.data.customerCredits || []).find(c => c.txId && c.txId === t.id)
-            || (this.data.customerCredits || []).find(c => c.customer === t.customer && c.status === 'Plan Separe');
-          const sepPending = t.separePending !== undefined ? Number(t.separePending) : (sepCred ? (Number(sepCred.currentBalance) || 0) : 0);
-          const sepAbono = t.separeAbono !== undefined ? Number(t.separeAbono) : Math.max(0, amt - sepPending);
-          salesEfectivo += Math.round(sepAbono);
-          salesCredito += Math.round(Math.max(0, amt - sepAbono));
-        } else {
-          const ch = classifyChannel(m, t.targetAccount);
-          if (ch === 'cash') salesEfectivo += amt;
-          else if (ch === 'card') salesTarjeta += amt;
-          else if (ch === 'transfer') salesTransferencia += amt;
-          else if (ch === 'credit') salesCredito += amt;
-          else salesOtros += amt;
-        }
-      }
-    });
-
-    let abonosEfectivo = 0;
-    let abonosTransferencia = 0;
-    let abonosTarjeta = 0;
-    let abonosOtros = 0;
-    let totalAbonos = 0;
-
-    abonos.forEach(a => {
-      const amt = Math.round(Math.abs(a.amount || 0));
-      totalAbonos += amt;
-      const ch = classifyChannel(a.method, a.targetAccount);
-      if (ch === 'cash') abonosEfectivo += amt;
-      else if (ch === 'card') abonosTarjeta += amt;
-      else if (ch === 'transfer') abonosTransferencia += amt;
-      else abonosOtros += amt;
-    });
-
-    // Total consolidado por cada canal de ingreso (Ventas POS + Abonos de Cartera)
-    const totalEfectivo = salesEfectivo + abonosEfectivo;
-    const totalTransferencia = salesTransferencia + abonosTransferencia;
-    const totalTarjeta = salesTarjeta + abonosTarjeta;
-    const totalCredito = salesCredito;
-    const totalOtros = salesOtros + abonosOtros;
-
-    // Facturado en ventas del turno
-    const totalFacturado = totalSales;
-
-    // Total recaudado real en dinero entrante (Efectivo físico + Banco + Datáfono)
-    const totalRecaudado = totalEfectivo + totalTransferencia + totalTarjeta + totalOtros;
-
-    const openingCash = Math.round(Number(shift.openingCash) || 0);
-    const openingCard = Math.round(Number(shift.openingCard) || 0);
-    const openingAccount = shift.openingAccount || '';
-    const openingTotal = openingCash + openingCard;
-
-    const shiftExpensesList = this.getCashShiftExpenses ? this.getCashShiftExpenses() : [];
-    const cashExpensesList = shiftExpensesList.filter(item => item.isCash !== false && !item.isBank);
-    const bankExpensesList = shiftExpensesList.filter(item => item.isBank || item.isCash === false);
-    const cashExpenses = cashExpensesList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const bankExpenses = bankExpensesList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const totalExpenses = cashExpenses + bankExpenses;
-
-    // Desglose por cuenta bancaria destino (Cuenta Carlos, Cuenta Sharick, etc.)
-    const defaultAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['Cuenta Carlos', 'Cuenta Sharick', 'CUENTA CHARLES JOYAS SAS'];
-    const accountBreakdown = {};
-    defaultAccounts.forEach(acc => {
-      accountBreakdown[acc] = {
-        name: acc,
-        opening: (openingAccount && openingAccount.toLowerCase() === acc.toLowerCase()) ? openingCard : 0,
-        incomes: 0,
-        expenses: 0,
-        adjustments: 0,
-        net: 0
-      };
-    });
-
-    const getOrInitAccount = (rawName) => {
-      if (!rawName) return null;
-      const clean = String(rawName).trim();
-      if (!clean) return null;
-      let matchedKey = Object.keys(accountBreakdown).find(k => k.toLowerCase() === clean.toLowerCase());
-      if (!matchedKey) {
-        matchedKey = clean;
-        accountBreakdown[clean] = {
-          name: clean,
-          opening: (openingAccount && openingAccount.toLowerCase() === clean.toLowerCase()) ? openingCard : 0,
-          incomes: 0,
-          expenses: 0,
-          adjustments: 0,
-          net: 0
-        };
-      }
-      return accountBreakdown[matchedKey];
-    };
-
-    // Registrar ingresos bancarios desde ventas
-    shiftTxs.forEach(t => {
-      if (t.mixedPayments && Array.isArray(t.mixedPayments) && t.mixedPayments.length > 0) {
-        t.mixedPayments.forEach(mp => {
-          const ch = classifyChannel(mp.method, mp.targetAccount || t.targetAccount);
-          if (ch === 'transfer' || ch === 'card') {
-            const accName = mp.targetAccount || t.targetAccount || (mp.method && mp.method.includes('(') ? mp.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
-            const accObj = getOrInitAccount(accName);
-            if (accObj) accObj.incomes += Math.round(Number(mp.amount) || 0);
-          }
-        });
-      } else {
-        const ch = classifyChannel(t.paymentMethod, t.targetAccount);
-        if (ch === 'transfer' || ch === 'card') {
-          const accName = t.targetAccount || (t.paymentMethod && t.paymentMethod.includes('(') ? t.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
-          const accObj = getOrInitAccount(accName);
-          if (accObj) accObj.incomes += Math.round(Math.abs(t.total || 0));
-        }
-      }
-    });
-
-    // Registrar ingresos bancarios desde abonos de cartera
-    abonos.forEach(a => {
-      const ch = classifyChannel(a.method, a.targetAccount);
-      if (ch === 'transfer' || ch === 'card') {
-        const accName = a.targetAccount || (a.method && a.method.includes('(') ? a.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
-        const accObj = getOrInitAccount(accName);
-        if (accObj) accObj.incomes += Math.round(Math.abs(a.amount || 0));
-      }
-    });
-
-    // Registrar salidas / egresos bancarios
-    bankExpensesList.forEach(item => {
-      const accName = item.targetAccount || (item.method && item.method.includes('(') ? item.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
-      const accObj = getOrInitAccount(accName);
-      if (accObj) accObj.expenses += Math.round(Number(item.amount) || 0);
-    });
-
-    // Registrar ajustes manuales / transferencias del turno abierto (accountAdjustments)
-    let cashAdjustmentsNet = 0;
-    let bankAdjustmentsNet = 0;
-    if (shift.status === 'Abierto') {
-      const closedShiftIds = new Set();
-      (this.data.cashShiftsHistory || []).forEach(s => {
-        if (s?.id) closedShiftIds.add(s.id);
-        if (s?.shiftId) closedShiftIds.add(s.shiftId);
-      });
-      let openTimestamp = shift.openedTimestamp || 0;
-      if (!openTimestamp && shift.openedDate) {
-        openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
-      }
-      const canonicalDisplayMap = {
-        cuenta_sharick: 'Cuenta Sharick',
-        cuenta_carlos: 'Cuenta Carlos',
-        cuenta_charles_joyas: 'CUENTA CHARLES JOYAS SAS'
-      };
-      (this.data.accountAdjustments || []).forEach(adj => {
-        if (!adj || !adj.accountKey) return;
-        if (adj.closedShiftId || adj.shiftId === 'EXCLUIDO' || (adj.shiftId && closedShiftIds.has(adj.shiftId))) return;
-        const matchesShift = adj.shiftId
-          ? !!(shift.shiftId && adj.shiftId === shift.shiftId)
-          : (openTimestamp > 0 && Number(adj.timestamp) >= (openTimestamp - 60000));
-        if (!matchesShift) return;
-
-        const signedAmt = Math.round(Math.abs(Number(adj.amount) || 0)) * (adj.isIncome ? 1 : -1);
-        if (adj.accountKey === 'efectivo_caja') {
-          cashAdjustmentsNet += signedAmt;
-        } else {
-          bankAdjustmentsNet += signedAmt;
-          let matchedDisplay = Object.keys(accountBreakdown).find(k =>
-            this.resolveCanonicalAccountKey ? this.resolveCanonicalAccountKey(k, true) === adj.accountKey : false
-          );
-          if (!matchedDisplay) {
-            matchedDisplay = canonicalDisplayMap[adj.accountKey] || adj.party || adj.accountKey;
-          }
-          const accObj = getOrInitAccount(matchedDisplay);
-          if (accObj) {
-            accObj.adjustments = (accObj.adjustments || 0) + signedAmt;
-          }
-        }
-      });
+    const totals=NexusLedger.shiftTotals(this.data);
+    if(this.data.cashShiftLog?.status==='Abierto') {
+      Object.assign(this.data.cashShiftLog,{cashSales:totals.totalEfectivo,cardSales:totals.totalTransferencia+totals.totalTarjeta,transferSales:totals.totalTransferencia,tarjetaSales:totals.totalTarjeta,creditSales:totals.totalCredito,totalFacturado:totals.totalFacturado,totalRecaudado:totals.totalRecaudado,salesCount:totals.salesCount,cashExpenses:totals.cashExpenses,bankExpenses:totals.bankExpenses,totalExpenses:totals.totalExpenses,cashAdjustmentsNet:totals.cashAdjustmentsNet,bankAdjustmentsNet:totals.bankAdjustmentsNet,expectedCashInDrawer:totals.expectedCashInDrawer,expectedCardInAccount:totals.expectedCardInAccount,accountBreakdown:totals.accountBreakdown});
+      this.data.store.cashInBox=totals.expectedCashInDrawer;
     }
-
-    // Calcular saldos netos por cuenta
-    Object.values(accountBreakdown).forEach(acc => {
-      acc.net = (Number(acc.opening) || 0) + (Number(acc.incomes) || 0) - (Number(acc.expenses) || 0) + (Number(acc.adjustments) || 0);
-    });
-
-    // Saldo Teórico en gaveta física: Base de apertura + Todo el Efectivo recibido (ventas + abonos) - Salidas de efectivo reales + Ajustes de caja
-    const calculatedExpected = openingCash + totalEfectivo - cashExpenses + cashAdjustmentsNet;
-
-    // Saldo Teórico en Cuentas Bancarias / Tarjeta: Base inicial + Ingresos bancarios - Egresos bancarios + Ajustes bancarios
-    const expectedCardInAccount = openingCard + totalTarjeta + totalTransferencia - bankExpenses + bankAdjustmentsNet;
-
-    // Saldo Consolidado Total del Turno (Gaveta + Banco)
-    const expectedTotalShift = calculatedExpected + expectedCardInAccount;
-
-    // Sincronizar en tiempo real el registro activo de caja para garantizar exactitud al 100%
-    if (shift && shift.status === 'Abierto') {
-      shift.cashSales = totalEfectivo;
-      shift.transferSales = totalTransferencia;
-      shift.tarjetaSales = totalTarjeta;
-      shift.cardSales = totalTransferencia + totalTarjeta;
-      shift.creditSales = totalCredito;
-      shift.totalFacturado = totalFacturado;
-      shift.totalRecaudado = totalRecaudado;
-      shift.salesCount = shiftTxs.length;
-      shift.cashExpenses = cashExpenses;
-      shift.bankExpenses = bankExpenses;
-      shift.totalExpenses = totalExpenses;
-      shift.cashAdjustmentsNet = cashAdjustmentsNet;
-      shift.bankAdjustmentsNet = bankAdjustmentsNet;
-      shift.expectedCashInDrawer = calculatedExpected;
-      shift.expectedCardInAccount = expectedCardInAccount;
-      shift.accountBreakdown = accountBreakdown;
-      if (this.data.store) {
-        this.data.store.cashInBox = calculatedExpected;
-      }
-    }
-
-    return {
-      salesEfectivo,
-      salesTransferencia,
-      salesTarjeta,
-      salesCredito,
-      salesOtros,
-      totalSales,
-      salesCount: shiftTxs.length,
-
-      abonosEfectivo,
-      abonosTransferencia,
-      abonosTarjeta,
-      abonosOtros,
-      totalAbonos,
-      abonosCount: abonos.length,
-
-      totalEfectivo,
-      totalAbonosEfectivo: abonosEfectivo,
-      totalTransferencia,
-      totalTarjeta,
-      totalCredito,
-      totalOtros,
-      totalFacturado,
-      totalRecaudado,
-      openingCash,
-      openingCard,
-      openingAccount,
-      openingTotal,
-      cashExpenses,
-      bankExpenses,
-      totalExpenses,
-      cashAdjustmentsNet,
-      bankAdjustmentsNet,
-      expectedCashInDrawer: calculatedExpected,
-      expectedCardInAccount,
-      expectedTotalShift,
-      accountBreakdown
-    };
+    return totals;
   }
 
   renderCashShiftIncomesSummary() {
@@ -15783,202 +12782,8 @@ class NexusApp {
   }
 
   getCashShiftExpenses() {
-    const shift = this.data.cashShiftLog;
-    if (!shift) return [];
-    const shiftDate = shift.openedDate || this.getLocalDateStr();
-    const shiftId = shift.shiftId;
-    let openTimestamp = shift.openedTimestamp || 0;
-    if (!openTimestamp && shift.openedDate) {
-      openTimestamp = this.parseDateAndTimeToTimestamp(shift.openedDate, shift.openedAt);
-    }
-
-    const items = [];
-
-    // Helper: normalizar fecha a formato estándar YYYY-MM-DD
-    const normalizeDateStr = (str) => {
-      if (!str) return '';
-      const s = String(str).trim();
-      if (s.includes('T')) return s.split('T')[0];
-      if (s.includes(' ')) return s.split(' ')[0];
-      if (s.includes('/')) {
-        const p = s.split('/');
-        if (p.length === 3) {
-          const day = p[0].padStart(2, '0');
-          const mon = p[1].padStart(2, '0');
-          const yr = p[2].length === 2 ? '20' + p[2] : p[2];
-          return `${yr}-${mon}-${day}`;
-        }
-      }
-      return s;
-    };
-
-    const normShiftDate = normalizeDateStr(shiftDate);
-    const closedShiftIds = new Set();
-    (this.data.cashShiftsHistory || []).forEach(s => {
-      if (s?.id) closedShiftIds.add(s.id);
-      if (s?.shiftId) closedShiftIds.add(s.shiftId);
-    });
-    if (shift.status === 'Cerrado') return [];
-
-    // Helper: coincidencia estricta y segura con el turno activo
-    const matchesShift = (dateStr, timeStr, itemShiftId, itemTimestamp = 0, closedShiftId = null, exclude = false) => {
-      // 0. Si está explícitamente excluido del cuadre de caja:
-      if (exclude) return false;
-      // 1. Si ya pertenece a un turno cerrado o está marcado como cerrado/excluido:
-      if (closedShiftId || (itemShiftId && closedShiftIds.has(itemShiftId)) || itemShiftId === 'EXCLUIDO') {
-        return false;
-      }
-      // 2. Si el egreso tiene un shiftId explícito asignado:
-      if (itemShiftId) {
-        return !!(shiftId && itemShiftId === shiftId);
-      }
-      // 3. Validación de fecha
-      if (!dateStr) return false;
-      const normItemDate = normalizeDateStr(dateStr);
-      if (normItemDate !== normShiftDate) return false;
-
-      // 4. Validación temporal estricta con el momento de apertura del turno
-      if (openTimestamp > 0) {
-        if (itemTimestamp && itemTimestamp > 0) {
-          return itemTimestamp >= (openTimestamp - 60000);
-        }
-        if (timeStr) {
-          const t = this.parseDateAndTimeToTimestamp(normItemDate, timeStr);
-          if (t > 0) return t >= (openTimestamp - 60000);
-        }
-        // Si no tiene hora ni timestamp comprobable, un egreso previo NO puede cargarse a un turno nuevo recién abierto
-        return false;
-      }
-
-      return false;
-    };
-
-    // 1. Gastos Operativos (Efectivo & Bancarios)
-    (this.data.expenses || []).forEach(e => {
-      if (e.excludeFromCashShift) return;
-      if (matchesShift(e.date, e.time, e.shiftId, e.timestamp, e.closedShiftId, e.excludeFromCashShift)) {
-        const m = (e.method || '').toLowerCase();
-        const acc = (e.targetAccount || '').toLowerCase();
-        const isExplicitCash = m.includes('efectivo') || acc.includes('efectivo') || acc.includes('caja');
-        const isBank = !isExplicitCash && (m.includes('transfer') || m.includes('banco') || m.includes('tarjeta') || m.includes('cuenta') || (!!e.targetAccount && !acc.includes('caja')));
-        const targetAcc = isBank ? (e.targetAccount || (e.method && e.method.includes('(') ? e.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'Cuenta Bancaria')) : 'Caja Mostrador (Efectivo)';
-        items.push({
-          id: e.id,
-          date: e.date,
-          time: e.time || shift.openedAt || '',
-          concept: e.description || e.category || 'Gasto Operativo',
-          category: e.category || 'Gasto Operativo',
-          type: isBank ? `Egreso Bancario (${targetAcc})` : 'Gasto Caja Efectivo',
-          typeKey: isBank ? 'banco' : 'gastos',
-          isBank: isBank,
-          isCash: !isBank,
-          method: e.method || (isBank ? `Transferencia (${targetAcc})` : 'Efectivo'),
-          targetAccount: targetAcc,
-          badgeBg: isBank ? 'rgba(99, 102, 241, 0.12)' : '#FEF3C7',
-          badgeColor: isBank ? '#4338CA' : '#D97706',
-          icon: isBank ? '🏦' : '🧾',
-          cashier: e.cashier || e.user || 'Administración',
-          amount: Math.round(Number(e.amount) || 0)
-        });
-      }
-    });
-
-    // 2. Abonos / Pagos a Proveedores (Efectivo & Bancos)
-    (this.data.abonosCompras || []).forEach(a => {
-      if (a.excludeFromCashShift) return;
-      if (matchesShift(a.date, a.time, a.shiftId, a.timestamp, a.closedShiftId, a.excludeFromCashShift)) {
-        const am = (a.method || '').toLowerCase();
-        const aAcc = (a.targetAccount || '').toLowerCase();
-        const isAEfectivo = am.includes('efectivo') || aAcc.includes('efectivo') || aAcc.includes('caja');
-        const isBank = !isAEfectivo && (am.includes('transfer') || am.includes('banco') || am.includes('tarjeta') || am.includes('cuenta') || (!!a.targetAccount && !aAcc.includes('caja')));
-        const targetAcc = isBank ? (a.targetAccount || (a.method && a.method.includes('(') ? a.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'Cuenta Bancaria')) : 'Caja Mostrador (Efectivo)';
-        items.push({
-          id: a.id,
-          date: a.date,
-          time: a.time || shift.openedAt || '',
-          concept: `Pago a Proveedor: ${a.supplier}${a.poId ? ` (${a.poId})` : ''}`,
-          category: 'Abono Proveedor',
-          type: isBank ? `Abono Bancario (${targetAcc})` : 'Abono Proveedor (Efectivo)',
-          typeKey: isBank ? 'banco' : 'abonos',
-          isBank: isBank,
-          isCash: !isBank,
-          method: a.method || 'Efectivo',
-          targetAccount: targetAcc,
-          badgeBg: isBank ? 'rgba(99, 102, 241, 0.12)' : '#EEF2FF',
-          badgeColor: isBank ? '#4338CA' : '#4F46E5',
-          icon: isBank ? '🏦' : '💳',
-          cashier: a.cashier || 'Cajero',
-          amount: Math.round(Number(a.amount) || 0)
-        });
-      }
-    });
-
-    // 3. Compras de Mercancía pagadas de contado (evitar doble conteo con abonosCompras y compras a crédito)
-    const abonoPoIds = new Set((this.data.abonosCompras || []).map(a => a && a.poId).filter(Boolean));
-    (this.data.purchases || []).forEach(po => {
-      if (po.excludeFromCashShift) return;
-      // Excluir compras específicas que el cliente solicitó remover únicamente del cuadre de caja
-      if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return;
-      if (abonoPoIds.has(po.id)) return;
-      const pom = (po.paymentMethod || '').toLowerCase();
-      if (this.isStoreCreditMethod(pom)) return;
-      if (matchesShift(po.date, po.time, po.shiftId, po.timestamp, po.closedShiftId, po.excludeFromCashShift)) {
-        const isPaid = po.paymentStatus === 'Pagado Total' || !po.paymentStatus;
-        if (!isPaid) return;
-
-        const poAcc = (po.targetAccount || '').toLowerCase();
-        const isPoEfectivo = pom.includes('efectivo') || poAcc.includes('efectivo') || poAcc.includes('caja');
-        const isBank = !isPoEfectivo && (pom.includes('transfer') || pom.includes('banco') || pom.includes('tarjeta') || pom.includes('cuenta') || (!!po.targetAccount && !poAcc.includes('caja')));
-        const targetAcc = isBank ? (po.targetAccount || (po.paymentMethod && po.paymentMethod.includes('(') ? po.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : 'Cuenta Bancaria')) : 'Caja Mostrador (Efectivo)';
-        items.push({
-          id: po.id,
-          date: po.date,
-          time: po.time || '',
-          concept: `Compra Mercancía: ${po.supplier} (${po.productName || po.productSku || 'Joyería'})`,
-          category: 'Compra Mercancía',
-          type: isBank ? `Compra Banco (${targetAcc})` : 'Compra Contado (Efectivo)',
-          typeKey: isBank ? 'banco' : 'compras',
-          isBank: isBank,
-          isCash: !isBank,
-          method: po.paymentMethod || 'Efectivo',
-          targetAccount: targetAcc,
-          badgeBg: isBank ? 'rgba(99, 102, 241, 0.12)' : '#F3E8FF',
-          badgeColor: isBank ? '#4338CA' : '#7E22CE',
-          icon: isBank ? '🏦' : '💎',
-          cashier: po.cashier || 'Cajero',
-          amount: Math.round(Number(po.paidAmount || po.total) || 0)
-        });
-      }
-    });
-
-    // 4. Reembolsos en efectivo de ventas de turnos anteriores reversadas durante este turno abierto
-    if (shiftId) {
-      (this.data.recentTransactions || []).forEach(tx => {
-        if (!tx || tx.status !== 'Reversada' || tx.refundShiftId !== shiftId) return;
-        const cashRef = Math.round(Number(tx.cashRefunded) || 0);
-        if (cashRef <= 0) return;
-        items.push({
-          id: `REV-${tx.id}`,
-          date: tx.reversedAt ? tx.reversedAt.slice(0, 10) : shiftDate,
-          time: '',
-          concept: `Reembolso Reversión Venta #${tx.id} (${tx.customer || 'Cliente'})`,
-          category: 'Devolución Venta',
-          type: 'Reembolso Efectivo Caja',
-          typeKey: 'gastos',
-          isBank: false,
-          isCash: true,
-          method: 'Efectivo (Devolución)',
-          targetAccount: 'Caja Mostrador (Efectivo)',
-          badgeBg: '#FEE2E2',
-          badgeColor: '#B91C1C',
-          icon: '↩️',
-          cashier: tx.reversedBy || 'Administrador',
-          amount: cashRef
-        });
-      });
-    }
-
-    return items;
+    if(this.data.cashShiftLog?.status!=='Abierto')return [];
+    return NexusLedger.movements(this.data).filter(m=>m.amount<0&&['purchase','supplier_payment','expense','sale_refund','legacy_refund'].includes(m.type)&&NexusLedger.inShift(m,this.data.cashShiftLog)).map(m=>({id:m.id,date:m.date,time:m.time,concept:m.concept,category:m.category||m.type,type:m.type,typeKey:m.accountKey==='efectivo_caja'?'gastos':'banco',isCash:m.accountKey==='efectivo_caja',isBank:m.accountKey!=='efectivo_caja',method:m.method,targetAccount:NexusLedger.names[m.accountKey]||m.accountKey,badgeBg:'#FEF3C7',badgeColor:'#92400E',icon:'🧾',cashier:m.operator,amount:Math.abs(m.amount)}));
   }
 
   renderCashShiftExpensesSummary() {
@@ -16482,6 +13287,7 @@ class NexusApp {
   }
 
   async submitCashShiftOpen() {
+    if (this.data.cashShiftLog?.status === 'Abierto') return this.blockUnsafeOperation('Ya existe un turno abierto. Ciérralo antes de abrir otro.');
     if (!this.canPerformAction('create', 'cuadre_caja')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para aperturar turnos de caja.', 'danger');
       return;
@@ -16536,7 +13342,7 @@ class NexusApp {
   }
 
   openCashCloseModal() {
-    if (!this.isAdminUser() && !this.canPerformAction('create', 'cuadre_caja')) {
+    if (!this.canPerformAction('create', 'cuadre_caja')) {
       this.showToast('Acceso Denegado: Tu rol es de solo lectura en Arqueo de Caja.', 'danger');
       return;
     }
@@ -16772,7 +13578,7 @@ class NexusApp {
       const openedTs = this.data.cashShiftLog?.openedTimestamp || 0;
       (this.getCashShiftExpenses() || []).forEach(it => {
         if (!it.id) return;
-        const e = (this.data.expenses || []).find(x => x.id === it.id);
+        const e = ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).find(x => x.id === it.id);
         if (e) { e.closedShiftId = closingShiftId; if (!e.shiftId) e.shiftId = closingShiftId; }
         const a = (this.data.abonosCompras || []).find(x => x.id === it.id);
         if (a) { a.closedShiftId = closingShiftId; if (!a.shiftId) a.shiftId = closingShiftId; }
@@ -17352,7 +14158,7 @@ class NexusApp {
     };
 
     const dayOutflows = [];
-    (this.data.expenses || []).forEach(e => {
+    ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).forEach(e => {
       if (!belongsToClosedShift(e)) return;
       const ch = classifyOutflowChannel(e.method, e.targetAccount);
       dayOutflows.push({
@@ -17818,7 +14624,7 @@ class NexusApp {
       return matchesModalShift(ab);
     });
 
-    const dayExpenses = (this.data.expenses || []).filter(ex => {
+    const dayExpenses = ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).filter(ex => {
       if (!ex || ex.isBank || ex.excludeFromCashShift) return false;
       const exM = String(ex.method || '').toLowerCase();
       const exA = String(ex.targetAccount || '').toLowerCase();
@@ -17833,7 +14639,7 @@ class NexusApp {
       return matchesModalShift(ab);
     });
     const abonoPoSet = new Set((this.data.abonosCompras || []).map(a => a?.poId).filter(Boolean));
-    const shiftCashPurchases = (this.data.purchases || []).filter(po => {
+    const shiftCashPurchases = this.activePurchases().filter(po => {
       if (!po || po.excludeFromCashShift || abonoPoSet.has(po.id)) return false;
       if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return false;
       const poM = String(po.paymentMethod || '').toLowerCase();
@@ -18164,6 +14970,8 @@ class NexusApp {
   }
 
   calculateTransactionItemCOGS(it) {
+    const historical = NexusSafety.historicalCost(it || {});
+    if (historical !== null) return Math.round(historical);
     if (!it) return 0;
     const p = (this.data.products || []).find(prod => (it.id && prod.id === it.id) || (it.sku && prod.sku === it.sku) || (it.name && prod.name === it.name));
     const cat = p ? this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName) : null;
@@ -18241,7 +15049,7 @@ class NexusApp {
       let oldestDate = '2024-01-01';
       const allDates = [
         ...(this.data.recentTransactions || []).map(t => this.parseDateSafe(t.date)).filter(Boolean).map(toLocalIso),
-        ...(this.data.expenses || []).map(e => this.parseDateSafe(e.date)).filter(Boolean).map(toLocalIso)
+        ...((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).map(e => this.parseDateSafe(e.date)).filter(Boolean).map(toLocalIso)
       ].sort();
       if (allDates.length > 0) oldestDate = allDates[0];
       if (fromInput) fromInput.value = oldestDate;
@@ -18360,17 +15168,18 @@ class NexusApp {
     const totalGrossRevenue = Math.round(grossSalesJoyería + grossServicesTaller);
     const totalCOGS = calculatedCOGS;
     const cogsPct = totalGrossRevenue > 0 ? (totalCOGS / totalGrossRevenue) : 0;
-    const cogsMetals = Math.round(totalCOGS * 0.85);
-    const cogsGems = totalCOGS - cogsMetals;
+    const cogsMetals = totalCOGS;
+    const cogsGems = 0; // No component breakdown exists in the stored historical cost.
     const grossProfit = totalGrossRevenue - totalCOGS;
     const grossMarginPct = totalGrossRevenue > 0 ? ((grossProfit / totalGrossRevenue) * 100) : 0;
 
     // 3. Operating Expenses (OPEX) for the selected period
-    const rawExpenses = (this.data.expenses || []).filter(e => this.isDateInPeriod(e.date, currentPeriod));
+    const rawExpenses = ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).filter(e => this.isDateInPeriod(e.date, currentPeriod));
     const totalOPEX = rawExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
     // 4. Net Operating Profit
-    const netProfit = grossProfit - totalOPEX;
+    const profitAdjustment=(this.data.financialLedger||[]).filter(a=>this.isDateInPeriod(a.date,currentPeriod)).reduce((sum,a)=>sum+Number(a.profitAdjustment||0),0);
+    const netProfit = grossProfit - totalOPEX + profitAdjustment;
     const netMarginPct = totalGrossRevenue > 0 ? ((netProfit / totalGrossRevenue) * 100) : 0;
 
     const metrics = {
@@ -18385,6 +15194,7 @@ class NexusApp {
       grossMarginPct,
       totalOPEX,
       netProfit,
+      profitAdjustment,
       netMarginPct,
       txCount: validSalesTx.length,
       expensesCount: rawExpenses.length
@@ -18470,12 +15280,12 @@ class NexusApp {
           <td colspan="3">2. COSTO DE MERCANCÍA VENDIDA (COGS)</td>
         </tr>
         <tr class="pl-row-subitem">
-          <td>(-) Costo de Metales Preciosos & Materias Primas Joyeras</td>
+          <td>(-) Costo total de mercancía vendida (sin desglose de componentes)</td>
           <td style="text-align: right; color: var(--amber-text, #D97706); font-weight: 600;">-$ ${cogsMetals.toLocaleString('es-CO')}</td>
           <td style="text-align: right; font-weight: 600; color: var(--text-muted);">${pCogsMetalsPct}%</td>
         </tr>
         <tr class="pl-row-subitem">
-          <td>(-) Costo de Piedras Preciosas, Diamantes & Relojería Fina</td>
+          <td>Desglose por componentes no disponible</td>
           <td style="text-align: right; color: var(--amber-text, #D97706); font-weight: 600;">-$ ${cogsGems.toLocaleString('es-CO')}</td>
           <td style="text-align: right; font-weight: 600; color: var(--text-muted);">${pCogsGemsPct}%</td>
         </tr>
@@ -18495,6 +15305,7 @@ class NexusApp {
           <td style="text-align: right; color: var(--rose-text); font-weight: 800;">${pOpexPct}%</td>
         </tr>
 
+        <tr class="pl-row-subitem"><td>(+/−) Ajustes documentados de valoración y devoluciones</td><td style="text-align:right;">${this.formatCurrency(profitAdjustment)}</td><td>Auditoría</td></tr>
         <tr class="pl-row-nettotal">
           <td>(=) BENEFICIO NETO OPERACIONAL DEL EJERCICIO (EBITDA)</td>
           <td style="text-align: right; font-weight: 800; color: ${netProfit >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">$ ${netProfit.toLocaleString('es-CO')}</td>
@@ -18538,7 +15349,7 @@ class NexusApp {
         const tot = Number(tx.total) || 0;
         return tot > 0 && this.isDateInPeriod(tx.date, period);
       });
-      const filteredExp = (this.data.expenses || []).filter(e => this.isDateInPeriod(e.date, period));
+      const filteredExp = ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).filter(e => this.isDateInPeriod(e.date, period));
 
       if (period === 'month') {
         labels = ['Semana 1 (Días 1-7)', 'Semana 2 (Días 8-14)', 'Semana 3 (Días 15-21)', 'Semana 4 (Días 22+)'];
@@ -18833,7 +15644,7 @@ class NexusApp {
       if (this.charts.repExpensesDoughnut) this.charts.repExpensesDoughnut.destroy();
 
       const catSum = {};
-      const filteredExp = (this.data.expenses || []).filter(e => this.isDateInPeriod(e.date, period));
+      const filteredExp = ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).filter(e => this.isDateInPeriod(e.date, period));
       filteredExp.forEach(e => {
         const cat = e.category || 'Otros Gastos';
         catSum[cat] = (catSum[cat] || 0) + (Number(e.amount) || 0);
@@ -18926,7 +15737,7 @@ class NexusApp {
       return tot > 0 && this.isDateInPeriod(tx.date, period);
     });
 
-    const periodExpenses = (this.data.expenses || []).filter(e => this.isDateInPeriod(e.date, period));
+    const periodExpenses = ((this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status))).filter(e => this.isDateInPeriod(e.date, period));
 
     const cogsPctVal = safePctVal(m.totalCOGS, m.totalGrossRevenue);
     const opexPctVal = safePctVal(m.totalOPEX, m.totalGrossRevenue);
@@ -19018,7 +15829,7 @@ class NexusApp {
       </Row>
       <Row ss:Height="22">
         <Cell ss:StyleID="BadgeCost"><Data ss:Type="String">(-) COSTO</Data></Cell>
-        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Costo de Metales Preciosos &amp; Materias Primas Joyeras</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Costo de mercancía (sin desglose) Preciosos &amp; Materias Primas Joyeras</Data></Cell>
         <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${m.cogsMetals}</Data></Cell>
         <Cell ss:StyleID="CellPercent"><Data ss:Type="Number">${safePctVal(m.cogsMetals, m.totalGrossRevenue)}</Data></Cell>
         <Cell ss:StyleID="CellLeftMuted"><Data ss:Type="String">Insumo de Oro 18K/14K, Plata ley 925 y aleaciones</Data></Cell>
@@ -19641,7 +16452,7 @@ class NexusApp {
         const canPayPO = this.isAdminUser() || this.canPerformAction('create', 'supplier_payment');
         tbody.innerHTML = displayPurchases.map(po => {
           const poTotal = Number(po.total) || 0;
-          const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
+          const poPaid = Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
           const pendingBalance = Math.max(0, Math.round((poTotal - poPaid) * 100) / 100);
           const isPoPaid = po.paymentStatus === 'Pagado Total' || pendingBalance <= 0.01;
           const payBadgeClass = isPoPaid ? 'badge-active' : (poPaid > 0 ? 'badge-warning' : 'badge-danger');
@@ -21184,7 +17995,7 @@ class NexusApp {
       const grams = Number(p.totalGrams) || 0;
       const unitCost = Number(p.unitCost) || 0;
       const total = Number(p.total) || 0;
-      const paid = Number(p.paidAmount) || (p.paymentStatus === 'Pagado Total' ? total : 0);
+      const paid = Number(p.paidAmount) || 0;
       const pending = Math.max(0, total - paid);
 
       totalInversion += total;
@@ -21618,7 +18429,7 @@ class NexusApp {
       const grams = Number(p.totalGrams) || 0;
       const unitCost = Number(p.unitCost) || 0;
       const total = Number(p.total) || 0;
-      const paid = Number(p.paidAmount) || (p.paymentStatus === 'Pagado Total' ? total : 0);
+      const paid = Number(p.paidAmount) || 0;
       const pending = Math.max(0, total - paid);
       const isPaid = p.paymentStatus === 'Pagado Total';
       const badgeStyle = isPaid ? 'BadgeGreen' : (paid > 0 ? 'BadgeAmber' : 'BadgeRose');
@@ -22217,10 +19028,10 @@ class NexusApp {
     const transactions = allTransactions.filter(t => t && t.status !== 'Reversada' && t.status !== 'Anulada' && isDateInRange(t.date));
     const validSalesTx = transactions.filter(t => Number(t.total) > 0);
 
-    const allExpenses = this.data.expenses || [];
+    const allExpenses = (this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status));
     const expenses = allExpenses.filter(e => isDateInRange(e.date));
 
-    const allPurchases = this.data.purchases || [];
+    const allPurchases = this.activePurchases();
     const purchases = allPurchases.filter(p => isDateInRange(p.date));
 
     const allAbonosVentas = this.data.abonosVentas || [];
@@ -22256,13 +19067,14 @@ class NexusApp {
 
     const totalExp = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
     // Utilidad Neta Real = Utilidad Bruta (Ventas - COGS) - Gastos Operativos (OPEX)
-    const netProfit = grossProfit - totalExp;
+    const profitAdjustment=(this.data.financialLedger||[]).filter(a=>isDateInRange(a.date)).reduce((sum,a)=>sum+Number(a.profitAdjustment||0),0);
+    const netProfit = grossProfit - totalExp + profitAdjustment;
     const netMarginPct = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
 
     const totalAbonosVentas = abonosVentas.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
     const totalPurchases = purchases.reduce((acc, p) => acc + (Number(p.total) || 0), 0);
     const totalPagadoPurchases = purchases.reduce((acc, p) => acc + (Number(p.paidAmount) || 0), 0);
-    const totalPendingPurchases = purchases.reduce((acc, p) => acc + Math.max(0, (Number(p.total) || 0) - (Number(p.paidAmount) || 0)), 0);
+    const totalPendingPurchases = purchases.reduce((acc, p) => acc + this.getPurchasePending(p), 0);
 
     // Flujo neto de fondos real (evitando doble conteo de crédito cliente/proveedor cuyo cobro/pago entra por abonos)
     const collectedSalesCashAndBank = validSalesTx.reduce((acc, tx) => {
@@ -22279,7 +19091,7 @@ class NexusApp {
     const directContadoPurchasesPaid = purchases
       .filter(p => p && !this.isStoreCreditMethod(p.paymentMethod) && !periodAbonoPoIds.has(p.id) && p.paymentStatus === 'Pagado Total')
       .reduce((acc, p) => acc + (Number(p.paidAmount || p.total) || 0), 0);
-    const netCashFlow = (collectedSalesCashAndBank + totalAbonosVentas) - (totalExp + totalAbonosComprasPaid + directContadoPurchasesPaid);
+    const netCashFlow = NexusLedger.money(NexusLedger.movements(this.data).filter(m=>isDateInRange(m.date)).reduce((sum,m)=>sum+m.amount,0));
 
     // 2. Expense classification for P&L
     let expNomina = 0;
@@ -22353,6 +19165,7 @@ class NexusApp {
       grossProfit,
       grossMarginPct,
       totalExp,
+      profitAdjustment,
       netProfit,
       netMarginPct,
       totalAbonosVentas,
@@ -22381,6 +19194,7 @@ class NexusApp {
       grossProfit,
       grossMarginPct,
       totalExp,
+      profitAdjustment,
       netProfit,
       netMarginPct,
       totalAbonosVentas,
@@ -22494,7 +19308,7 @@ class NexusApp {
                 <span style="font-weight:700; color:var(--brand-primary);">${this.formatCurrency(totalAbonosVentas)}</span>
               </div>
               <div style="display:flex; justify-content:space-between; padding-top:0.4rem; font-size:1.05rem;">
-                <span style="font-weight:800; color:var(--text-main);">UTILIDAD NETA OPERATIVA REAL:</span>
+                <span style="font-weight:800; color:var(--text-main);">UTILIDAD NETA OPERATIVA (ajustes documentados: ${this.formatCurrency(profitAdjustment)}):</span>
                 <span style="font-weight:900; color:${netProfit >= 0 ? 'var(--emerald-text)' : 'var(--rose-text)'};">${this.formatCurrency(netProfit)}</span>
               </div>
             </div>
@@ -23848,19 +20662,19 @@ class NexusApp {
       dateStr,
       timeStr,
       partyName: tx.customer || 'Cliente Mostrador',
-      partyDocument: cust?.document || tx.customerDoc || '',
-      partyDocType: cust?.docType || tx.customerDocType || 'CC',
-      partyAddress: cust?.address || tx.customerAddress || '',
-      partyPhone: cust?.phone || tx.customerPhone || '',
+      partyDocument: tx.customerDoc ?? cust?.document ?? '',
+      partyDocType: tx.customerDocType ?? cust?.docType ?? 'CC',
+      partyAddress: tx.customerAddress ?? cust?.address ?? '',
+      partyPhone: tx.customerPhone ?? cust?.phone ?? '',
       agentName: tx.cashier || this.data.store?.cashier || 'Cajero',
       items: ticketItems,
       subtotal: tx.subtotal || Math.abs(tx.total),
       tax: tx.tax || 0,
       total: Math.abs(tx.total),
-      paidAmount: (Number(tx.separeAbono) || 0) > 0
+      paidAmount: tx.receivedAmount ?? ((Number(tx.separeAbono) || 0) > 0
         ? Number(tx.separeAbono)
-        : ((tx.paymentMethod || '') === 'Crédito' ? 0 : (tx.totalChargedToCustomer || Math.abs(tx.total))),
-      changeAmount: 0,
+        : ((tx.paymentMethod || '') === 'Crédito' ? 0 : (tx.totalChargedToCustomer || Math.abs(tx.total)))),
+      changeAmount: Number(tx.changeAmount)||0,
       bankFeePercent: tx.bankFeePercent || 0,
       bankFeeAmount: tx.bankFeeAmount || 0,
       totalChargedToCustomer: tx.totalChargedToCustomer || Math.abs(tx.total),
@@ -23870,7 +20684,7 @@ class NexusApp {
       mixedPayments: tx.mixedPayments,
       targetAccount: tx.targetAccount || (tx.paymentMethod && tx.paymentMethod.includes('(') ? tx.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : ''),
       voucher: tx.voucher || '',
-      customerCreditBalance: cust?.creditBalance
+      customerCreditBalance: tx.customerCreditBalanceAtSale ?? cust?.creditBalance
     });
 
     const modalTitle = document.getElementById('receipt-modal-title');
@@ -25488,7 +22302,7 @@ class NexusApp {
 
   getComparativaPeriodosData(filterOverride) {
     const txs = (this.data.recentTransactions || []).filter(tx => tx && tx.status !== 'Reversada' && tx.status !== 'Anulada' && (Number(tx.total) || 0) > 0);
-    const exps = this.data.expenses || [];
+    const exps = (this.data.expenses || []).filter(e=>!NexusLedger.inactive(e.status));
 
     const monthsMap = new Map();
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -26976,7 +23790,7 @@ class NexusApp {
         suggestedAction = 'Recordatorio preventivo de vencimiento próximo';
       }
 
-      const operationType = cc.status === 'Plan Separe' ? 'Plan Separe' : 'Crédito Directo';
+      const operationType = cc.status === 'Plan Separe' || cc.operationType === 'Plan Separe' || String(cc.id || '').startsWith('SEP-') ? 'Plan Separe' : 'Crédito Directo';
       const key = cc.id || `${cc.customer}_${index}`;
 
       creditMap.set(key, {
@@ -28198,7 +25012,7 @@ class NexusApp {
   }
 
   async promptSetProductPrice(productId) {
-    if (!this.canPerformAction('edit', 'product') && !this.isAdminUser()) {
+    if (!this.canPerformAction('edit', 'product')) {
       this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar precios de productos.', 'danger');
       return;
     }
@@ -28361,7 +25175,7 @@ class NexusApp {
   sortRadarStock(order) {
     this.radarSortOrder = order || 'codigo_asc';
     try {
-      localStorage.setItem('nexus_radar_sort', this.radarSortOrder);
+      this.writeBrowserStorage('nexus_radar_sort', this.radarSortOrder);
     } catch (_) {}
     this.renderRadarStock();
   }
@@ -28369,7 +25183,7 @@ class NexusApp {
   getRadarSortOrder() {
     if (!this.radarSortOrder) {
       try {
-        const stored = localStorage.getItem('nexus_radar_sort');
+        const stored = this.readBrowserStorage('nexus_radar_sort');
         // Migrate legacy default 'stock_asc' to requested 'codigo_asc' so it's always consecutive by default
         this.radarSortOrder = (stored && stored !== 'stock_asc') ? stored : 'codigo_asc';
       } catch (_) {
@@ -29584,7 +26398,7 @@ class NexusApp {
   }
 
   getCartSubtotal() {
-    return this.cart.reduce((sum, item) => sum + (this.getCartItemPrice(item) * (Number(item.qty) || 0)), 0);
+    return this.cart.reduce((sum, item) => sum + Math.round(this.getCartItemPrice(item) * (Number(item.qty) || 0)), 0);
   }
 
   getCartGrandTotal() {
@@ -29607,7 +26421,7 @@ class NexusApp {
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
-    const maxAvailableQty = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
+    const maxAvailableQty = isUnitWithWeight ? NexusSafety.round(stockNum * pWeight) : stockNum;
 
     const elId = document.getElementById('pos-add-product-id');
     const elName = document.getElementById('pos-add-product-name');
@@ -29691,7 +26505,7 @@ class NexusApp {
 
     if (elCost) {
       if (unitReplacementCost > 0) {
-        elCost.textContent = `${this.formatCurrency(unitReplacementCost)} / u.`;
+        elCost.textContent = `${this.formatCurrency(unitReplacementCost)} / ${isPesaje ? (p.weightUnit || 'g') : 'u.'}`;
         elCost.style.color = '#D97706';
         if (elCostSub) {
           if (isUnitWithWeight) {
@@ -30009,7 +26823,7 @@ class NexusApp {
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
-    const maxStock = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(stockNum * pWeight) : stockNum;
     const unit = isPesaje ? (p.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
 
     if (qty <= 0) {
@@ -30062,8 +26876,8 @@ class NexusApp {
     const pWeight = parseFloat(String(product.pieceWeight !== undefined && product.pieceWeight !== null ? product.pieceWeight : (product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
-    const maxStock = isUnitWithWeight ? Math.round(stockNum * pWeight * 100) / 100 : stockNum;
-    const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(stockNum * pWeight) : stockNum;
+    const roundPrec = 1000000;
 
     const existing = this.cart.find(item => item.product.id === productId);
     const hasCustomPrice = customPrice !== null && customPrice !== undefined && !isNaN(Number(customPrice)) && Number(customPrice) > 0;
@@ -30127,8 +26941,8 @@ class NexusApp {
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (cartItem.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStockUnits = parseFloat(String(cartItem.product.stock || 0).replace(',', '.')) || 0;
-    const maxStock = isUnitWithWeight ? Math.round(maxStockUnits * pWeight * 100) / 100 : maxStockUnits;
-    const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((cartItem.product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(maxStockUnits * pWeight) : maxStockUnits;
+    const roundPrec = 1000000;
 
     let step = 1;
     if (isPesaje) {
@@ -30160,8 +26974,8 @@ class NexusApp {
     const isUnitWithWeight = !isPesaje && pWeight > 0;
     const unit = isPesaje ? (cartItem.product.weightUnit || 'g') : (isUnitWithWeight ? 'g' : 'u.');
     const maxStockUnits = parseFloat(String(cartItem.product.stock || 0).replace(',', '.')) || 0;
-    const maxStock = isUnitWithWeight ? Math.round(maxStockUnits * pWeight * 100) / 100 : maxStockUnits;
-    const roundPrec = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes((cartItem.product.weightUnit || 'g').toLowerCase())) ? 10000 : 100;
+    const maxStock = isUnitWithWeight ? NexusSafety.round(maxStockUnits * pWeight) : maxStockUnits;
+    const roundPrec = 1000000;
 
     let val = this.parseCleanNumber(rawValue);
     if (isNaN(val) || val <= 0) {
@@ -30191,6 +27005,8 @@ class NexusApp {
     const taxEl = document.getElementById('cart-tax');
     const totalEl = document.getElementById('cart-total');
     const openCheckoutBtn = document.getElementById('open-checkout-btn');
+    const taxLabel = document.getElementById('cart-tax-label');
+    if (taxLabel) taxLabel.textContent = `Impuesto (IVA ${Number(this.data.store?.taxRate) || 0}%)`;
 
     if (!container) return;
 
@@ -30304,7 +27120,7 @@ class NexusApp {
       `;
     }).join('');
 
-    const roundedSubtotal = Math.round(subtotal);
+    const roundedSubtotal = Math.round(this.getCartSubtotal());
     const tax = Math.round(roundedSubtotal * ((Number(this.data.store?.taxRate) || 0) / 100));
     const grandTotal = roundedSubtotal + tax;
 
@@ -31002,7 +27818,7 @@ class NexusApp {
       const requestedUnitsByProdId = new Map();
       for (const cartItem of this.cart) {
         const pPrice = this.getCartItemPrice(cartItem);
-        if (isNaN(pPrice) || pPrice <= 0) {
+        if (!Number.isFinite(pPrice) || pPrice <= 0) {
           this.showToast(`El producto "${cartItem.product?.name || ''}" tiene precio $0. Define un precio de venta antes de cobrar.`, 'warning');
           return;
         }
@@ -31016,18 +27832,18 @@ class NexusApp {
           return;
         }
         const soldQty = Number(cartItem.qty) || 0;
-        if (soldQty <= 0) {
+        if (!Number.isFinite(soldQty) || soldQty <= 0) {
           this.showToast(`Cantidad inválida para "${liveProd.name}".`, 'warning');
           return;
         }
         const isPesaje = (liveProd.measureType || 'Pesaje') === 'Pesaje';
         const pWeight = parseFloat(String(liveProd.pieceWeight !== undefined && liveProd.pieceWeight !== null ? liveProd.pieceWeight : (liveProd.weight || 0)).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const unitsToDeduct = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
-        const nextAccum = Math.round(((requestedUnitsByProdId.get(liveProd.id) || 0) + unitsToDeduct) * 10000) / 10000;
+        const unitsToDeduct = isUnitWithWeight ? (NexusSafety.round(soldQty / pWeight)) : soldQty;
+        const nextAccum = NexusSafety.round((requestedUnitsByProdId.get(liveProd.id) || 0) + unitsToDeduct);
         requestedUnitsByProdId.set(liveProd.id, nextAccum);
         const availStock = parseFloat(String(liveProd.stock || 0).replace(',', '.')) || 0;
-        if (nextAccum > availStock + 0.0001) {
+        if (nextAccum > availStock + 0.000001) {
           this.showToast(`Stock insuficiente para "${liveProd.name}". Disponible: ${availStock}, solicitado: ${nextAccum}.`, 'danger');
           return;
         }
@@ -31037,6 +27853,7 @@ class NexusApp {
       const subtotal = Math.round(this.getCartSubtotal());
       const tax = Math.round(subtotal * ((Number(this.data.store?.taxRate) || 0) / 100));
       const grandTotal = subtotal + tax;
+      if(!Number.isFinite(grandTotal)||grandTotal<=0){this.showToast('El total de la venta debe ser mayor a $0. Revisa cantidades y precios.','warning');return;}
 
     const selectedCustomer = document.getElementById('checkout-customer-select')?.value || "Cliente Mostrador";
     const isMostrador = selectedCustomer === 'Cliente Mostrador';
@@ -31070,6 +27887,7 @@ class NexusApp {
     let targetAccount = '';
     let voucher = '';
     let mixedPaymentsData = null;
+    let creditLimitOverride=null;
     let bankFeePercent = 0;
     let bankFeeAmount = 0;
     let totalChargedToCustomer = grandTotal;
@@ -31094,13 +27912,13 @@ class NexusApp {
     } else if (this.selectedPayMethod === 'mixed') {
       const mAmount1 = this.parseCleanNumber(document.getElementById('mixed-amount-1')?.value);
       const mAmount2 = this.parseCleanNumber(document.getElementById('mixed-amount-2')?.value);
-      const mTotal = Math.round(mAmount1 + mAmount2);
+      const mTotal = NexusLedger.money(mAmount1 + mAmount2);
 
-      if (mAmount1 <= 0 || mAmount2 <= 0) {
+      if (!Number.isFinite(mAmount1)||!Number.isFinite(mAmount2)||mAmount1 <= 0 || mAmount2 <= 0) {
         this.showToast('En Pago Mixto ambas partes deben ser mayores a $0.', 'warning');
         return;
       }
-      if (Math.abs(mTotal - grandTotal) > 1) {
+      if (Math.abs(mTotal - grandTotal) > 0.01) {
         this.showToast(`La suma del pago mixto (${this.formatCurrency(mTotal)}) no coincide con el total de la venta (${this.formatCurrency(grandTotal)}).`, 'warning');
         return;
       }
@@ -31171,6 +27989,10 @@ class NexusApp {
         || (this.selectedPayMethod === 'card' && cust.allowedPaymentMethods.includes('Tarjeta Débito/Crédito'))
         || (this.selectedPayMethod === 'mixed' && (cust.allowedPaymentMethods.includes('Efectivo') || cust.allowedPaymentMethods.includes('Transferencia') || cust.allowedPaymentMethods.includes('Tarjeta'))))
       : true;
+    if (cust && this.selectedPayMethod === 'mixed' && mixedPaymentsData && !cust.allowedPaymentMethods?.includes('Pago Mixto')) {
+      const disallowed = mixedPaymentsData.some(p => !cust.allowedPaymentMethods?.includes(p.method) && !(p.method === 'Tarjeta' && cust.allowedPaymentMethods?.includes('Tarjeta Débito/Crédito')));
+      if (disallowed) throw new Error('Una de las formas de pago mixto no está autorizada para este cliente.');
+    }
     if (!isMethodAllowedForCust) {
       this.showToast(`El método de pago "${payMethodName}" no está habilitado para el cliente ${cust.name}.`, 'warning');
       return;
@@ -31185,15 +28007,14 @@ class NexusApp {
       }
     }
 
-    // 4. Validate Credit limit and warn if exceeded
-    if (this.selectedPayMethod === 'credit' && cust) {
-      const limit = Number(cust.creditLimit) || 0;
-      const current = Number(cust.creditBalance) || 0;
-      const available = Math.max(0, limit - current);
-      if (grandTotal > available + 0.01) {
-        if (!confirm(`¡Advertencia de Cupo! Esta venta (${this.formatCurrency(grandTotal)}) excede el cupo disponible del cliente (${this.formatCurrency(available)}). ¿Desea autorizar y procesar la venta a crédito?`)) {
-          return;
-        }
+    // Credit-limit exceptions require an explicit administrative reason saved on the sale.
+    if ((this.selectedPayMethod === 'credit'||this.selectedPayMethod === 'separe') && cust) {
+      const principal=this.selectedPayMethod==='separe'?Math.max(0,grandTotal-this.parseCleanNumber(document.getElementById('separe-abono-input')?.value)):grandTotal;
+      const available=Math.max(0,Number(cust.creditLimit||0)-Number(cust.creditBalance||0));
+      if(principal>available+.01){
+        if(!this.isAdminUser())throw new Error('La venta supera el cupo disponible. Un administrador debe autorizar la excepción.');
+        const reason=prompt('Esta venta supera el cupo del cliente. Escribe el motivo y soporte de la autorización administrativa:');if(!reason?.trim())return;
+        creditLimitOverride={reason:reason.trim(),authorizedBy:this.currentUser.id};
       }
     }
 
@@ -31221,10 +28042,10 @@ class NexusApp {
         const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
         const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
-        const roundScale = (isPesaje && (p.weightUnit || 'g').toLowerCase() === 'kg') ? 10000 : 1000;
-        const unitsToDeduct = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
+        const roundScale = 1000000;
+        const unitsToDeduct = isUnitWithWeight ? (NexusSafety.round(soldQty / pWeight)) : soldQty;
         p.stock = Math.round(((Number(p.stock) || 0) - unitsToDeduct) * roundScale) / roundScale;
-        if (p.stock <= 0.0001) {
+        if (p.stock <= 0) {
           p.stock = 0;
           p.status = 'out_of_stock';
         } else if (p.stock <= (Number(p.minStock) || 0)) {
@@ -31244,10 +28065,7 @@ class NexusApp {
     // Sincronizar automáticamente disponibilidad de gramos en todas las categorías tras la venta
     this.syncAllCategoryGrams();
 
-    let newTxId;
-    do {
-      newTxId = `TX-${Math.floor(89000 + Math.random() * 10000)}`;
-    } while ((this.data.recentTransactions || []).some(t => t.id === newTxId));
+    const newTxId=this.generateSequentialId('TX',this.data.recentTransactions);
     
     let separeAbono = 0;
     let separePending = 0;
@@ -31281,7 +28099,7 @@ class NexusApp {
       if (cust) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + grandTotal) * 100) / 100;
         let existing = (this.data.customerCredits || []).find(cr =>
-          cr.customer === cust.name && cr.status !== 'Plan Separe' && cr.status !== 'Anulado'
+          cr.customer === cust.name && cr.operationType !== 'Plan Separe' && !String(cr.id || '').startsWith('SEP-') && cr.status !== 'Plan Separe' && cr.status !== 'Anulado'
         );
         if (existing) {
           if (!Array.isArray(existing.mergedTxIds)) {
@@ -31312,16 +28130,17 @@ class NexusApp {
         this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
         if (this.data.store) this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
-      if (cust && separePending > 0) {
+      if (cust) {
         cust.creditBalance = Math.round(((Number(cust.creditBalance) || 0) + separePending) * 100) / 100;
         this.data.customerCredits.unshift({
           id: this.generateSequentialId('SEP', this.data.customerCredits),
+          operationType: 'Plan Separe',
           txId: newTxId,
           customer: cust.name,
           totalGranted: grandTotal,
           currentBalance: separePending,
           dueDate: new Date(Date.now() + 45 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          status: 'Plan Separe'
+          status: separePending>0?'Plan Separe':'Saldado'
         });
       }
     }
@@ -31355,6 +28174,8 @@ class NexusApp {
           measureType: i.product?.measureType || 'Pesaje',
           pieceWeight: pWeight,
           cost: Number(i.product?.cost) || 0,
+          costUnit: i.product?.weightUnit || 'g',
+          cogsTotal: Math.round((Number(i.product?.cost) || 0) * i.qty),
           catalogPrice: Number(i.product?.price) || 0,
           category: i.product?.category || '',
           categoryName: i.product?.categoryName || '',
@@ -31368,6 +28189,7 @@ class NexusApp {
       total: grandTotal, // Neto real de venta de joyería que ingresa a la contabilidad
       separeAbono: this.selectedPayMethod === 'separe' ? separeAbono : 0,
       separePending: this.selectedPayMethod === 'separe' ? separePending : 0,
+      creditLimitOverride,
       bankFeePercent: bankFeePercent,
       bankFeeAmount: bankFeeAmount,
       totalChargedToCustomer: totalChargedToCustomer, // Total cobrado al cliente en datáfono
@@ -31432,6 +28254,9 @@ class NexusApp {
       }
     }
 
+    newTx.receivedAmount=cashReceived;
+    newTx.changeAmount=changeVal;
+    newTx.customerCreditBalanceAtSale=Number(cust?.creditBalance||0);
     const receiptHtml = this.buildThermalTicketHtml({
       type: 'venta',
       txId: newTxId,
@@ -31439,6 +28264,7 @@ class NexusApp {
       timeStr: newTx.time,
       partyName: selectedCustomer,
       partyDocument: cust?.document || '',
+      partyDocType: newTx.customerDocType,
       partyAddress: cust?.address || '',
       partyPhone: cust?.phone || '',
       agentName: newTx.cashier,
@@ -31771,8 +28597,8 @@ class NexusApp {
     try {
       if (this.data?.store?.deepseekApiKey) {
         try {
-          if (!localStorage.getItem('nexus_deepseek_key')) {
-            localStorage.setItem('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
+          if (!this.readBrowserStorage('nexus_deepseek_key')) {
+            this.writeBrowserStorage('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
           }
         } catch (_) {}
         delete this.data.store.deepseekApiKey;
@@ -31781,7 +28607,7 @@ class NexusApp {
       if (res.ok) {
         const data = await res.json();
         let hasSavedLocal = false;
-        try { hasSavedLocal = !!localStorage.getItem('nexus_deepseek_key'); } catch (_) {}
+        try { hasSavedLocal = !!this.readBrowserStorage('nexus_deepseek_key'); } catch (_) {}
         const statusDot = document.getElementById('nexus-ai-status-dot');
         const statusText = document.getElementById('nexus-ai-status-text');
         if (data.hasApiKey || hasSavedLocal) {
@@ -31852,14 +28678,14 @@ class NexusApp {
     if (!modal) return;
     if (this.data.store?.deepseekApiKey) {
       try {
-        if (!localStorage.getItem('nexus_deepseek_key')) {
-          localStorage.setItem('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
+        if (!this.readBrowserStorage('nexus_deepseek_key')) {
+          this.writeBrowserStorage('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
         }
       } catch (_) {}
       delete this.data.store.deepseekApiKey;
     }
     let currentKey = '';
-    try { currentKey = localStorage.getItem('nexus_deepseek_key') || ''; } catch (_) {}
+    try { currentKey = this.readBrowserStorage('nexus_deepseek_key') || ''; } catch (_) {}
     const input = document.getElementById('nexus-ai-api-key-input');
     if (input) input.value = currentKey;
     modal.classList.add('open');
@@ -31879,10 +28705,10 @@ class NexusApp {
     const key = (input?.value || '').trim();
     if (this.data.store) delete this.data.store.deepseekApiKey;
     if (!key) {
-      try { localStorage.removeItem('nexus_deepseek_key'); } catch (_) {}
+      try { this.removeBrowserStorage('nexus_deepseek_key'); } catch (_) {}
       this.showToast('API Key de DeepSeek removida', 'warning');
     } else {
-      try { localStorage.setItem('nexus_deepseek_key', key); } catch (_) {}
+      try { this.writeBrowserStorage('nexus_deepseek_key', key); } catch (_) {}
       this.showToast('✨ API Key de DeepSeek guardada localmente en este navegador');
     }
 
@@ -32020,10 +28846,10 @@ class NexusApp {
     }
     this.showAiTyping(true);
     let apiKey = '';
-    try { apiKey = localStorage.getItem('nexus_deepseek_key') || ''; } catch (_) {}
+    try { apiKey = this.readBrowserStorage('nexus_deepseek_key') || ''; } catch (_) {}
     if (!apiKey && this.data.store?.deepseekApiKey) {
       apiKey = String(this.data.store.deepseekApiKey);
-      try { localStorage.setItem('nexus_deepseek_key', apiKey); } catch (_) {}
+      try { this.writeBrowserStorage('nexus_deepseek_key', apiKey); } catch (_) {}
       delete this.data.store.deepseekApiKey;
     }
     const context = customContext || this.getAiBusinessContext();

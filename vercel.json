@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "git": {
+    "deploymentEnabled": {
+      "codex/preopening-stabilization": false
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.js" }
   ]
