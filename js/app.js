@@ -419,6 +419,47 @@ class NexusApp {
       .replace(/'/g, '&apos;');
   }
 
+  escapeJsAttr(val) {
+    return this.escapeHtml(String(val ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  }
+
+  getLocalDateStr(d = new Date()) {
+    const dt = d instanceof Date ? d : (d ? new Date(d) : new Date());
+    if (!dt || isNaN(dt.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+  }
+
+  isStoreCreditMethod(methodStr) {
+    const m = String(methodStr || '').toLowerCase();
+    if (!m.includes('crédito') && !m.includes('credito')) return false;
+    if (m.includes('tarjeta') || m.includes('débito') || m.includes('debito') || m.includes('card') || m.includes('datafono') || m.includes('datáfono')) return false;
+    return true;
+  }
+
+  _downloadCsv(rows, filename) {
+    const formatCsvCell = (val) => {
+      if (val === null || val === undefined) return '""';
+      if (typeof val === 'number') return Number.isFinite(val) ? String(val) : '0';
+      let s = String(val);
+      if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+        s = s.slice(1, -1).replace(/""/g, '"');
+      }
+      if (/^[=+\-@]/.test(s)) s = "'" + s;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const csvContent = '\uFEFF' + rows.map(row => row.map(formatCsvCell).join(';')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', String(filename || 'reporte').endsWith('.csv') ? filename : `${filename}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   normalizeSearchStr(str) {
     return String(str || '')
       .toLowerCase()
@@ -2000,7 +2041,8 @@ class NexusApp {
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sub-view-pane').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.modal-backdrop.open, .modal.open').forEach(el => el.classList.remove('open', 'active'));
-    if (typeof this.closeAiDrawer === 'function') this.closeAiDrawer();
+    if (typeof this.closeAiCopilotDrawer === 'function') this.closeAiCopilotDrawer();
+    if (typeof this.clearAiChat === 'function') this.clearAiChat();
     const loginOverlay = document.getElementById('login-screen');
     if (loginOverlay) {
       loginOverlay.classList.add('active');
@@ -2035,7 +2077,7 @@ class NexusApp {
       if (!profile && (roleName.includes('contad') || roleName.includes('auditor'))) {
         profile = this.data.perfiles.find(p => p.name?.toLowerCase().includes('contad') || p.id === 'PRF-04');
       }
-      if (profile && profile.allowedModules && profile.allowedModules.length > 0) {
+      if (profile && Array.isArray(profile.allowedModules)) {
         perms = profile.allowedModules;
       } else if (roleName.includes('cajer')) {
         perms = ["pos", "clientes", "cuadre_caja", "ventas"];
@@ -2122,29 +2164,31 @@ class NexusApp {
     const isAdmin = role.includes('admin') || role.includes('gerente') || role.includes('supervisor');
     const isVendedor = role.includes('vendedor') || role.includes('operad');
     const isInventario = role.includes('inventario');
+    const entityModuleMap = {
+      category: 'categorias',
+      product: 'productos',
+      service: 'servicios',
+      customer: 'clientes',
+      supplier: 'proveedores',
+      expense: 'gastos',
+      asset: 'activos',
+      purchase: 'comprar',
+      sale: 'pos',
+      cuadre_caja: 'cuadre_caja',
+      paymethod: 'formas_pago',
+      customer_payment: 'creditos_clientes',
+      supplier_payment: 'creditos_proveedores'
+    };
 
     // Check custom granular permissions FIRST if assigned to this specific user (strict override of role profile)
     if (this.currentUser.customPermissions && Array.isArray(this.currentUser.customPermissions)) {
       const perms = this.currentUser.customPermissions;
       if (perms.includes('*')) return true;
-      const entityModuleMap = {
-        category: 'categorias',
-        product: 'productos',
-        service: 'servicios',
-        customer: 'clientes',
-        supplier: 'proveedores',
-        expense: 'gastos',
-        asset: 'activos',
-        purchase: 'comprar',
-        cuadre_caja: 'cuadre_caja',
-        paymethod: 'formas_pago',
-        customer_payment: 'creditos_clientes',
-        supplier_payment: 'creditos_proveedores'
-      };
       const requiredMod = entityModuleMap[entity];
       if (requiredMod) {
         if (action === 'edit' || action === 'create') {
           if (perms.includes(requiredMod)) return true;
+          if (entity === 'sale' && perms.includes('ventas')) return true;
           if (entity === 'expense' && (perms.includes('gastos') || perms.includes('pos') || perms.includes('cuadre_caja') || perms.includes('finanzas'))) {
             return true;
           }
@@ -2159,15 +2203,14 @@ class NexusApp {
       }
     }
 
-    if (entity === 'expense' && (action === 'create' || action === 'edit')) {
-      if (isCajero || isAdmin || isVendedor) return true;
-    }
-
     // Cashier & Vendedor restrictions
     if (isCajero || isVendedor) {
+      if (entity === 'expense' && (action === 'create' || action === 'edit')) {
+        return true;
+      }
       if (action === 'delete') return false;
       if (action === 'edit' || action === 'create') {
-        if (['product', 'supplier', 'asset', 'category', 'service', 'paymethod', 'user', 'profile', 'supplier_payment'].includes(entity)) {
+        if (['product', 'supplier', 'asset', 'category', 'service', 'paymethod', 'user', 'profile', 'purchase', 'supplier_payment'].includes(entity)) {
           return false;
         }
         if (action === 'edit' && entity === 'customer') {
@@ -2189,11 +2232,28 @@ class NexusApp {
       return ['product', 'category', 'service', 'asset', 'purchase', 'supplier'].includes(entity);
     }
 
-    // Accountant / Auditor permissions (read-only on cash/credit payments/prices)
+    // Accountant / Auditor permissions (strictly read-only)
     if (role.includes('contad') || role.includes('auditor')) {
+      return false;
+    }
+
+    // Custom role profile permissions
+    const roleProfile = (this.data?.perfiles || []).find(p => p && p.name?.toLowerCase() === role);
+    if (roleProfile && Array.isArray(roleProfile.allowedModules)) {
+      if (entity === 'user' || entity === 'profile') return false;
+      const profPerms = roleProfile.allowedModules;
+      if (profPerms.length === 0) return false;
+      if (profPerms.includes('*')) return action !== 'delete' || isAdmin;
+      const requiredMod = entityModuleMap[entity];
+      if (!requiredMod) return false;
       if (action === 'delete') return false;
-      if (['user', 'profile', 'product', 'supplier', 'asset', 'paymethod', 'cuadre_caja', 'customer_payment', 'supplier_payment'].includes(entity)) return false;
-      return true;
+      if (action === 'create' || action === 'edit') {
+        if (profPerms.includes(requiredMod)) return true;
+        if (entity === 'sale' && profPerms.includes('ventas')) return true;
+        if (entity === 'expense' && (profPerms.includes('pos') || profPerms.includes('cuadre_caja') || profPerms.includes('finanzas'))) return true;
+        if (entity === 'customer_payment' && (profPerms.includes('pos') || profPerms.includes('ventas'))) return true;
+      }
+      return false;
     }
 
     return false;
@@ -2356,6 +2416,15 @@ class NexusApp {
     if (topPosBtn) {
       const canPOS = this.hasPermission('pos', null);
       topPosBtn.style.display = canPOS ? 'inline-flex' : 'none';
+    }
+
+    const aiFab = document.getElementById('nexus-ai-fab');
+    const canAi = typeof this.canUseAiCopilot === 'function' ? this.canUseAiCopilot() : false;
+    if (aiFab) {
+      aiFab.style.display = canAi ? 'flex' : 'none';
+    }
+    if (!canAi && typeof this.closeAiCopilotDrawer === 'function') {
+      this.closeAiCopilotDrawer();
     }
   }
 
@@ -2711,6 +2780,15 @@ class NexusApp {
         const email = document.getElementById('user-email-input').value.trim();
         const role = document.getElementById('user-role-select').value;
         const password = document.getElementById('user-password-input')?.value?.trim() || "123456";
+        if (!name || !email) {
+          this.showToast('El nombre y el correo electrónico son obligatorios.', 'warning');
+          return;
+        }
+        const dupEmail = (this.data.users || []).find(u => u && String(u.email || '').trim().toLowerCase() === email.toLowerCase());
+        if (dupEmail) {
+          this.showToast(`Ya existe un usuario registrado con el correo "${email}". Usa un correo diferente.`, 'warning');
+          return;
+        }
         if (password.length < 4) {
           this.showToast('La contraseña debe contener al menos 4 caracteres.', 'warning');
           return;
@@ -2759,22 +2837,33 @@ class NexusApp {
         const id = document.getElementById('edit-user-id').value;
         const u = this.data.users.find(usr => usr.id === id);
         if (u) {
-          const isTargetSuperAdmin = u.role === 'Super Admin' || u.id === 'USR-001';
+          const nextName = document.getElementById('edit-user-name').value.trim();
+          const nextEmail = document.getElementById('edit-user-email').value.trim();
+          if (!nextName || !nextEmail) {
+            this.showToast('El nombre y el correo electrónico son obligatorios.', 'warning');
+            return;
+          }
+          const dupEmail = (this.data.users || []).find(usr => usr && usr.id !== u.id && String(usr.email || '').trim().toLowerCase() === nextEmail.toLowerCase());
+          if (dupEmail) {
+            this.showToast(`El correo "${nextEmail}" ya pertenece a otro usuario (${dupEmail.name}).`, 'warning');
+            return;
+          }
+          const isTargetSuperAdmin = this.isSuperAdminRole(u.role) || u.id === 'USR-001';
           const isEditingSelf = Boolean(this.currentUser && (this.currentUser.id === u.id || this.currentUser.email?.toLowerCase() === u.email?.toLowerCase()));
 
           let newRole = document.getElementById('edit-user-role').value;
           let newStatus = document.getElementById('edit-user-status').value;
 
           // If role/status select was disabled, enforce strict protected values
-          if (isTargetSuperAdmin || (isEditingSelf && this.currentUser?.role === 'Super Admin')) {
-            newRole = 'Super Admin';
+          if (isTargetSuperAdmin || (isEditingSelf && this.isSuperAdminRole(this.currentUser?.role))) {
+            newRole = u.role && this.isSuperAdminRole(u.role) ? u.role : 'Super Admin';
           }
           if (isEditingSelf || isTargetSuperAdmin) {
             newStatus = 'Active';
           }
 
           // Strict validation against self-demotion or self-deactivation
-          if ((isTargetSuperAdmin || isEditingSelf) && newRole !== 'Super Admin' && u.role === 'Super Admin') {
+          if ((isTargetSuperAdmin || isEditingSelf) && !this.isSuperAdminRole(newRole) && this.isSuperAdminRole(u.role)) {
             this.showToast('Acción Prohibida: No puedes degradar el rol de Super Administrador.', 'danger');
             return;
           }
@@ -2784,13 +2873,13 @@ class NexusApp {
             return;
           }
 
-          u.name = document.getElementById('edit-user-name').value.trim();
-          u.email = document.getElementById('edit-user-email').value.trim();
+          u.name = nextName;
+          u.email = nextEmail;
           u.role = newRole;
           u.status = newStatus;
 
           // Super Admin accounts always have unrestricted total access; customPermissions must be null
-          if (u.role === 'Super Admin') {
+          if (this.isSuperAdminRole(u.role)) {
             u.customPermissions = null;
           } else {
             const customPerms = this.getSelectedPermissions('edit-user-perm-box', 'edit-usr-perm');
@@ -3200,13 +3289,26 @@ class NexusApp {
         }
         const name = document.getElementById('prf-name-input').value.trim();
         const desc = document.getElementById('prf-desc-input').value.trim();
+        if (!name) {
+          this.showToast('El nombre del perfil no puede estar vacío.', 'warning');
+          return;
+        }
+        if (this.isSuperAdminRole(name)) {
+          this.showToast('Acción Prohibida: Nombre reservado para el sistema (Super Admin).', 'danger');
+          return;
+        }
+        const dupPrf = (this.data.perfiles || []).find(p => p && String(p.name || '').trim().toLowerCase() === name.toLowerCase());
+        if (dupPrf) {
+          this.showToast(`Ya existe un perfil con el nombre "${name}".`, 'warning');
+          return;
+        }
         const allowedModules = this.getSelectedPermissions('add-profile-perm-box', 'add-prf-perm');
 
-        // Update assigned users
+        // Update assigned users (protect Super Admin accounts)
         const assignedUserCbs = document.querySelectorAll('.add-prf-user-checkbox:checked');
         const assignedUserIds = Array.from(assignedUserCbs).map(cb => cb.value);
         this.data.users.forEach(u => {
-          if (assignedUserIds.includes(u.id)) {
+          if (assignedUserIds.includes(u.id) && !this.isSuperAdminRole(u.role) && u.id !== 'USR-001') {
             u.role = name;
           }
         });
@@ -3217,7 +3319,7 @@ class NexusApp {
           permissions: desc || `Acceso a ${allowedModules.length} módulo(s)`,
           usersCount: assignedUserIds.length,
           badgeColor: "#7C3AED",
-          allowedModules: allowedModules.length > 0 ? allowedModules : ['*']
+          allowedModules: allowedModules
         };
         this.data.perfiles.unshift(newPrf);
         await this.savePersistence();
@@ -3245,11 +3347,25 @@ class NexusApp {
           const oldName = prf.name;
           const newName = document.getElementById('edit-prf-name').value.trim();
           const desc = document.getElementById('edit-prf-desc').value.trim();
+          if (!newName) {
+            this.showToast('El nombre del perfil no puede estar vacío.', 'warning');
+            return;
+          }
+          const isEditingSuperPrf = prf.id === 'PRF-01' || this.isSuperAdminRole(oldName);
+          if (!isEditingSuperPrf && this.isSuperAdminRole(newName)) {
+            this.showToast('Acción Prohibida: Nombre reservado para el sistema (Super Admin).', 'danger');
+            return;
+          }
+          const dupPrf = (this.data.perfiles || []).find(p => p && p.id !== prf.id && String(p.name || '').trim().toLowerCase() === newName.toLowerCase());
+          if (dupPrf) {
+            this.showToast(`Ya existe otro perfil con el nombre "${newName}".`, 'warning');
+            return;
+          }
           const allowedModules = this.getSelectedPermissions('edit-profile-perm-box', 'edit-prf-perm');
 
           prf.name = newName;
           prf.permissions = desc || `Acceso a ${allowedModules.length} módulo(s)`;
-          prf.allowedModules = allowedModules.length > 0 ? allowedModules : ['*'];
+          prf.allowedModules = isEditingSuperPrf ? ['*'] : allowedModules;
 
           // Sync users assigned to this role via checkboxes
           const assignedUserCbs = document.querySelectorAll('.edit-prf-user-checkbox');
@@ -3257,7 +3373,7 @@ class NexusApp {
             const u = this.data.users.find(usr => usr.id === cb.value);
             if (u) {
               // Never demote or change a Super Admin account through role checkboxes
-              if (u.role === 'Super Admin' || u.id === 'USR-001') {
+              if (this.isSuperAdminRole(u.role) || u.id === 'USR-001') {
                 return;
               }
               if (cb.checked) {
@@ -3270,7 +3386,7 @@ class NexusApp {
 
           if (oldName !== newName) {
             this.data.users.forEach(u => {
-              if (u.role === oldName && u.role !== 'Super Admin') u.role = newName;
+              if (u.role === oldName && !this.isSuperAdminRole(u.role)) u.role = newName;
             });
           }
 
@@ -3336,7 +3452,25 @@ class NexusApp {
         const id = document.getElementById('edit-pm-id').value;
         const pm = this.data.paymentMethods.find(p => p.id === id);
         if (pm) {
-          pm.name = document.getElementById('edit-pm-name').value.trim();
+          const oldName = pm.name;
+          const oldAccKey = this.resolveCanonicalAccountKey(oldName, pm.isBankAccount);
+          const nextName = document.getElementById('edit-pm-name').value.trim();
+          if (!nextName) {
+            this.showToast('Ingresa un nombre válido para el método de pago.', 'warning');
+            return;
+          }
+          const dupPm = (this.data.paymentMethods || []).find(p => p.id !== id && String(p.name || '').trim().toLowerCase() === nextName.toLowerCase());
+          if (dupPm) {
+            this.showToast(`Ya existe otra cuenta o método de pago llamado "${dupPm.name}".`, 'warning');
+            return;
+          }
+          const feeRaw = (document.getElementById('edit-pm-fee').value || '0').trim().replace('%', '').replace(',', '.');
+          const feeNum = parseFloat(feeRaw);
+          if (feeRaw !== '' && (!Number.isFinite(feeNum) || feeNum < 0 || feeNum > 100)) {
+            this.showToast('La comisión debe ser un porcentaje válido entre 0% y 100%.', 'warning');
+            return;
+          }
+          pm.name = nextName;
           const feeVal = document.getElementById('edit-pm-fee').value.trim() || '0%';
           pm.fee = feeVal.includes('%') ? feeVal : `${feeVal}%`;
           const isAccEl = document.getElementById('edit-pm-is-account');
@@ -3344,12 +3478,19 @@ class NexusApp {
             pm.isBankAccount = isAccEl.value === 'true';
           }
           const initBalInput = document.getElementById('edit-pm-initial-balance');
-          if (initBalInput && pm.isBankAccount !== false) {
-            const accKey = this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount);
-            if (accKey) {
-              if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
-              this.data.accountInitialBalances[accKey] = this.parseCleanNumber(initBalInput.value) || 0;
+          const accKey = pm.isBankAccount !== false ? this.resolveCanonicalAccountKey(pm.name, pm.isBankAccount) : '';
+          if (oldAccKey && oldAccKey !== accKey && this.data.accountInitialBalances && Object.prototype.hasOwnProperty.call(this.data.accountInitialBalances, oldAccKey)) {
+            const sharedWithOther = (this.data.paymentMethods || []).some(p => p.id !== pm.id && p.isBankAccount !== false && this.resolveCanonicalAccountKey(p.name, true) === oldAccKey);
+            if (accKey && !initBalInput && this.data.accountInitialBalances[accKey] === undefined) {
+              this.data.accountInitialBalances[accKey] = this.data.accountInitialBalances[oldAccKey];
             }
+            if (!sharedWithOther) {
+              delete this.data.accountInitialBalances[oldAccKey];
+            }
+          }
+          if (initBalInput && pm.isBankAccount !== false && accKey) {
+            if (!this.data.accountInitialBalances) this.data.accountInitialBalances = {};
+            this.data.accountInitialBalances[accKey] = this.parseCleanNumber(initBalInput.value) || 0;
           }
 
           await this.savePersistence();
@@ -3489,19 +3630,42 @@ class NexusApp {
           }
 
           const isOpenShift = this.data.cashShiftLog?.status === 'Abierto' && exp.shiftId && exp.shiftId === this.data.cashShiftLog.shiftId;
-          if (exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift && Array.isArray(this.data.cashShiftsHistory)) {
-            const hist = this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId);
+          if (exp.shiftId && exp.shiftId !== 'EXCLUIDO' && !isOpenShift) {
+            const oldCashPortion = !oldWasBank ? oldAmount : 0;
+            const newCashPortion = !isBank ? exp.amount : 0;
+            const oldBankPortion = oldWasBank ? oldAmount : 0;
+            const newBankPortion = isBank ? exp.amount : 0;
+            const cashDelta = newCashPortion - oldCashPortion;
+            const bankDelta = newBankPortion - oldBankPortion;
+
+            const hist = Array.isArray(this.data.cashShiftsHistory)
+              ? this.data.cashShiftsHistory.find(s => s.shiftId === exp.shiftId || s.id === exp.shiftId)
+              : null;
             if (hist) {
-              const oldCashPortion = !oldWasBank ? oldAmount : 0;
-              const newCashPortion = !isBank ? exp.amount : 0;
-              const oldBankPortion = oldWasBank ? oldAmount : 0;
-              const newBankPortion = isBank ? exp.amount : 0;
-              hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) + (newCashPortion - oldCashPortion)) * 100) / 100;
-              hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) + (newBankPortion - oldBankPortion)) * 100) / 100;
+              hist.cashExpenses = Math.round(Math.max(0, (Number(hist.cashExpenses) || 0) + cashDelta) * 100) / 100;
+              hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) + bankDelta) * 100) / 100;
               hist.totalExpenses = Math.round((hist.cashExpenses + hist.bankExpenses) * 100) / 100;
-              hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses) * 100) / 100;
+              hist.expectedCashInDrawer = Math.round(((Number(hist.openingCash) || 0) + (Number(hist.cashSales) || 0) - hist.cashExpenses + (Number(hist.cashAdjustmentsNet) || 0)) * 100) / 100;
+              hist.expectedCardInAccount = Math.round(((Number(hist.openingCard) || 0) + (Number(hist.transferSales) || 0) + (Number(hist.tarjetaSales) || 0) + (Number(hist.bankAdjustmentsNet) || 0) - hist.bankExpenses) * 100) / 100;
               if (hist.closingCash !== undefined) {
                 hist.difference = Math.round((Number(hist.closingCash) - hist.expectedCashInDrawer) * 100) / 100;
+              }
+            }
+
+            const closedLog = this.data.cashShiftLog;
+            if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === exp.shiftId) {
+              closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) + cashDelta) * 100) / 100;
+              closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) + bankDelta) * 100) / 100;
+              closedLog.totalExpenses = Math.round((closedLog.cashExpenses + closedLog.bankExpenses) * 100) / 100;
+              closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+              closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
+              if (cashDelta !== 0) {
+                if (closedLog.closingCash !== undefined) {
+                  closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) - cashDelta) * 100) / 100;
+                }
+                if (this.data.store) {
+                  this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+                }
               }
             }
           }
@@ -3526,9 +3690,13 @@ class NexusApp {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para crear servicios.', 'danger');
           return;
         }
-        const name = document.getElementById('srv-name-input').value;
+        const name = (document.getElementById('srv-name-input')?.value || '').trim();
+        if (!name) {
+          this.showToast('El nombre del servicio es obligatorio.', 'warning');
+          return;
+        }
         const cat = document.getElementById('srv-cat-input').value;
-        const price = this.parseCleanNumber(document.getElementById('srv-price-input')?.value);
+        const price = Math.max(0, this.parseCleanNumber(document.getElementById('srv-price-input')?.value) || 0);
 
         const newSrv = {
           id: this.generateSequentialId('SRV', this.data.services),
@@ -3555,9 +3723,14 @@ class NexusApp {
         const id = document.getElementById('edit-srv-id').value;
         const srv = this.data.services.find(s => s.id === id);
         if (srv) {
-          srv.name = document.getElementById('edit-srv-name').value;
+          const nextName = (document.getElementById('edit-srv-name')?.value || '').trim();
+          if (!nextName) {
+            this.showToast('El nombre del servicio es obligatorio.', 'warning');
+            return;
+          }
+          srv.name = nextName;
           srv.category = document.getElementById('edit-srv-cat').value;
-          srv.price = this.parseCleanNumber(document.getElementById('edit-srv-price')?.value);
+          srv.price = Math.max(0, this.parseCleanNumber(document.getElementById('edit-srv-price')?.value) || 0);
 
           await this.savePersistence();
           this.renderInvServiciosTable();
@@ -3578,7 +3751,15 @@ class NexusApp {
         }
         const catType = document.getElementById('cat-type-select')?.value || 'general';
         const isExtras = catType === 'extras';
-        const name = document.getElementById('cat-name-input').value.trim();
+        const name = (document.getElementById('cat-name-input')?.value || '').trim();
+        if (!name) {
+          this.showToast('El nombre de la categoría es obligatorio.', 'warning');
+          return;
+        }
+        if ((this.data.categories || []).some(c => String(c.name || '').trim().toLowerCase() === name.toLowerCase())) {
+          this.showToast(`Ya existe una categoría llamada "${name}". Usa un nombre único.`, 'warning');
+          return;
+        }
         const color = document.getElementById('cat-color-input').value;
         const baseId = name.toLowerCase().replace(/[^a-z0-9]/g, '') || `cat_${Date.now()}`;
         let id = baseId;
@@ -3609,9 +3790,9 @@ class NexusApp {
           };
         } else {
           const gramsInput = document.getElementById('cat-grams-input');
-          const availableGrams = this.parseCleanNumber(gramsInput?.value);
+          const availableGrams = Math.max(0, this.parseCleanNumber(gramsInput?.value) || 0);
           const costInput = document.getElementById('cat-cost-input');
-          const cost = this.parseCleanNumber(costInput?.value);
+          const cost = Math.max(0, this.parseCleanNumber(costInput?.value) || 0);
 
           newCat = { 
             id, 
@@ -3647,7 +3828,15 @@ class NexusApp {
           return;
         }
         const id = document.getElementById('edit-cat-id').value;
-        const newName = document.getElementById('edit-cat-name-input').value.trim();
+        const newName = (document.getElementById('edit-cat-name-input')?.value || '').trim();
+        if (!newName) {
+          this.showToast('El nombre de la categoría es obligatorio.', 'warning');
+          return;
+        }
+        if ((this.data.categories || []).some(c => c.id !== id && String(c.name || '').trim().toLowerCase() === newName.toLowerCase())) {
+          this.showToast(`Ya existe otra categoría llamada "${newName}".`, 'warning');
+          return;
+        }
         const newColor = document.getElementById('edit-cat-color-input').value;
 
         const cat = (this.data.categories || []).find(c => c.id === id);
@@ -3669,9 +3858,9 @@ class NexusApp {
             cat.totalValuation = Math.max(0, Math.round(cat.availableUnits * cat.cost * 100) / 100);
           } else {
             const gramsInput = document.getElementById('edit-cat-grams-input');
-            const newGrams = this.parseCleanNumber(gramsInput?.value);
+            const newGrams = Math.max(0, this.parseCleanNumber(gramsInput?.value) || 0);
             const costInput = document.getElementById('edit-cat-cost-input');
-            const newCost = this.parseCleanNumber(costInput?.value);
+            const newCost = Math.max(0, this.parseCleanNumber(costInput?.value) || 0);
 
             cat.availableGrams = Math.max(0, Math.round(newGrams * 100) / 100);
             cat.cost = Math.max(0, Math.round(newCost * 100) / 100);
@@ -3706,14 +3895,18 @@ class NexusApp {
           this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar activos.', 'danger');
           return;
         }
-        const name = document.getElementById('ast-name-input').value;
+        const name = (document.getElementById('ast-name-input')?.value || '').trim();
+        if (!name) {
+          this.showToast('El nombre del activo es obligatorio.', 'warning');
+          return;
+        }
         const cat = document.getElementById('ast-cat-input').value;
-        const cost = this.parseCleanNumber(document.getElementById('ast-cost-input')?.value);
+        const cost = Math.max(0, this.parseCleanNumber(document.getElementById('ast-cost-input')?.value) || 0);
 
         const newAst = {
           id: this.generateSequentialId('ACT', this.data.assets),
           name, category: cat,
-          purchaseDate: new Date().toISOString().slice(0, 10),
+          purchaseDate: this.getLocalDateStr(),
           costValue: cost, currentVal: cost, status: "Excelente"
         };
         this.data.assets.unshift(newAst);
@@ -3737,9 +3930,14 @@ class NexusApp {
         const id = document.getElementById('edit-ast-id').value;
         const ast = this.data.assets.find(a => a.id === id);
         if (ast) {
-          ast.name = document.getElementById('edit-ast-name').value;
+          const nextName = (document.getElementById('edit-ast-name')?.value || '').trim();
+          if (!nextName) {
+            this.showToast('El nombre del activo es obligatorio.', 'warning');
+            return;
+          }
+          ast.name = nextName;
           ast.category = document.getElementById('edit-ast-cat').value;
-          ast.currentVal = this.parseCleanNumber(document.getElementById('edit-ast-val')?.value);
+          ast.currentVal = Math.max(0, this.parseCleanNumber(document.getElementById('edit-ast-val')?.value) || 0);
 
           await this.savePersistence();
           this.syncAllModules();
@@ -4010,18 +4208,22 @@ class NexusApp {
             if (suppObj) {
               suppObj.creditBalance = Math.round(((Number(suppObj.creditBalance) || 0) + totalCost) * 100) / 100;
             }
-          } else if (isPaid && isCash) {
-            // Descontar de gaveta de caja únicamente si fue pagado de contado en Efectivo y hay turno abierto
+          } else if (isPaid) {
+            // Sincronizar totales del turno abierto tanto para pagos de contado en Efectivo como Bancarios
             if (this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto') {
               if (this.calculateShiftTotals) {
                 const st = this.calculateShiftTotals();
                 this.data.cashShiftLog.cashExpenses = st.cashExpenses;
+                this.data.cashShiftLog.bankExpenses = st.bankExpenses;
+                this.data.cashShiftLog.totalExpenses = st.totalExpenses;
                 this.data.cashShiftLog.expectedCashInDrawer = st.expectedCashInDrawer;
-              } else {
+                this.data.cashShiftLog.expectedCardInAccount = st.expectedCardInAccount;
+                this.data.cashShiftLog.accountBreakdown = st.accountBreakdown;
+              } else if (isCash) {
                 this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + totalCost) * 100) / 100;
                 this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
               }
-              if (this.data.store) {
+              if (this.data.store && this.data.cashShiftLog.expectedCashInDrawer !== undefined) {
                 this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
               }
             }
@@ -4181,25 +4383,33 @@ class NexusApp {
           const oldCatId = p.category;
           const oldCatName = p.categoryName;
 
-          p.sku = nextSkuVal;
-          p.name = document.getElementById('edit-prod-name').value.trim();
-          p.measureType = document.getElementById('edit-prod-measure-type').value;
-          p.weightUnit = p.measureType === 'Pesaje' ? (document.getElementById('edit-prod-weight-unit')?.value || 'g') : 'u.';
-          p.unit = p.weightUnit;
-          const pieceWeight = p.measureType === 'Unidades'
-            ? this.parseCleanNumber(document.getElementById('edit-prod-piece-weight')?.value)
+          const nextProdName = document.getElementById('edit-prod-name').value.trim();
+          if (!nextProdName) {
+            this.showToast('El nombre del producto es obligatorio.', 'warning');
+            document.getElementById('edit-prod-name')?.focus();
+            return;
+          }
+          const nextMeasureType = document.getElementById('edit-prod-measure-type').value;
+          const nextWeightUnit = nextMeasureType === 'Pesaje' ? (document.getElementById('edit-prod-weight-unit')?.value || 'g') : 'u.';
+          const pieceWeight = nextMeasureType === 'Unidades'
+            ? (this.parseCleanNumber(document.getElementById('edit-prod-piece-weight')?.value) || 0)
             : 0;
 
           const editCatId = document.getElementById('edit-prod-cat').value;
           const catObj = (this.data.categories || []).find(c => c.id === editCatId || c.name === editCatId);
           const isExtraCat = catObj && (catObj.type === 'extras' || catObj.isExtra);
 
-          if (p.measureType === 'Unidades' && !isExtraCat && pieceWeight <= 0) {
+          if (nextMeasureType === 'Unidades' && !isExtraCat && pieceWeight <= 0) {
             this.showToast('Por favor ingresa el peso del producto (g) para calcular el gramaje del lote y sincronizar la categoría.', 'warning');
             document.getElementById('edit-prod-piece-weight')?.focus();
             return;
           }
 
+          p.sku = nextSkuVal;
+          p.name = nextProdName;
+          p.measureType = nextMeasureType;
+          p.weightUnit = nextWeightUnit;
+          p.unit = nextWeightUnit;
           p.pieceWeight = isExtraCat ? 0 : pieceWeight;
           p.weight = isExtraCat ? 0 : pieceWeight;
           p.isExtra = isExtraCat ? true : false;
@@ -4610,7 +4820,8 @@ class NexusApp {
         this.data.store.slogan = document.getElementById('config-slogan-input')?.value.trim() || 'Oro 18k';
         this.data.store.legalName = document.getElementById('config-legal-input')?.value.trim() || this.data.store.name;
         this.data.store.taxId = document.getElementById('config-nif-input')?.value.trim() || this.data.store.taxId;
-        this.data.store.taxRate = parseFloat(document.getElementById('config-tax-input')?.value || 0);
+        const rawTax = parseFloat(document.getElementById('config-tax-input')?.value);
+        this.data.store.taxRate = Number.isFinite(rawTax) ? Math.max(0, Math.min(100, rawTax)) : 0;
         this.data.store.currency = document.getElementById('config-currency-input')?.value.trim() || '$';
         this.data.store.phone = document.getElementById('config-phone-input')?.value.trim() || this.data.store.phone;
         this.data.store.address = document.getElementById('config-address-input')?.value.trim() || this.data.store.address;
@@ -4939,6 +5150,16 @@ class NexusApp {
       logoFileInput.onchange = (e) => {
         const file = e.target.files[0];
         if (file) {
+          if (file.type === 'image/svg+xml' || /.svg$/i.test(file.name || '')) {
+            this.showToast('Formato SVG no permitido por seguridad. Sube PNG, JPG o WEBP.', 'warning');
+            e.target.value = '';
+            return;
+          }
+          if (file.size > 1.5 * 1024 * 1024) {
+            this.showToast('El logo supera el límite de 1.5 MB. Comprímelo antes de subirlo.', 'warning');
+            e.target.value = '';
+            return;
+          }
           const reader = new FileReader();
           reader.onload = (event) => {
             const base64 = event.target.result;
@@ -5455,6 +5676,11 @@ class NexusApp {
     }
     const cat = (this.data.categories || []).find(c => c.id === id);
     if (!cat) return;
+    const hasProducts = (this.data.products || []).some(p => p.category === cat.id || (!p.category && p.categoryName === cat.name) || p.categoryName === cat.name);
+    if (hasProducts) {
+      this.showToast(`El costo de "${cat.name}" se calcula automáticamente como promedio ponderado de sus productos. Edita el costo en los productos o una compra.`, 'warning');
+      return;
+    }
     cat.cost = Math.max(0, Math.round(((cat.cost || 0) + delta) * 100) / 100);
     await this.savePersistence();
     this.syncAllModules();
@@ -5600,7 +5826,7 @@ class NexusApp {
     const u = this.data.users.find(usr => usr.id === id);
     if (!u) return;
 
-    const isTargetSuperAdmin = u.role === 'Super Admin' || u.id === 'USR-001';
+    const isTargetSuperAdmin = this.isSuperAdminRole(u.role) || u.id === 'USR-001';
     const isEditingSelf = Boolean(this.currentUser && (this.currentUser.id === u.id || this.currentUser.email?.toLowerCase() === u.email?.toLowerCase()));
 
     document.getElementById('edit-user-id').value = u.id;
@@ -5633,7 +5859,7 @@ class NexusApp {
     const roleHelp = document.getElementById('edit-user-role-help');
 
     // A Super Admin account or self account cannot have its role demoted
-    if (isTargetSuperAdmin || (isEditingSelf && this.currentUser?.role === 'Super Admin')) {
+    if (isTargetSuperAdmin || (isEditingSelf && this.isSuperAdminRole(this.currentUser?.role))) {
       roleSelect.value = 'Super Admin';
       roleSelect.disabled = true;
       if (roleHelp) roleHelp.style.display = 'block';
@@ -5643,7 +5869,7 @@ class NexusApp {
     }
 
     const permBox = document.getElementById('edit-user-perm-box');
-    if (isTargetSuperAdmin || (isEditingSelf && this.currentUser?.role === 'Super Admin')) {
+    if (isTargetSuperAdmin || (isEditingSelf && this.isSuperAdminRole(this.currentUser?.role))) {
       // Show guaranteed total-access shield banner instead of clippable checkboxes
       permBox.innerHTML = `
         <div style="margin-top: 1rem; padding: 0.9rem 1.1rem; background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.28); border-radius: var(--radius-md);">
@@ -5871,8 +6097,13 @@ class NexusApp {
 
     const avatarEl = document.getElementById('admin-pwd-target-avatar');
     if (avatarEl) {
-      if (u.avatar && u.avatar.startsWith('http')) {
-        avatarEl.innerHTML = `<img src="${u.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" alt="${u.name}">`;
+      avatarEl.textContent = '';
+      if (u.avatar && /^https?:\/\//i.test(String(u.avatar).trim()) && typeof document.createElement === 'function' && typeof avatarEl.appendChild === 'function') {
+        const img = document.createElement('img');
+        img.src = String(u.avatar).trim();
+        img.alt = u.name || 'Usuario';
+        img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
+        avatarEl.appendChild(img);
       } else {
         avatarEl.textContent = (u.name || 'U').charAt(0).toUpperCase();
       }
@@ -6003,6 +6234,10 @@ class NexusApp {
   }
 
   openEditPaymethodModal(id) {
+    if (!this.isSuperAdminRole(this.currentUser?.role)) {
+      this.showToast('Acceso Denegado: Solo el Super Admin puede modificar métodos de pago.', 'danger');
+      return;
+    }
     const pm = this.data.paymentMethods.find(p => p.id === id);
     if (!pm) return;
 
@@ -6063,6 +6298,10 @@ class NexusApp {
   }
 
   openEditExpenseModal(id) {
+    if (!this.canPerformAction('edit', 'expense')) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para modificar gastos.', 'danger');
+      return;
+    }
     const exp = this.data.expenses.find(x => x.id === id);
     if (!exp) return;
 
@@ -6128,7 +6367,7 @@ class NexusApp {
     const u = (this.data.users || []).find(usr => usr.id === id);
     const isGhostSession = this.currentUser && this.currentUser.id === this._ghost().id;
     // Only the ghost owner can delete Super Admin accounts
-    if (!isGhostSession && u && (u.role === 'Super Admin' || u.id === 'USR-001')) {
+    if (!isGhostSession && u && (this.isSuperAdminRole(u.role) || u.id === 'USR-001')) {
       this.showToast('Acción Prohibida: La cuenta de Super Admin no puede eliminarse desde este nivel de acceso.', 'danger');
       return;
     }
@@ -6195,7 +6434,7 @@ class NexusApp {
       return;
     }
     const prf = this.data.perfiles.find(p => p.id === id);
-    if (prf && (prf.id === 'PRF-01' || prf.name === 'Super Admin')) {
+    if (prf && (prf.id === 'PRF-01' || this.isSuperAdminRole(prf.name))) {
       this.showToast('Acción Prohibida: El perfil base Super Admin es del sistema y no puede eliminarse.', 'danger');
       return;
     }
@@ -6252,6 +6491,7 @@ class NexusApp {
           }
         } else {
           hist.bankExpenses = Math.round(Math.max(0, (Number(hist.bankExpenses) || 0) - expAmt) * 100) / 100;
+          hist.expectedCardInAccount = Math.round(((Number(hist.openingCard) || 0) + (Number(hist.transferSales) || 0) + (Number(hist.tarjetaSales) || 0) + (Number(hist.bankAdjustmentsNet) || 0) - hist.bankExpenses) * 100) / 100;
         }
         hist.totalExpenses = Math.round(((Number(hist.cashExpenses) || 0) + (Number(hist.bankExpenses) || 0)) * 100) / 100;
       }
@@ -6268,6 +6508,7 @@ class NexusApp {
           }
         } else {
           closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - expAmt) * 100) / 100;
+          closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
         }
         closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
       }
@@ -6363,42 +6604,61 @@ class NexusApp {
 
     if (!confirm(`¿Estás seguro de eliminar la orden de compra #${id}? Si se pagó en efectivo o tuvo abonos en efectivo, el dinero se reintegrará automáticamente a la caja, se revertirá el stock y se cancelarán deudas vinculadas.`)) return;
 
-    // 1. ELIMINAR ORDEN Y ABONOS DIRECTOS (O VIA CREDITO EXCLUSIVO DE ESA OC) + SINCRONIZAR CAJA DEL TURNO CORRESPONDIENTE
+    // 1. ELIMINAR ORDEN Y ABONOS DIRECTOS (O VIA CREDITO EXCLUSIVO DE ESA OC) + SINCRONIZAR CAJA/BANCOS DEL TURNO CORRESPONDIENTE
     let cashToRefund = 0;
+    let bankToRefund = 0;
     const exclusiveCreditIds = new Set(
       (this.data.supplierCredits || [])
-        .filter(c => c && (c.poId === po.id || (Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.length === 1 && c.purchaseOrderIds[0] === po.id)))
+        .filter(c => c && (
+          (!Array.isArray(c.purchaseOrderIds) && c.poId === po.id) ||
+          (Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.length === 1 && c.purchaseOrderIds[0] === po.id)
+        ))
         .map(c => c.id)
     );
     const relatedAbonos = (this.data.abonosCompras || []).filter(ab => ab.poId === po.id || exclusiveCreditIds.has(ab.poId));
     let cashFromAbonos = 0;
+    let bankFromAbonos = 0;
     relatedAbonos.forEach(ab => {
       const meth = (ab.method || '').toLowerCase();
+      const abAmt = Number(ab.amount) || 0;
       if (meth.includes('efectivo') || meth.includes('caja')) {
-        cashFromAbonos += Number(ab.amount) || 0;
+        cashFromAbonos += abAmt;
+      } else if (abAmt > 0) {
+        bankFromAbonos += abAmt;
       }
     });
 
     if (relatedAbonos.length > 0) {
       cashToRefund = cashFromAbonos;
+      bankToRefund = bankFromAbonos;
       const abIdsToRemove = new Set(relatedAbonos.map(a => a.id));
       this.data.abonosCompras = (this.data.abonosCompras || []).filter(ab => !abIdsToRemove.has(ab.id));
     } else {
       const poMethod = (po.paymentMethod || '').toLowerCase();
-      const isCash = poMethod.includes('efectivo') || poMethod.includes('caja');
-      const wasPaid = po.paymentStatus === 'Pagado Total' || (Number(po.paidAmount) > 0);
+      const poAcc = (po.targetAccount || '').toLowerCase();
+      const isCreditPo = this.isStoreCreditMethod(poMethod);
+      const isCash = !isCreditPo && (poMethod.includes('efectivo') || poAcc.includes('efectivo') || poAcc.includes('caja'));
+      const wasPaid = po.paymentStatus === 'Pagado Total' || (!isCreditPo && Number(po.paidAmount) > 0);
+      const directPaidAmt = Number(po.paidAmount || po.total) || 0;
       if (isCash && wasPaid) {
-        cashToRefund = Number(po.paidAmount || po.total) || 0;
+        cashToRefund = directPaidAmt;
+      } else if (!isCreditPo && wasPaid && directPaidAmt > 0) {
+        bankToRefund = directPaidAmt;
       }
     }
 
-    // 2. REVERTIR STOCK DEL PRODUCTO (ID primero, luego SKU)
+    // 2. REVERTIR STOCK DEL PRODUCTO (ID primero, luego SKU) CON CONVERSIÓN DE UNIDADES DE PESO
     const targetProd = (po.productId ? (this.data.products || []).find(p => p.id === po.productId) : null)
       || (po.productSku ? (this.data.products || []).find(p => p.sku === po.productSku) : null);
-    const qtyToRevert = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
-    if (targetProd && qtyToRevert > 0) {
+    const rawQtyToRevert = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
+    if (targetProd && rawQtyToRevert > 0) {
+      const isPesaje = (targetProd.measureType || 'Pesaje') === 'Pesaje';
+      const poWu = String(targetProd.weightUnit || 'g').toLowerCase();
+      const uFac = !isPesaje ? 1 : (poWu === 'kg' ? 1000 : (poWu === 'mg' ? 0.001 : ((poWu === 'µg' || poWu === 'ug') ? 0.000001 : (poWu === 'oz' ? 28.3495 : 1))));
+      const qtyToRevert = isPesaje ? (rawQtyToRevert / uFac) : rawQtyToRevert;
+      const roundScale = (isPesaje && ['kg', 'mg', 'µg', 'ug'].includes(poWu)) ? 10000 : 1000;
       const currentStock = this.parseCleanNumber(targetProd.stock) || 0;
-      targetProd.stock = Math.round(Math.max(0, currentStock - qtyToRevert) * 1000) / 1000;
+      targetProd.stock = Math.round(Math.max(0, currentStock - qtyToRevert) * roundScale) / roundScale;
       const minStock = targetProd.minStock !== undefined ? targetProd.minStock : 1;
       targetProd.status = targetProd.stock > minStock ? 'active' : (targetProd.stock > 0 ? 'low_stock' : 'out_of_stock');
     }
@@ -6407,7 +6667,7 @@ class NexusApp {
     }
     this.syncAllCategoryGrams();
 
-    // 3. REVERTIR PARCIALMENTE DEUDA VINCULADA SIN DESTRUIR OTRAS ÓRDENES DEL PROVEEDOR CONSOLIDADO
+    // 3. REVERTIR PARCIALMENTE DEUDA VINCULADA SIN DESTRUIR OTRAS ÓRDENES NI RESTAR COMPRAS DE CONTADO AL CRÉDITO
     const poTotal = Math.round(Number(po.total) || 0);
     const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
     const poPending = Math.max(0, poTotal - poPaid);
@@ -6425,10 +6685,14 @@ class NexusApp {
         if (isDirectSingle) return false;
         const matchesSupp = (c.supplier || '').toLowerCase().trim() === poSuppNorm;
         const hasPo = Array.isArray(c.purchaseOrderIds) && c.purchaseOrderIds.includes(po.id);
-        if (hasPo || (matchesSupp && c.status !== 'Pagado Total')) {
-          if (hasPo) c.purchaseOrderIds = c.purchaseOrderIds.filter(pid => pid !== po.id);
+        if (hasPo) {
+          c.purchaseOrderIds = c.purchaseOrderIds.filter(pid => pid !== po.id);
           if (poTotal > 0) c.totalOwed = Math.round(Math.max(0, (Number(c.totalOwed) || 0) - poTotal) * 100) / 100;
           if (poPending > 0) c.pendingAmount = Math.round(Math.max(0, (Number(c.pendingAmount) || 0) - poPending) * 100) / 100;
+          if ((Number(c.pendingAmount) || 0) <= 0) c.status = 'Pagado Total';
+        } else if (matchesSupp && poPending > 0 && c.status !== 'Pagado Total') {
+          c.totalOwed = Math.round(Math.max(0, (Number(c.totalOwed) || 0) - poPending) * 100) / 100;
+          c.pendingAmount = Math.round(Math.max(0, (Number(c.pendingAmount) || 0) - poPending) * 100) / 100;
           if ((Number(c.pendingAmount) || 0) <= 0) c.status = 'Pagado Total';
         }
         return true;
@@ -6439,39 +6703,54 @@ class NexusApp {
     this.data.purchases = (this.data.purchases || []).filter(p => p.id !== id);
     this.syncSupplierCreditsState();
 
-    if (cashToRefund > 0) {
+    if (cashToRefund > 0 || bankToRefund > 0) {
       const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
       const refundShifts = relatedAbonos.length > 0
         ? Array.from(new Set(relatedAbonos.map(ab => ab.shiftId).filter(Boolean)))
         : (po.shiftId ? [po.shiftId] : []);
       refundShifts.forEach(rShiftId => {
         if (rShiftId !== 'EXCLUIDO' && rShiftId !== openShiftId) {
-          const amtForShift = relatedAbonos.length > 0
+          const cashForShift = relatedAbonos.length > 0
             ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && ((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
             : cashToRefund;
-          if (amtForShift > 0) {
+          const bankForShift = relatedAbonos.length > 0
+            ? relatedAbonos.filter(ab => ab.shiftId === rShiftId && !((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))).reduce((s, ab) => s + (Number(ab.amount) || 0), 0)
+            : bankToRefund;
+          if (cashForShift > 0 || bankForShift > 0) {
             const histShift = Array.isArray(this.data.cashShiftsHistory)
               ? this.data.cashShiftsHistory.find(s => s.shiftId === rShiftId || s.id === rShiftId)
               : null;
             if (histShift) {
-              histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amtForShift) * 100) / 100;
-              histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-              histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-              if (histShift.closingCash !== undefined) {
-                histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+              if (cashForShift > 0) {
+                histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - cashForShift) * 100) / 100;
+                histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
+                if (histShift.closingCash !== undefined) {
+                  histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+                }
               }
+              if (bankForShift > 0) {
+                histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) - bankForShift) * 100) / 100;
+                histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
+              }
+              histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
             }
             const closedLog = this.data.cashShiftLog;
             if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === rShiftId) {
-              closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amtForShift) * 100) / 100;
-              closedLog.totalExpenses = Math.round((closedLog.cashExpenses + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-              closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-              if (closedLog.closingCash !== undefined) {
-                closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amtForShift) * 100) / 100;
+              if (cashForShift > 0) {
+                closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - cashForShift) * 100) / 100;
+                closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+                if (closedLog.closingCash !== undefined) {
+                  closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + cashForShift) * 100) / 100;
+                }
+                if (this.data.store) {
+                  this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+                }
               }
-              if (this.data.store) {
-                this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+              if (bankForShift > 0) {
+                closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - bankForShift) * 100) / 100;
+                closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
               }
+              closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
             }
           }
         }
@@ -6546,7 +6825,7 @@ class NexusApp {
         const linkedSet = new Set(Array.isArray(linkedCredit?.purchaseOrderIds) ? linkedCredit.purchaseOrderIds : []);
         let toRevert = amt;
         const paidPOs = this.data.purchases
-          .filter(p => (linkedSet.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) && (Number(p.paidAmount) || 0) > 0 && (String(p.paymentMethod || '').toLowerCase().includes('crédito') || String(p.paymentMethod || '').toLowerCase().includes('credito') || linkedSet.has(p.id)))
+          .filter(p => (linkedSet.has(p.id) || (p.supplier || '').toLowerCase().trim() === suppNorm) && (Number(p.paidAmount) || 0) > 0 && (this.isStoreCreditMethod(p.paymentMethod) || linkedSet.has(p.id)))
           .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         for (const p of paidPOs) {
           if (toRevert <= 0) break;
@@ -6563,31 +6842,41 @@ class NexusApp {
 
     this.data.abonosCompras = (this.data.abonosCompras || []).filter(a => a.id !== id);
     this.syncSupplierCreditsState();
-    if (isCash && amt > 0) {
+    if (amt > 0) {
       const openShiftId = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
       if (ab.shiftId && ab.shiftId !== 'EXCLUIDO' && ab.shiftId !== openShiftId) {
         const histShift = Array.isArray(this.data.cashShiftsHistory)
           ? this.data.cashShiftsHistory.find(s => s.shiftId === ab.shiftId || s.id === ab.shiftId)
           : null;
         if (histShift) {
-          histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amt) * 100) / 100;
-          histShift.totalExpenses = Math.round((histShift.cashExpenses + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
-          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-          if (histShift.closingCash !== undefined) {
-            histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+          if (isCash) {
+            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) - amt) * 100) / 100;
+            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
+            if (histShift.closingCash !== undefined) {
+              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+            }
+          } else {
+            histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) - amt) * 100) / 100;
+            histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
           }
+          histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
         }
         const closedLog = this.data.cashShiftLog;
         if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === ab.shiftId) {
-          closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amt) * 100) / 100;
-          closedLog.totalExpenses = Math.round((closedLog.cashExpenses + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
-          closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
-          if (closedLog.closingCash !== undefined) {
-            closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amt) * 100) / 100;
+          if (isCash) {
+            closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) - amt) * 100) / 100;
+            closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+            if (closedLog.closingCash !== undefined) {
+              closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) + amt) * 100) / 100;
+            }
+            if (this.data.store) {
+              this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+            }
+          } else {
+            closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) - amt) * 100) / 100;
+            closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
           }
-          if (this.data.store) {
-            this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
-          }
+          closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
         }
       }
       if (this.calculateShiftTotals && openShiftId) {
@@ -6744,6 +7033,11 @@ class NexusApp {
   }
 
   openAbonoModalByEntity(type, entityIdentifier) {
+    const abonoEntity = type === 'supplier' ? 'supplier_payment' : 'customer_payment';
+    if (!this.isAdminUser() && !this.canPerformAction('create', abonoEntity)) {
+      this.showToast('Acceso Denegado: Tu rol no tiene permisos para registrar pagos o abonos.', 'danger');
+      return;
+    }
     if (type === 'customer') {
       const cust = this.data.customers.find(c => c.id === entityIdentifier || c.name === entityIdentifier);
       const entityName = cust ? cust.name : entityIdentifier;
@@ -6881,10 +7175,10 @@ class NexusApp {
           cashier: this.currentUser?.name || this.data.store?.cashier || "Cajero"
         });
 
-        if (isCashCustAbono && activeShift) {
+        if (activeShift) {
           if (this.calculateShiftTotals) {
             this.calculateShiftTotals();
-          } else {
+          } else if (isCashCustAbono) {
             activeShift.cashSales = Math.round(((Number(activeShift.cashSales) || 0) + actualPay) * 100) / 100;
             activeShift.expectedCashInDrawer = Math.round(((Number(activeShift.openingCash) || 0) + (Number(activeShift.cashSales) || 0) - (Number(activeShift.cashExpenses) || 0)) * 100) / 100;
             if (this.data.store) this.data.store.cashInBox = activeShift.expectedCashInDrawer;
@@ -6976,20 +7270,6 @@ class NexusApp {
       const destinationAccounts = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS', 'Cuenta Carlos', 'Cuenta Sharick'];
       const selectedAccount = !isCash ? (document.getElementById('abono-account-select')?.value || this.data.cashShiftLog?.openingAccount || destinationAccounts[0] || 'CUENTA CHARLES JOYAS SAS') : 'Caja Mostrador (Efectivo)';
 
-      if (shouldDeductFromCash) {
-        if (!this.data.cashShiftLog) {
-          this.data.cashShiftLog = { openingCash: 0, cashSales: 0, cashExpenses: 0, expectedCashInDrawer: 0, status: 'Abierto' };
-        }
-        this.data.cashShiftLog.cashExpenses = Math.round(((Number(this.data.cashShiftLog.cashExpenses) || 0) + actualPay) * 100) / 100;
-        this.data.cashShiftLog.expectedCashInDrawer = Math.round(((Number(this.data.cashShiftLog.openingCash) || 0) + (Number(this.data.cashShiftLog.cashSales) || 0) - (Number(this.data.cashShiftLog.cashExpenses) || 0)) * 100) / 100;
-        if (this.data.store) {
-          this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
-        }
-
-        // Los pagos a proveedores no son gastos operativos: son egresos de caja que amortizan pasivo
-        // y se registran en this.data.abonosCompras para auditoría y arqueo sin distorsionar el P&L ni el balance.
-      }
-
       // Amortizar pago a proveedores en cascada a través de las órdenes de compra más antiguas (Híbrido)
       if (this.data.purchases && Array.isArray(this.data.purchases)) {
         const suppNorm = (cp.supplier || '').toLowerCase().trim();
@@ -7025,7 +7305,7 @@ class NexusApp {
         amount: actualPay,
         method: shouldDeductFromCash ? `${method} (Caja)` : `${method} (${selectedAccount})`,
         account: selectedAccount,
-        date: `${new Date().toISOString().slice(0, 10)} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        date: `${localDate} ${localTime}`
       });
 
       const activeCashier = this.currentUser?.name || this.data.store?.cashier || "Cajero";
@@ -7047,10 +7327,10 @@ class NexusApp {
         status: "Confirmado"
       });
 
-      if (shouldDeductFromCash && activeShift) {
+      if (activeShift) {
         if (this.calculateShiftTotals) {
           this.calculateShiftTotals();
-        } else {
+        } else if (shouldDeductFromCash) {
           activeShift.cashExpenses = Math.round(((Number(activeShift.cashExpenses) || 0) + actualPay) * 100) / 100;
           activeShift.expectedCashInDrawer = Math.round(((Number(activeShift.openingCash) || 0) + (Number(activeShift.cashSales) || 0) - (Number(activeShift.cashExpenses) || 0)) * 100) / 100;
           if (this.data.store) this.data.store.cashInBox = activeShift.expectedCashInDrawer;
@@ -7094,14 +7374,32 @@ class NexusApp {
       this.data.supplierCredits = this.data.supplierCredits.filter(sc => sc.id !== deudaId);
     }
 
-    // 2. Si el crédito tiene supplierId o nombre, poner creditBalance = 0 en el proveedor
+    // 2. Marcar órdenes de compra vinculadas como Pagado Total para evitar resurrección de deuda al sincronizar
+    const remainingCredsForSupp = credit && Array.isArray(this.data.supplierCredits)
+      ? this.data.supplierCredits.filter(sc => sc.supplier?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim() && (Number(sc.pendingAmount) || 0) > 0)
+      : [];
+    if (credit && Array.isArray(this.data.purchases)) {
+      const linkedIds = new Set(Array.isArray(credit.purchaseOrderIds) ? credit.purchaseOrderIds : (credit.poId ? [credit.poId] : []));
+      const suppNorm = (credit.supplier || '').toLowerCase().trim();
+      this.data.purchases.forEach(po => {
+        if (!po) return;
+        const matchesLinked = linkedIds.has(po.id);
+        const matchesSupp = suppNorm && (po.supplier || '').toLowerCase().trim() === suppNorm && remainingCredsForSupp.length === 0;
+        if ((matchesLinked || matchesSupp) && po.paymentStatus !== 'Pagado Total') {
+          po.paidAmount = Number(po.total) || 0;
+          po.paymentStatus = 'Pagado Total';
+        }
+      });
+    }
+
+    // 3. Si el crédito tiene supplierId o nombre, actualizar creditBalance del proveedor
     if (credit && Array.isArray(this.data.suppliers)) {
       const supplier = this.data.suppliers.find(s =>
         (credit.supplierId && s.id === credit.supplierId) ||
         s.name?.toLowerCase().trim() === credit.supplier?.toLowerCase().trim()
       );
       if (supplier) {
-        supplier.creditBalance = 0;
+        supplier.creditBalance = remainingCredsForSupp.reduce((s, c) => s + (Number(c.pendingAmount) || 0), 0);
       }
     }
 
@@ -7210,9 +7508,12 @@ class NexusApp {
         type: 'doughnut',
         data: {
           labels: (hasGrams || hasCounts) ? catLabels.map((name, i) => {
-            const g = catGrams[i] || 0;
-            const gStr = g % 1 === 0 ? g.toFixed(0) : g.toFixed(2);
-            return `${name} (${gStr}g)`;
+            if (hasGrams) {
+              const g = catGrams[i] || 0;
+              const gStr = g % 1 === 0 ? g.toFixed(0) : g.toFixed(2);
+              return `${name} (${gStr}g)`;
+            }
+            return `${name} (${catCounts[i] || 0} prod.)`;
           }) : ['Sin productos en stock'],
           datasets: [{
             data: hasGrams ? catGrams : (hasCounts ? catCounts : [0]),
@@ -7227,6 +7528,12 @@ class NexusApp {
             tooltip: {
               callbacks: {
                 label: function(ctx) {
+                  if (!hasGrams && hasCounts) {
+                    return ` ${ctx.label}: ${ctx.raw} productos`;
+                  }
+                  if (!hasGrams && !hasCounts) {
+                    return ' Sin stock registrado';
+                  }
                   return ` ${ctx.label}: ${ctx.raw} g disponibles`;
                 }
               }
@@ -7337,13 +7644,14 @@ class NexusApp {
   }
 
   renderDashboardMetrics() {
-    const totalCostValue = (this.data.products || []).reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
+    let totalPricedCostValue = 0;
     const totalInvValue = (this.data.products || []).reduce((acc, p) => {
       const price = Number(p.price) || 0;
       if (price <= 0) return acc;
+      totalPricedCostValue += this.getProductTotalCost(p);
       return acc + ((Number(p.stock) || 0) * price);
     }, 0);
-    const marginPct = totalInvValue > 0 ? (((totalInvValue - totalCostValue) / totalInvValue) * 100).toFixed(1) : "0.0";
+    const marginPct = totalInvValue > 0 ? (((totalInvValue - totalPricedCostValue) / totalInvValue) * 100).toFixed(1) : "0.0";
 
     const pesajeProducts = (this.data.products || []).filter(p => {
       if (!p) return false;
@@ -8963,12 +9271,16 @@ class NexusApp {
     const canDeleteExp = this.canPerformAction('delete', 'expense');
 
     tbody.innerHTML = this.data.expenses.map(e => {
-      const editBtn = canEditExp ? `<button class="btn-action-edit" onclick="app.openEditExpenseModal('${this.escapeHtml(e.id)}')">Editar</button>` : '';
-      const deleteBtn = canDeleteExp ? `<button class="btn-action-delete" onclick="app.deleteExpense('${this.escapeHtml(e.id)}')">Eliminar</button>` : '';
+      const safeExpIdJs = this.escapeJsAttr(e.id);
+      const editBtn = canEditExp ? `<button class="btn-action-edit" onclick="app.openEditExpenseModal('${safeExpIdJs}')">Editar</button>` : '';
+      const deleteBtn = canDeleteExp ? `<button class="btn-action-delete" onclick="app.deleteExpense('${safeExpIdJs}')">Eliminar</button>` : '';
       const actions = `${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.75rem;">Solo Lectura</span>`;
 
-      const isBank = (e.method || '').toLowerCase().includes('transfer') || (e.method || '').toLowerCase().includes('banco') || (e.method || '').toLowerCase().includes('tarjeta') || (e.method || '').toLowerCase().includes('cuenta') || !!e.targetAccount;
+      const mLower = String(e.method || '').toLowerCase();
+      const accLower = String(e.targetAccount || '').toLowerCase();
+      const isExplicitCash = !e.isBank && (mLower.includes('efectivo') || accLower.includes('efectivo') || accLower.includes('caja'));
+      const isBank = Boolean(e.isBank || (!isExplicitCash && (mLower.includes('transfer') || mLower.includes('banco') || mLower.includes('tarjeta') || mLower.includes('cuenta') || (!!e.targetAccount && !accLower.includes('caja')))));
       const acctName = e.targetAccount || (e.method && e.method.includes('(') ? e.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (isBank ? 'Cuenta Bancaria' : 'Caja Efectivo'));
       const methodBadge = isBank
         ? `<span class="badge" style="background:rgba(99, 102, 241, 0.12); color:#4338CA; font-weight:700; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:12px;">🏦 ${this.escapeHtml(acctName)}</span>`
@@ -9548,8 +9860,7 @@ class NexusApp {
     if (!forceAccount) {
       if (
         s.includes('separe') ||
-        s.includes('crédito') ||
-        s.includes('credito') ||
+        this.isStoreCreditMethod(s) ||
         s === 'tarjeta débito/crédito' ||
         s === 'tarjeta debito/credito' ||
         s === 'tarjeta' ||
@@ -9695,7 +10006,7 @@ class NexusApp {
       if (Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
         tx.mixedPayments.forEach((mp, idx) => {
           const mLower = String(mp.method || '').toLowerCase();
-          if (mLower.includes('crédito') || mLower.includes('credito')) return;
+          if (this.isStoreCreditMethod(mLower)) return;
           const accKey = mLower.includes('efectivo')
             ? 'efectivo_caja'
             : this.extractAccountKeyFromMovement(mp.targetAccount || tx.targetAccount, mp.method);
@@ -9738,7 +10049,7 @@ class NexusApp {
           }
           return;
         }
-        if (pmLower.includes('crédito') || pmLower.includes('credito')) return;
+        if (this.isStoreCreditMethod(pmLower)) return;
         const defaultBankAccKey = this.resolveCanonicalAccountKey(this.data.cashShiftLog?.openingAccount, true) || 'cuenta_charles_joyas';
         const isCashMethod = pmLower === 'efectivo' || pmLower.startsWith('efectivo');
         const isCardOrTransfer = pmLower.includes('tarjeta') || pmLower.includes('transfer') || pmLower.includes('banco') || pmLower.includes('datafono') || pmLower.includes('datáfono');
@@ -9852,7 +10163,7 @@ class NexusApp {
       if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return;
       if (abonoPoIds.has(po.id)) return;
       const pmLower = String(po.paymentMethod || '').toLowerCase();
-      if (pmLower.includes('crédito') || pmLower.includes('credito') || po.paymentStatus !== 'Pagado Total') return;
+      if (this.isStoreCreditMethod(pmLower) || po.paymentStatus !== 'Pagado Total') return;
       const tLower = String(po.targetAccount || '').toLowerCase();
       const isCash = pmLower.includes('efectivo') || tLower.includes('efectivo') || tLower.includes('caja');
       const accKey = isCash
@@ -10201,8 +10512,8 @@ class NexusApp {
           <span style="font-size:0.76rem; color:var(--text-muted);">Mostrando <b id="acc-mov-visible-count">${acc.movements.length}</b> movimientos</span>
         </div>
 
-        <div style="border:1px solid var(--border-color); border-radius:8px; overflow:hidden;">
-          <table style="width:100%; border-collapse:collapse;">
+        <div style="border:1px solid var(--border-color); border-radius:8px; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+          <table style="width:100%; border-collapse:collapse; min-width:560px;">
             <thead style="background:var(--canvas-bg); border-bottom:1px solid var(--border-color); font-size:0.75rem; color:var(--text-muted); text-align:left;">
               <tr>
                 <th style="padding:8px 10px;">Fecha / Hora</th>
@@ -10251,10 +10562,57 @@ class NexusApp {
     }
     if (!confirm('¿Estás seguro de eliminar este ajuste manual de cuenta?')) return;
     if (!Array.isArray(this.data.accountAdjustments)) return;
-    // Eliminar ajuste y su par en caso de transferencia vinculada
+    // Capturar ajustes a eliminar (y su par en caso de transferencia vinculada) antes de filtrar
     const target = this.data.accountAdjustments.find(a => a.id === adjId);
     const linkedPairId = target?.linkedTransferId;
-    this.data.accountAdjustments = this.data.accountAdjustments.filter(a => a.id !== adjId && (!linkedPairId || a.linkedTransferId !== linkedPairId));
+    const isRemovedLeg = (a) => a && (a.id === adjId || (linkedPairId && a.linkedTransferId === linkedPairId));
+    const removedLegs = this.data.accountAdjustments.filter(isRemovedLeg);
+    this.data.accountAdjustments = this.data.accountAdjustments.filter(a => !isRemovedLeg(a));
+
+    const openShift = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog : null;
+    const openShiftId = openShift?.shiftId || null;
+
+    removedLegs.forEach(leg => {
+      const legShiftId = leg.closedShiftId || leg.shiftId;
+      if (!legShiftId || legShiftId === 'EXCLUIDO' || legShiftId === openShiftId) return;
+      const signedAmt = Math.round(Math.abs(Number(leg.amount) || 0)) * (leg.isIncome ? 1 : -1);
+      const isCashLeg = leg.accountKey === 'efectivo_caja';
+      const histShift = Array.isArray(this.data.cashShiftsHistory)
+        ? this.data.cashShiftsHistory.find(s => s.shiftId === legShiftId || s.id === legShiftId)
+        : null;
+      if (histShift) {
+        if (isCashLeg) {
+          histShift.cashAdjustmentsNet = Math.round(((Number(histShift.cashAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
+          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0) + histShift.cashAdjustmentsNet) * 100) / 100;
+          if (histShift.closingCash !== undefined) {
+            histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+          }
+        } else {
+          histShift.bankAdjustmentsNet = Math.round(((Number(histShift.bankAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
+          histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + histShift.bankAdjustmentsNet - (Number(histShift.bankExpenses) || 0)) * 100) / 100;
+        }
+      }
+      const closedLog = this.data.cashShiftLog;
+      if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === legShiftId) {
+        if (isCashLeg) {
+          closedLog.cashAdjustmentsNet = Math.round(((Number(closedLog.cashAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
+          closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - (Number(closedLog.cashExpenses) || 0) + closedLog.cashAdjustmentsNet) * 100) / 100;
+          if (closedLog.closingCash !== undefined) {
+            closedLog.closingCash = Math.round(((Number(closedLog.closingCash) || 0) - signedAmt) * 100) / 100;
+          }
+          if (this.data.store) {
+            this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+          }
+        } else {
+          closedLog.bankAdjustmentsNet = Math.round(((Number(closedLog.bankAdjustmentsNet) || 0) - signedAmt) * 100) / 100;
+          closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + closedLog.bankAdjustmentsNet - (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
+        }
+      }
+    });
+
+    if (this.calculateShiftTotals && openShift) {
+      this.calculateShiftTotals();
+    }
     await this.savePersistence();
     this.syncAllModules();
     if (accountKey) {
@@ -10452,6 +10810,9 @@ class NexusApp {
         party: acc.name,
         operator
       });
+      if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
+        this.calculateShiftTotals();
+      }
       await this.savePersistence();
       this.syncAllModules();
       this.closeModal('account-adjust-modal');
@@ -10481,6 +10842,9 @@ class NexusApp {
         party: acc.name,
         operator
       });
+      if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
+        this.calculateShiftTotals();
+      }
       await this.savePersistence();
       this.syncAllModules();
       this.closeModal('account-adjust-modal');
@@ -10531,6 +10895,9 @@ class NexusApp {
           operator
         }
       );
+      if (this.calculateShiftTotals && this.data.cashShiftLog?.status === 'Abierto') {
+        this.calculateShiftTotals();
+      }
       await this.savePersistence();
       this.syncAllModules();
       this.closeModal('account-adjust-modal');
@@ -11093,7 +11460,8 @@ class NexusApp {
 
       if (prod) {
         const isPesaje = (prod.measureType || 'Pesaje') === 'Pesaje';
-        const pWeight = parseFloat(String(item.pieceWeight || (prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0))).replace(',', '.')) || 0;
+        const rawItemPw = (item.pieceWeight !== undefined && item.pieceWeight !== null && item.pieceWeight !== '') ? item.pieceWeight : (prod.pieceWeight !== undefined && prod.pieceWeight !== null ? prod.pieceWeight : (prod.weight || 0));
+        const pWeight = parseFloat(String(rawItemPw).replace(',', '.')) || 0;
         const isUnitWithWeight = !isPesaje && pWeight > 0;
         const roundScale = (isPesaje && (prod.weightUnit || 'g').toLowerCase() === 'kg') ? 10000 : 1000;
         const unitsToAdd = isUnitWithWeight ? (Math.round((soldQty / pWeight) * 10000) / 10000) : soldQty;
@@ -11128,23 +11496,25 @@ class NexusApp {
         restoredNames.push(`${prod.name} (SKU: ${prod.sku || prod.id}, +${unitsToAdd} ${isPesaje ? (prod.weightUnit || 'g') : 'u.'})`);
       } else {
         const isPesajeItem = (item.measureType || 'Pesaje') === 'Pesaje';
-        const pWeightItem = Number(item.pieceWeight) || 0;
-        const unitsToAddItem = (!isPesajeItem && pWeightItem > 0) ? (Math.round((soldQty / pWeightItem) * 10000) / 10000) : soldQty;
+        const pWeightItem = parseFloat(String(item.pieceWeight || 0).replace(',', '.')) || 0;
+        const isUnitWeightItem = !isPesajeItem && pWeightItem > 0;
+        const unitsToAddItem = isUnitWeightItem ? (Math.round((soldQty / pWeightItem) * 10000) / 10000) : soldQty;
+        const unitLabelItem = isPesajeItem ? (item.unit && item.unit !== 'u.' ? item.unit : 'g') : 'u.';
 
         const restoredProd = {
           id: item.id || this.generateUniqueId('PRD', this.data.products),
           sku: item.sku || '',
           name: item.name || 'Joya Reintegrada',
           measureType: item.measureType || 'Pesaje',
-          weightUnit: item.unit || (isPesajeItem ? 'g' : 'u.'),
-          unit: item.unit || (isPesajeItem ? 'g' : 'u.'),
+          weightUnit: unitLabelItem,
+          unit: unitLabelItem,
           isExtra: Boolean(item.isExtra),
           cost: Number(item.cost) || 0,
           pieceWeight: pWeightItem,
           weight: pWeightItem,
           category: item.category || 'general',
           categoryName: item.categoryName || 'GENERAL',
-          price: Number(item.price) || 0,
+          price: Number(item.catalogPrice !== undefined ? item.catalogPrice : item.price) || 0,
           stock: unitsToAddItem,
           minStock: 1,
           status: 'active',
@@ -11152,7 +11522,7 @@ class NexusApp {
         };
         if (!Array.isArray(this.data.products)) this.data.products = [];
         this.data.products.push(restoredProd);
-        restoredNames.push(`${restoredProd.name} (SKU: ${restoredProd.sku || restoredProd.id}, +${unitsToAddItem} ${isPesajeItem ? 'g' : 'u.'})`);
+        restoredNames.push(`${restoredProd.name} (SKU: ${restoredProd.sku || restoredProd.id}, +${unitsToAddItem} ${unitLabelItem})`);
       }
     });
 
@@ -11167,79 +11537,49 @@ class NexusApp {
     const isOpenShift = this.data.cashShiftLog?.status === 'Abierto';
     const openShiftId = isOpenShift ? this.data.cashShiftLog.shiftId : null;
     const isTxInCurrentOpenShift = Boolean(openShiftId && tx.shiftId === openShiftId);
-    let cashRefundAmount = 0;
-    let bankRefundAmount = 0;
-    let histCashRefundAmount = 0;
-    let histBankRefundAmount = 0;
+    let totalCashRefunded = 0;
+    let cashToRefundFromOpenShift = 0;
+    const closedShiftDeltas = {};
+    const recordClosedShiftDelta = (sId, field, amount) => {
+      if (!sId || sId === 'EXCLUIDO' || (openShiftId && sId === openShiftId) || !amount) return;
+      if (!closedShiftDeltas[sId]) {
+        closedShiftDeltas[sId] = { cash: 0, transfer: 0, tarjeta: 0, credit: 0, facturado: 0, count: 0 };
+      }
+      closedShiftDeltas[sId][field] += amount;
+    };
+
+    const classifyRevChannel = (mLower) => {
+      if (mLower.includes('efectivo') || mLower.includes('cash')) return 'cash';
+      if (mLower.includes('tarjeta') || mLower.includes('card') || mLower.includes('débito') || mLower.includes('debito') || mLower.includes('datafono') || mLower.includes('datáfono')) return 'tarjeta';
+      return 'transfer';
+    };
+
+    if (tx.shiftId && tx.shiftId !== openShiftId) {
+      recordClosedShiftDelta(tx.shiftId, 'facturado', grandTotal);
+      recordClosedShiftDelta(tx.shiftId, 'count', 1);
+    }
 
     if (tx.mixedPayments && Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
       tx.mixedPayments.forEach(mp => {
         const mpAmt = Math.abs(Number(mp.amount) || 0);
         const mpMethod = (mp.method || '').toLowerCase();
-        if (mpMethod.includes('efectivo') || mpMethod.includes('cash')) {
-          cashRefundAmount += mpAmt;
-          histCashRefundAmount += mpAmt;
+        if (this.isStoreCreditMethod(mpMethod)) {
+          if (tx.shiftId && tx.shiftId !== openShiftId) recordClosedShiftDelta(tx.shiftId, 'credit', mpAmt);
+        } else if (mpMethod.includes('efectivo') || mpMethod.includes('cash')) {
+          totalCashRefunded += mpAmt;
+          if (!isTxInCurrentOpenShift) {
+            cashToRefundFromOpenShift += mpAmt;
+            recordClosedShiftDelta(tx.shiftId, 'cash', mpAmt);
+          }
         } else {
-          bankRefundAmount += mpAmt;
-          histBankRefundAmount += mpAmt;
+          const ch = classifyRevChannel(mpMethod);
+          recordClosedShiftDelta(tx.shiftId, ch, mpAmt);
         }
       });
-    } else if (payMethod.includes('efectivo') || payMethod.includes('cash')) {
-      cashRefundAmount = grandTotal;
-      histCashRefundAmount = grandTotal;
-    } else if (payMethod.includes('tarjeta') || payMethod.includes('transfer') || payMethod.includes('banco')) {
-      bankRefundAmount = grandTotal;
-      histBankRefundAmount = grandTotal;
-    } else if (payMethod.includes('crédito') || payMethod.includes('credito')) {
-      // Anular deuda y posibles abonos previos vinculados exclusivamente a esta factura
-      let targetCreditId = null;
-      let hasMergedCredits = false;
-      let cred = null;
-      if (Array.isArray(this.data.customerCredits)) {
-        cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id || (Array.isArray(c.mergedTxIds) && c.mergedTxIds.includes(tx.id)))
-          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado' && (Number(c.currentBalance) || 0) > 0)
-          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado');
-        if (cred) {
-          targetCreditId = cred.id;
-          if (Array.isArray(cred.mergedTxIds)) {
-            cred.mergedTxIds = cred.mergedTxIds.filter(tid => tid !== tx.id);
-            hasMergedCredits = cred.mergedTxIds.length > 0;
-          }
-        }
-      }
-      let reversedAbonosTotal = 0;
-      if (Array.isArray(this.data.abonosVentas)) {
-        this.data.abonosVentas.forEach(ab => {
-          const directInvoiceMatch = ab.invoiceId && ab.invoiceId === tx.id;
-          const exclusiveCreditMatch = targetCreditId && !hasMergedCredits && ab.creditId === targetCreditId;
-          if (ab && ab.status !== 'Reversado' && (directInvoiceMatch || exclusiveCreditMatch)) {
-            ab.status = 'Reversado';
-            const abAmt = Number(ab.amount) || 0;
-            reversedAbonosTotal += abAmt;
-            const abMeth = String(ab.method || '').toLowerCase();
-            const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
-            if (isAbCash) cashRefundAmount += abAmt;
-            else bankRefundAmount += abAmt;
-            if (tx.shiftId && ab.shiftId === tx.shiftId) {
-              if (isAbCash) histCashRefundAmount += abAmt;
-              else histBankRefundAmount += abAmt;
-            }
-          }
-        });
-      }
-      const remainingUnpaidForTx = Math.max(0, grandTotal - reversedAbonosTotal);
-      if (cred) {
-        cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
-        cred.currentBalance = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - remainingUnpaidForTx) * 100) / 100;
-        if (cred.currentBalance <= 0 && (!hasMergedCredits || cred.totalGranted <= 0)) cred.status = 'Anulado';
-      }
-      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
-      if (cust) {
-        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - remainingUnpaidForTx) * 100) / 100;
-      }
     } else if (payMethod.includes('separe')) {
       const sep = Array.isArray(this.data.customerCredits)
-        ? (this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || (c.customer === tx.customer && c.status === 'Plan Separe')))
+        ? (this.data.customerCredits.find(c => c.txId && c.txId === tx.id)
+          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status === 'Plan Separe'))
         : null;
       const effPending = tx.separePending !== undefined
         ? Number(tx.separePending)
@@ -11249,8 +11589,14 @@ class NexusApp {
         : Math.max(0, grandTotal - effPending);
 
       if (effAbono > 0) {
-        cashRefundAmount += effAbono;
-        histCashRefundAmount += effAbono;
+        totalCashRefunded += effAbono;
+        if (!isTxInCurrentOpenShift) {
+          cashToRefundFromOpenShift += effAbono;
+          recordClosedShiftDelta(tx.shiftId, 'cash', effAbono);
+        }
+      }
+      if (grandTotal - effAbono > 0 && tx.shiftId && tx.shiftId !== openShiftId) {
+        recordClosedShiftDelta(tx.shiftId, 'credit', Math.max(0, grandTotal - effAbono));
       }
       let reversedSepAbonos = 0;
       if (Array.isArray(this.data.abonosVentas)) {
@@ -11262,11 +11608,14 @@ class NexusApp {
             reversedSepAbonos += abAmt;
             const abMeth = String(ab.method || '').toLowerCase();
             const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
-            if (isAbCash) cashRefundAmount += abAmt;
-            else bankRefundAmount += abAmt;
-            if (tx.shiftId && ab.shiftId === tx.shiftId) {
-              if (isAbCash) histCashRefundAmount += abAmt;
-              else histBankRefundAmount += abAmt;
+            if (isAbCash) {
+              totalCashRefunded += abAmt;
+              if (!openShiftId || ab.shiftId !== openShiftId) {
+                cashToRefundFromOpenShift += abAmt;
+              }
+            }
+            if (!openShiftId || ab.shiftId !== openShiftId) {
+              recordClosedShiftDelta(ab.shiftId, isAbCash ? 'cash' : classifyRevChannel(abMeth), abAmt);
             }
           }
         });
@@ -11285,64 +11634,142 @@ class NexusApp {
         sep.currentBalance = 0;
         sep.totalGranted = 0;
       }
+    } else if (payMethod.includes('efectivo') || payMethod.includes('cash')) {
+      totalCashRefunded = grandTotal;
+      if (!isTxInCurrentOpenShift) {
+        cashToRefundFromOpenShift = grandTotal;
+        recordClosedShiftDelta(tx.shiftId, 'cash', grandTotal);
+      }
+    } else if (this.isStoreCreditMethod(payMethod)) {
+      if (tx.shiftId && tx.shiftId !== openShiftId) {
+        recordClosedShiftDelta(tx.shiftId, 'credit', grandTotal);
+      }
+      // Anular deuda y posibles abonos previos vinculados exclusivamente a esta factura
+      let targetCreditId = null;
+      let hasMergedCredits = false;
+      let cred = null;
+      if (Array.isArray(this.data.customerCredits)) {
+        cred = this.data.customerCredits.find(c => (c.txId && c.txId === tx.id) || c.id === tx.id || (Array.isArray(c.mergedTxIds) && c.mergedTxIds.includes(tx.id)))
+          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado' && (Number(c.currentBalance) || 0) > 0)
+          || this.data.customerCredits.find(c => c.customer === tx.customer && c.status !== 'Plan Separe' && c.status !== 'Anulado');
+        if (cred) {
+          targetCreditId = cred.id;
+          if (Array.isArray(cred.mergedTxIds)) {
+            cred.mergedTxIds = cred.mergedTxIds.filter(tid => tid !== tx.id);
+            hasMergedCredits = cred.mergedTxIds.length > 0;
+            if (cred.txId === tx.id && hasMergedCredits) {
+              cred.txId = cred.mergedTxIds[0];
+            }
+          }
+        }
+      }
+      let reversedAbonosTotal = 0;
+      if (Array.isArray(this.data.abonosVentas)) {
+        this.data.abonosVentas.forEach(ab => {
+          const directInvoiceMatch = ab.invoiceId && ab.invoiceId === tx.id;
+          const exclusiveCreditMatch = targetCreditId && !hasMergedCredits && ab.creditId === targetCreditId;
+          if (ab && ab.status !== 'Reversado' && (directInvoiceMatch || exclusiveCreditMatch)) {
+            ab.status = 'Reversado';
+            const abAmt = Number(ab.amount) || 0;
+            reversedAbonosTotal += abAmt;
+            const abMeth = String(ab.method || '').toLowerCase();
+            const isAbCash = abMeth.includes('efectivo') || abMeth.includes('caja');
+            if (isAbCash) {
+              totalCashRefunded += abAmt;
+              if (!openShiftId || ab.shiftId !== openShiftId) {
+                cashToRefundFromOpenShift += abAmt;
+              }
+            }
+            if (!openShiftId || ab.shiftId !== openShiftId) {
+              recordClosedShiftDelta(ab.shiftId, isAbCash ? 'cash' : classifyRevChannel(abMeth), abAmt);
+            }
+          }
+        });
+      }
+      const debtDelta = grandTotal - reversedAbonosTotal;
+      if (cred) {
+        cred.totalGranted = Math.round(Math.max(0, (Number(cred.totalGranted) || 0) - grandTotal) * 100) / 100;
+        const nextCredBal = Math.round(Math.max(0, (Number(cred.currentBalance) || 0) - debtDelta) * 100) / 100;
+        cred.currentBalance = Math.min(cred.totalGranted, nextCredBal);
+        if (cred.currentBalance <= 0 && (!hasMergedCredits || cred.totalGranted <= 0)) cred.status = 'Anulado';
+      }
+      const cust = (this.data.customers || []).find(c => c.name === tx.customer);
+      if (cust) {
+        cust.creditBalance = Math.round(Math.max(0, (Number(cust.creditBalance) || 0) - debtDelta) * 100) / 100;
+      }
+    } else if (payMethod.includes('tarjeta') || payMethod.includes('transfer') || payMethod.includes('banco') || payMethod.includes('datafono') || payMethod.includes('datáfono') || payMethod.includes('bizum') || payMethod.includes('qr') || payMethod.includes('nequi') || payMethod.includes('daviplata') || (tx.targetAccount && !String(tx.targetAccount).toLowerCase().includes('caja'))) {
+      recordClosedShiftDelta(tx.shiftId, classifyRevChannel(payMethod), grandTotal);
     }
 
     // 3. ACTUALIZAR ESTADO DE LA TRANSACCIÓN ANTES DE RECALCULAR CAJA
     tx.status = 'Reversada';
     tx.reversedAt = new Date().toISOString();
     tx.reversedBy = this.currentUser?.name || 'Administrador';
-    tx.cashRefunded = cashRefundAmount;
-    tx.refundShiftId = (!isTxInCurrentOpenShift && openShiftId) ? openShiftId : null;
+    tx.cashRefunded = openShiftId ? cashToRefundFromOpenShift : totalCashRefunded;
+    tx.refundShiftId = (openShiftId && cashToRefundFromOpenShift > 0) ? openShiftId : null;
 
-    if (!isTxInCurrentOpenShift) {
-      // Si el turno ya estaba cerrado (incluyendo el último turno recién cerrado), actualizar su registro en cashShiftsHistory solo por los montos que ingresaron en ese turno
-      if (tx.shiftId && Array.isArray(this.data.cashShiftsHistory)) {
-        const histShift = this.data.cashShiftsHistory.find(s => s.shiftId === tx.shiftId || s.id === tx.shiftId);
-        if (histShift) {
-          if (histCashRefundAmount > 0) {
-            histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - histCashRefundAmount) * 100) / 100;
-          }
-          if (histBankRefundAmount > 0) {
-            histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
-          }
-          histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0) + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
-          if (histShift.closingCash !== undefined) {
-            histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
-          }
+    // Actualizar todos los turnos cerrados afectados (tanto el turno original de la venta como turnos donde entraron abonos)
+    Object.entries(closedShiftDeltas).forEach(([sId, d]) => {
+      const bankDelta = d.transfer + d.tarjeta;
+      const recaudadoDelta = d.cash + bankDelta;
+      const histShift = Array.isArray(this.data.cashShiftsHistory)
+        ? this.data.cashShiftsHistory.find(s => s.shiftId === sId || s.id === sId)
+        : null;
+      if (histShift) {
+        if (d.cash > 0) histShift.cashSales = Math.round(Math.max(0, (Number(histShift.cashSales) || 0) - d.cash) * 100) / 100;
+        if (d.transfer > 0) histShift.transferSales = Math.round(Math.max(0, (Number(histShift.transferSales) || 0) - d.transfer) * 100) / 100;
+        if (d.tarjeta > 0) histShift.tarjetaSales = Math.round(Math.max(0, (Number(histShift.tarjetaSales) || 0) - d.tarjeta) * 100) / 100;
+        if (bankDelta > 0) histShift.cardSales = Math.round(Math.max(0, (Number(histShift.cardSales) || 0) - bankDelta) * 100) / 100;
+        if (d.credit > 0) histShift.creditSales = Math.round(Math.max(0, (Number(histShift.creditSales) || 0) - d.credit) * 100) / 100;
+        if (d.facturado > 0) histShift.totalFacturado = Math.round(Math.max(0, (Number(histShift.totalFacturado) || 0) - d.facturado) * 100) / 100;
+        if (recaudadoDelta > 0) histShift.totalRecaudado = Math.round(Math.max(0, (Number(histShift.totalRecaudado) || 0) - recaudadoDelta) * 100) / 100;
+        if (d.count > 0) histShift.salesCount = Math.max(0, (Number(histShift.salesCount) || 0) - d.count);
+        histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - (Number(histShift.cashExpenses) || 0) + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
+        histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - (Number(histShift.bankExpenses) || 0)) * 100) / 100;
+        if (histShift.closingCash !== undefined) {
+          histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
         }
       }
-      if (this.data.cashShiftLog?.status === 'Cerrado' && tx.shiftId === this.data.cashShiftLog.shiftId) {
+      if (this.data.cashShiftLog?.status === 'Cerrado' && sId === this.data.cashShiftLog.shiftId) {
         const log = this.data.cashShiftLog;
-        if (histCashRefundAmount > 0) {
-          log.cashSales = Math.round(Math.max(0, (Number(log.cashSales) || 0) - histCashRefundAmount) * 100) / 100;
+        if (d.cash > 0) {
+          log.cashSales = Math.round(Math.max(0, (Number(log.cashSales) || 0) - d.cash) * 100) / 100;
           log.expectedCashInDrawer = Math.round(((Number(log.openingCash) || 0) + (Number(log.cashSales) || 0) - (Number(log.cashExpenses) || 0) + (Number(log.cashAdjustmentsNet) || 0)) * 100) / 100;
           if (log.closingCash !== undefined) {
-            log.closingCash = Math.round(Math.max(0, (Number(log.closingCash) || 0) - histCashRefundAmount) * 100) / 100;
+            log.closingCash = Math.round(Math.max(0, (Number(log.closingCash) || 0) - d.cash) * 100) / 100;
           }
           if (this.data.store) {
             this.data.store.cashInBox = log.closingCash !== undefined ? log.closingCash : log.expectedCashInDrawer;
           }
         }
-        if (histBankRefundAmount > 0) {
-          log.cardSales = Math.round(Math.max(0, (Number(log.cardSales) || 0) - histBankRefundAmount) * 100) / 100;
-        }
+        if (d.transfer > 0) log.transferSales = Math.round(Math.max(0, (Number(log.transferSales) || 0) - d.transfer) * 100) / 100;
+        if (d.tarjeta > 0) log.tarjetaSales = Math.round(Math.max(0, (Number(log.tarjetaSales) || 0) - d.tarjeta) * 100) / 100;
+        if (bankDelta > 0) log.cardSales = Math.round(Math.max(0, (Number(log.cardSales) || 0) - bankDelta) * 100) / 100;
+        log.expectedCardInAccount = Math.round(((Number(log.openingCard) || 0) + (Number(log.transferSales) || 0) + (Number(log.tarjetaSales) || 0) + (Number(log.bankAdjustmentsNet) || 0) - (Number(log.bankExpenses) || 0)) * 100) / 100;
       }
-    }
+    });
 
     // 4. SINCRONIZAR DINERO EN CAJA DEL TURNO ABIERTO (CON tx.status = 'Reversada' YA APLICADO)
     if (isOpenShift) {
       const totals = this.calculateShiftTotals ? this.calculateShiftTotals() : null;
       if (totals && this.data.cashShiftLog) {
-        this.data.cashShiftLog.cashSales = totals.salesEfectivo;
+        this.data.cashShiftLog.cashSales = totals.totalEfectivo;
+        this.data.cashShiftLog.transferSales = totals.totalTransferencia;
+        this.data.cashShiftLog.tarjetaSales = totals.totalTarjeta;
+        this.data.cashShiftLog.cardSales = totals.totalTransferencia + totals.totalTarjeta;
+        this.data.cashShiftLog.creditSales = totals.totalCredito;
         this.data.cashShiftLog.expectedCashInDrawer = totals.expectedCashInDrawer;
-        this.data.cashShiftLog.cardSales = totals.salesTarjeta + totals.salesTransferencia;
+        this.data.cashShiftLog.expectedCardInAccount = totals.expectedCardInAccount;
       }
       if (this.data.store && this.data.cashShiftLog) {
         this.data.store.cashInBox = this.data.cashShiftLog.expectedCashInDrawer;
       }
     }
 
-    if (this.data.kpis) {
+    const todayLocalIso = this.getLocalDateStr();
+    const txParsedDate = this.parseDateSafe ? this.parseDateSafe(tx.isoDate || tx.date) : null;
+    const isTxToday = tx.isoDate === todayLocalIso || (txParsedDate && this.getLocalDateStr(txParsedDate) === todayLocalIso);
+    if (this.data.kpis && isTxToday) {
       this.data.kpis.salesToday = Math.round(Math.max(0, (Number(this.data.kpis.salesToday) || 0) - grandTotal) * 100) / 100;
       this.data.kpis.transactionsToday = Math.max(0, (Number(this.data.kpis.transactionsToday) || 1) - 1);
     }
@@ -11809,10 +12236,10 @@ class NexusApp {
         status: "Confirmado"
       });
 
-      if (isCash && activeShift) {
+      if (activeShift) {
         if (this.calculateShiftTotals) {
           this.calculateShiftTotals();
-        } else {
+        } else if (isCash) {
           activeShift.cashExpenses = Math.round(((Number(activeShift.cashExpenses) || 0) + remainingToPay) * 100) / 100;
           activeShift.expectedCashInDrawer = Math.round(((Number(activeShift.openingCash) || 0) + (Number(activeShift.cashSales) || 0) - (Number(activeShift.cashExpenses) || 0)) * 100) / 100;
           if (this.data.store) this.data.store.cashInBox = activeShift.expectedCashInDrawer;
@@ -12418,6 +12845,8 @@ class NexusApp {
 
     const oldSupplier = (po.supplier || '').trim();
     const oldSupplierNorm = oldSupplier.toLowerCase();
+    const oldMethod = po.paymentMethod || '';
+    const wasCreditPO = this.isStoreCreditMethod(oldMethod) || (!oldMethod && Number(po.paidAmount || 0) < Number(po.total || 0));
     const oldQty = Number(po.quantity !== undefined ? po.quantity : (po.itemsCount || 1)) || 0;
     const oldGrams = Number(po.totalGrams) || Number(po.productGrams) || 0;
     const oldTotal = Math.round(Number(po.total) || 0);
@@ -12570,6 +12999,69 @@ class NexusApp {
       updateSupplierBalanceHelper(newSupplierNorm, syncMode === 'none' ? 'recalc_all_pos' : syncMode);
     } else {
       updateSupplierBalanceHelper(newSupplierNorm, syncMode);
+    }
+
+    const deltaPaid = Math.round((newPaid - oldPaid) * 100) / 100;
+    const openShiftIdEdit = this.data.cashShiftLog?.status === 'Abierto' ? this.data.cashShiftLog.shiftId : null;
+    if (deltaPaid > 0 && wasCreditPO) {
+      const destAccs = this.getDestinationBankAccounts ? this.getDestinationBankAccounts() : ['CUENTA CHARLES JOYAS SAS'];
+      const payMethodLower = String(po.paymentMethod || '').toLowerCase();
+      const isCashEdit = payMethodLower.includes('efectivo') || String(po.targetAccount || '').toLowerCase().includes('caja');
+      const payAcc = isCashEdit ? 'Caja Mostrador (Efectivo)' : (po.targetAccount || this.data.cashShiftLog?.openingAccount || destAccs[0] || 'CUENTA CHARLES JOYAS SAS');
+      const nowEdit = new Date();
+      if (!this.data.abonosCompras) this.data.abonosCompras = [];
+      this.data.abonosCompras.unshift({
+        id: this.generateSequentialId('AB-C', this.data.abonosCompras),
+        date: this.getLocalDateStr(nowEdit),
+        time: nowEdit.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: nowEdit.getTime(),
+        shiftId: openShiftIdEdit || 'EXCLUIDO',
+        supplier: po.supplier,
+        poId: po.id,
+        amount: deltaPaid,
+        method: isCashEdit ? 'Efectivo (Caja)' : (po.paymentMethod || `Transferencia (${payAcc})`),
+        targetAccount: payAcc,
+        cashier: this.currentUser?.name || this.data.store?.cashier || 'Cajero',
+        status: 'Confirmado'
+      });
+    } else if (deltaPaid !== 0 && !wasCreditPO && po.shiftId && po.shiftId !== 'EXCLUIDO' && po.shiftId !== openShiftIdEdit) {
+      const hasLinkedAbono = (this.data.abonosCompras || []).some(a => a && a.poId === po.id);
+      if (!hasLinkedAbono) {
+        const wasCashPo = String(oldMethod || po.paymentMethod || '').toLowerCase().includes('efectivo') || String(po.targetAccount || '').toLowerCase().includes('caja');
+        const histShift = Array.isArray(this.data.cashShiftsHistory)
+          ? this.data.cashShiftsHistory.find(s => s.shiftId === po.shiftId || s.id === po.shiftId)
+          : null;
+        if (histShift) {
+          if (wasCashPo) {
+            histShift.cashExpenses = Math.round(Math.max(0, (Number(histShift.cashExpenses) || 0) + deltaPaid) * 100) / 100;
+            histShift.expectedCashInDrawer = Math.round(((Number(histShift.openingCash) || 0) + (Number(histShift.cashSales) || 0) - histShift.cashExpenses + (Number(histShift.cashAdjustmentsNet) || 0)) * 100) / 100;
+            if (histShift.closingCash !== undefined) {
+              histShift.difference = Math.round((Number(histShift.closingCash) - histShift.expectedCashInDrawer) * 100) / 100;
+            }
+          } else {
+            histShift.bankExpenses = Math.round(Math.max(0, (Number(histShift.bankExpenses) || 0) + deltaPaid) * 100) / 100;
+            histShift.expectedCardInAccount = Math.round(((Number(histShift.openingCard) || 0) + (Number(histShift.transferSales) || 0) + (Number(histShift.tarjetaSales) || 0) + (Number(histShift.bankAdjustmentsNet) || 0) - histShift.bankExpenses) * 100) / 100;
+          }
+          histShift.totalExpenses = Math.round(((Number(histShift.cashExpenses) || 0) + (Number(histShift.bankExpenses) || 0)) * 100) / 100;
+        }
+        const closedLog = this.data.cashShiftLog;
+        if (closedLog && closedLog.status === 'Cerrado' && closedLog.shiftId && closedLog.shiftId === po.shiftId) {
+          if (wasCashPo) {
+            closedLog.cashExpenses = Math.round(Math.max(0, (Number(closedLog.cashExpenses) || 0) + deltaPaid) * 100) / 100;
+            closedLog.expectedCashInDrawer = Math.round(((Number(closedLog.openingCash) || 0) + (Number(closedLog.cashSales) || 0) - closedLog.cashExpenses + (Number(closedLog.cashAdjustmentsNet) || 0)) * 100) / 100;
+            if (closedLog.closingCash !== undefined) {
+              closedLog.closingCash = Math.round(Math.max(0, (Number(closedLog.closingCash) || 0) - deltaPaid) * 100) / 100;
+            }
+            if (this.data.store) {
+              this.data.store.cashInBox = closedLog.closingCash !== undefined ? closedLog.closingCash : closedLog.expectedCashInDrawer;
+            }
+          } else {
+            closedLog.bankExpenses = Math.round(Math.max(0, (Number(closedLog.bankExpenses) || 0) + deltaPaid) * 100) / 100;
+            closedLog.expectedCardInAccount = Math.round(((Number(closedLog.openingCard) || 0) + (Number(closedLog.transferSales) || 0) + (Number(closedLog.tarjetaSales) || 0) + (Number(closedLog.bankAdjustmentsNet) || 0) - closedLog.bankExpenses) * 100) / 100;
+          }
+          closedLog.totalExpenses = Math.round(((Number(closedLog.cashExpenses) || 0) + (Number(closedLog.bankExpenses) || 0)) * 100) / 100;
+        }
+      }
     }
 
     this.syncSupplierCreditsState();
@@ -13818,8 +14310,10 @@ class NexusApp {
 
       const rowClass = isAgotado ? 'inv-row-out-of-stock' : 'inv-row-in-stock';
 
-      const editBtn = canEditProd ? `<button class="btn-action-edit" onclick="app.openEditProductModal('${this.escapeHtml(p.id)}', '${this.escapeHtml(p.sku || '')}')">Editar</button>` : '';
-      const deleteBtn = canDeleteProd ? `<button class="btn-action-delete" onclick="app.deleteProduct('${this.escapeHtml(p.id)}', '${this.escapeHtml(p.sku || '')}')">Eliminar</button>` : '';
+      const safeProdIdJs = this.escapeJsAttr(p.id);
+      const safeProdSkuJs = this.escapeJsAttr(p.sku || '');
+      const editBtn = canEditProd ? `<button class="btn-action-edit" onclick="app.openEditProductModal('${safeProdIdJs}', '${safeProdSkuJs}')">Editar</button>` : '';
+      const deleteBtn = canDeleteProd ? `<button class="btn-action-delete" onclick="app.deleteProduct('${safeProdIdJs}', '${safeProdSkuJs}')">Eliminar</button>` : '';
       const actions = `${editBtn}${deleteBtn}`;
       const actionHtml = actions ? `<div class="action-btn-group">${actions}</div>` : `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>`;
 
@@ -14655,7 +15149,7 @@ class NexusApp {
       }
 
       // 4. Fallback only if no timestamps exist
-      const openedDate = shift.openedDate || new Date().toISOString().slice(0, 10);
+      const openedDate = shift.openedDate || this.getLocalDateStr();
       const parts = openedDate.split('-');
       const datePattern = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : openedDate;
       return tx.date === datePattern || tx.date.includes(datePattern) || tx.date.includes(openedDate);
@@ -14706,6 +15200,16 @@ class NexusApp {
     let salesOtros = 0;
     let totalSales = 0;
 
+    const classifyChannel = (methodStr, targetAccStr) => {
+      const m = String(methodStr || '').toLowerCase();
+      const tAcc = String(targetAccStr || '').toLowerCase();
+      if (this.isStoreCreditMethod(m)) return 'credit';
+      if (m.includes('efectivo') || m.includes('cash') || (!m && tAcc.includes('caja'))) return 'cash';
+      if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) return 'card';
+      if (m.includes('transfer') || m.includes('banco') || m.includes('cta') || m.includes('bizum') || m.includes('qr') || m.includes('nequi') || m.includes('daviplata') || m.includes('bancolombia') || (tAcc && !tAcc.includes('caja'))) return 'transfer';
+      return 'other';
+    };
+
     shiftTxs.forEach(t => {
       const amt = Math.round(Math.abs(t.total || 0));
       totalSales += amt;
@@ -14713,37 +15217,29 @@ class NexusApp {
       if (t.mixedPayments && Array.isArray(t.mixedPayments) && t.mixedPayments.length > 0) {
         t.mixedPayments.forEach(mp => {
           const mpAmt = Math.round(Number(mp.amount) || 0);
-          const mpMethod = (mp.method || '').toLowerCase();
-          if (mpMethod.includes('efectivo') || mpMethod.includes('cash')) {
-            salesEfectivo += mpAmt;
-          } else if (mpMethod.includes('tarjeta') || mpMethod.includes('card') || mpMethod.includes('débito') || mpMethod.includes('debito') || mpMethod.includes('datafono') || mpMethod.includes('datáfono')) {
-            salesTarjeta += mpAmt;
-          } else if (mpMethod.includes('transfer') || mpMethod.includes('banco') || mpMethod.includes('cta')) {
-            salesTransferencia += mpAmt;
-          } else if (mpMethod.includes('crédito') || mpMethod.includes('credito')) {
-            salesCredito += mpAmt;
-          } else {
-            salesOtros += mpAmt;
-          }
+          const ch = classifyChannel(mp.method, mp.targetAccount || t.targetAccount);
+          if (ch === 'cash') salesEfectivo += mpAmt;
+          else if (ch === 'card') salesTarjeta += mpAmt;
+          else if (ch === 'transfer') salesTransferencia += mpAmt;
+          else if (ch === 'credit') salesCredito += mpAmt;
+          else salesOtros += mpAmt;
         });
       } else {
         const m = (t.paymentMethod || '').toLowerCase();
         if (m.includes('separe')) {
-          const sepCred = (this.data.customerCredits || []).find(c => c.txId === t.id || (c.customer === t.customer && c.status === 'Plan Separe'));
+          const sepCred = (this.data.customerCredits || []).find(c => c.txId && c.txId === t.id)
+            || (this.data.customerCredits || []).find(c => c.customer === t.customer && c.status === 'Plan Separe');
           const sepPending = t.separePending !== undefined ? Number(t.separePending) : (sepCred ? (Number(sepCred.currentBalance) || 0) : 0);
           const sepAbono = t.separeAbono !== undefined ? Number(t.separeAbono) : Math.max(0, amt - sepPending);
           salesEfectivo += Math.round(sepAbono);
           salesCredito += Math.round(Math.max(0, amt - sepAbono));
-        } else if (m.includes('efectivo') || m.includes('cash')) {
-          salesEfectivo += amt;
-        } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-          salesTarjeta += amt;
-        } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-          salesTransferencia += amt;
-        } else if (m.includes('crédito') || m.includes('credito')) {
-          salesCredito += amt;
         } else {
-          salesOtros += amt;
+          const ch = classifyChannel(m, t.targetAccount);
+          if (ch === 'cash') salesEfectivo += amt;
+          else if (ch === 'card') salesTarjeta += amt;
+          else if (ch === 'transfer') salesTransferencia += amt;
+          else if (ch === 'credit') salesCredito += amt;
+          else salesOtros += amt;
         }
       }
     });
@@ -14757,16 +15253,11 @@ class NexusApp {
     abonos.forEach(a => {
       const amt = Math.round(Math.abs(a.amount || 0));
       totalAbonos += amt;
-      const m = (a.method || '').toLowerCase();
-      if (m.includes('efectivo') || m.includes('cash')) {
-        abonosEfectivo += amt;
-      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('débito') || m.includes('debito') || m.includes('datafono') || m.includes('datáfono')) {
-        abonosTarjeta += amt;
-      } else if (m.includes('transfer') || m.includes('banco') || m.includes('cta')) {
-        abonosTransferencia += amt;
-      } else {
-        abonosOtros += amt;
-      }
+      const ch = classifyChannel(a.method, a.targetAccount);
+      if (ch === 'cash') abonosEfectivo += amt;
+      else if (ch === 'card') abonosTarjeta += amt;
+      else if (ch === 'transfer') abonosTransferencia += amt;
+      else abonosOtros += amt;
     });
 
     // Total consolidado por cada canal de ingreso (Ventas POS + Abonos de Cartera)
@@ -14831,16 +15322,16 @@ class NexusApp {
     shiftTxs.forEach(t => {
       if (t.mixedPayments && Array.isArray(t.mixedPayments) && t.mixedPayments.length > 0) {
         t.mixedPayments.forEach(mp => {
-          const m = (mp.method || '').toLowerCase();
-          if (m.includes('transfer') || m.includes('tarjeta') || m.includes('banco') || m.includes('card') || m.includes('datafono')) {
+          const ch = classifyChannel(mp.method, mp.targetAccount || t.targetAccount);
+          if (ch === 'transfer' || ch === 'card') {
             const accName = mp.targetAccount || t.targetAccount || (mp.method && mp.method.includes('(') ? mp.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
             const accObj = getOrInitAccount(accName);
             if (accObj) accObj.incomes += Math.round(Number(mp.amount) || 0);
           }
         });
       } else {
-        const m = (t.paymentMethod || '').toLowerCase();
-        if (m.includes('transfer') || m.includes('tarjeta') || m.includes('banco') || m.includes('card') || m.includes('datafono')) {
+        const ch = classifyChannel(t.paymentMethod, t.targetAccount);
+        if (ch === 'transfer' || ch === 'card') {
           const accName = t.targetAccount || (t.paymentMethod && t.paymentMethod.includes('(') ? t.paymentMethod.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
           const accObj = getOrInitAccount(accName);
           if (accObj) accObj.incomes += Math.round(Math.abs(t.total || 0));
@@ -14850,8 +15341,8 @@ class NexusApp {
 
     // Registrar ingresos bancarios desde abonos de cartera
     abonos.forEach(a => {
-      const m = (a.method || '').toLowerCase();
-      if (m.includes('transfer') || m.includes('tarjeta') || m.includes('banco') || m.includes('card') || m.includes('datafono')) {
+      const ch = classifyChannel(a.method, a.targetAccount);
+      if (ch === 'transfer' || ch === 'card') {
         const accName = a.targetAccount || (a.method && a.method.includes('(') ? a.method.replace(/^[^(]+\(([^)]+)\).*$/, '$1') : (openingAccount || 'Cuenta Principal'));
         const accObj = getOrInitAccount(accName);
         if (accObj) accObj.incomes += Math.round(Math.abs(a.amount || 0));
@@ -14926,6 +15417,14 @@ class NexusApp {
 
     // Sincronizar en tiempo real el registro activo de caja para garantizar exactitud al 100%
     if (shift && shift.status === 'Abierto') {
+      shift.cashSales = totalEfectivo;
+      shift.transferSales = totalTransferencia;
+      shift.tarjetaSales = totalTarjeta;
+      shift.cardSales = totalTransferencia + totalTarjeta;
+      shift.creditSales = totalCredito;
+      shift.totalFacturado = totalFacturado;
+      shift.totalRecaudado = totalRecaudado;
+      shift.salesCount = shiftTxs.length;
       shift.cashExpenses = cashExpenses;
       shift.bankExpenses = bankExpenses;
       shift.totalExpenses = totalExpenses;
@@ -14992,7 +15491,7 @@ class NexusApp {
       if (lower.includes('efectivo') || lower.includes('cash')) return 'Efectivo';
       if (lower.includes('tarjeta') || lower.includes('card') || lower.includes('débito') || lower.includes('debito') || lower.includes('datafono') || lower.includes('datáfono')) return 'Tarjeta';
       if (lower.includes('transfer') || lower.includes('banco') || lower.includes('cta')) return 'Transferencia';
-      if ((lower.includes('crédito') || lower.includes('credito'))) return 'Crédito';
+      if (this.isStoreCreditMethod(lower)) return 'Crédito';
       if (lower.includes('separe')) return 'Plan Separe';
       return m || 'Otros';
     };
@@ -15062,12 +15561,15 @@ class NexusApp {
     const summaryCards = Object.entries(methodMap).map(([key, data]) => {
       const meta = methodMeta[key] || methodMeta['Otros'];
       const isCredit = key === 'Crédito' || key === 'Crédito Cliente';
+      const isSepare = key === 'Plan Separe';
       const statusNote = isCredit
         ? `<div style="font-size:0.68rem; color:#D97706; font-weight:700; margin-top:3px;">🏷️ Por Cobrar (Cartera)</div>`
-        : (key === 'Efectivo'
-          ? `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:700; margin-top:4px;">✅ Recaudado en gaveta física</div>`
-          : `<div style="font-size:0.68rem; color:#4338CA; font-weight:700; margin-top:4px;">✅ Recaudado en banco</div>`
-        );
+        : (isSepare
+          ? `<div style="font-size:0.68rem; color:#0369A1; font-weight:700; margin-top:4px;">📦 Abono inicial en caja + Saldo en Plan Separe</div>`
+          : (key === 'Efectivo'
+            ? `<div style="font-size:0.68rem; color:var(--emerald-text); font-weight:700; margin-top:4px;">✅ Recaudado en gaveta física</div>`
+            : `<div style="font-size:0.68rem; color:#4338CA; font-weight:700; margin-top:4px;">✅ Recaudado en banco</div>`
+          ));
 
       const accountsDetail = ((key === 'Tarjeta' || key === 'Transferencia') && data.accounts && Object.keys(data.accounts).length > 0)
         ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border-color); font-size:0.7rem;">
@@ -15283,7 +15785,7 @@ class NexusApp {
   getCashShiftExpenses() {
     const shift = this.data.cashShiftLog;
     if (!shift) return [];
-    const shiftDate = shift.openedDate || new Date().toISOString().slice(0, 10);
+    const shiftDate = shift.openedDate || this.getLocalDateStr();
     const shiftId = shift.shiftId;
     let openTimestamp = shift.openedTimestamp || 0;
     if (!openTimestamp && shift.openedDate) {
@@ -15419,7 +15921,7 @@ class NexusApp {
       if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return;
       if (abonoPoIds.has(po.id)) return;
       const pom = (po.paymentMethod || '').toLowerCase();
-      if (pom.includes('crédito') || pom.includes('credito')) return;
+      if (this.isStoreCreditMethod(pom)) return;
       if (matchesShift(po.date, po.time, po.shiftId, po.timestamp, po.closedShiftId, po.excludeFromCashShift)) {
         const isPaid = po.paymentStatus === 'Pagado Total' || !po.paymentStatus;
         if (!isPaid) return;
@@ -16014,7 +16516,7 @@ class NexusApp {
       status: "Abierto",
       openedBy: currentOperator,
       openedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      openedDate: now.toISOString().slice(0, 10),
+      openedDate: this.getLocalDateStr(now),
       openedTimestamp: now.getTime(),
       openedIso: now.toISOString()
     };
@@ -16088,7 +16590,8 @@ class NexusApp {
     const bankTotalEl = document.getElementById('cash-shift-bank-total');
     const bankAccName = document.getElementById('cash-shift-bank-account-name');
     if (bankTotalRow && bankTotalEl) {
-      if (totals.openingCard > 0 || (totalTransfer + totalTarjeta > 0)) {
+      const hasBankActivity = totals.openingCard > 0 || (totalTransfer + totalTarjeta > 0) || (totals.bankExpenses || 0) > 0 || (totals.bankAdjustmentsNet || 0) !== 0 || (totals.expectedCardInAccount || 0) !== 0;
+      if (hasBankActivity) {
         bankTotalRow.style.display = 'flex';
         bankTotalEl.innerText = this.formatCurrency(totals.expectedCardInAccount);
         if (bankAccName) bankAccName.innerText = totals.openingAccount || 'Banco';
@@ -16113,6 +16616,19 @@ class NexusApp {
         expensesEl.innerText = '-' + this.formatCurrency(totals.cashExpenses);
       } else {
         expensesRowEl.style.display = 'none';
+      }
+    }
+
+    const cashAdjRowEl = document.getElementById('cash-shift-adjustments-row');
+    const cashAdjEl = document.getElementById('cash-shift-adjustments-cash');
+    if (cashAdjRowEl && cashAdjEl) {
+      const cashAdjNet = Math.round(Number(totals.cashAdjustmentsNet) || 0);
+      if (cashAdjNet !== 0) {
+        cashAdjRowEl.style.display = 'flex';
+        cashAdjEl.innerText = (cashAdjNet > 0 ? '+' : '-') + this.formatCurrency(Math.abs(cashAdjNet));
+        cashAdjEl.style.color = cashAdjNet > 0 ? 'var(--emerald-text, #059669)' : 'var(--rose-text, #E11D48)';
+      } else {
+        cashAdjRowEl.style.display = 'none';
       }
     }
 
@@ -16243,10 +16759,10 @@ class NexusApp {
       salesCount: totals.salesCount || 0,
       openedBy: this.data.cashShiftLog?.openedBy || currentOperator,
       openedAt: this.data.cashShiftLog?.openedAt || '',
-      openedDate: this.data.cashShiftLog?.openedDate || now.toISOString().slice(0, 10),
+      openedDate: this.data.cashShiftLog?.openedDate || this.getLocalDateStr(now),
       closedBy: currentOperator,
       closedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      date: now.toISOString().slice(0, 10),
+      date: this.getLocalDateStr(now),
       closedTimestamp: now.getTime()
     };
     this.data.cashShiftsHistory.unshift(closedRecord);
@@ -16657,7 +17173,10 @@ class NexusApp {
       const cashSales = Math.round(Number(s.cashSales) || 0);
       const otherSales = Math.round(Number(s.cardSales) || 0) + Math.round(Number(s.creditSales) || 0);
       const expenses = Math.round(Number(s.cashExpenses) || 0);
-      const expected = Math.round(Number(s.expectedCashInDrawer) || (openingCash + cashSales - expenses));
+      const adjNet = Math.round(Number(s.cashAdjustmentsNet) || 0);
+      const expected = (s.expectedCashInDrawer !== undefined && s.expectedCashInDrawer !== null && Number.isFinite(Number(s.expectedCashInDrawer)))
+        ? Math.round(Number(s.expectedCashInDrawer))
+        : (openingCash + cashSales - expenses + adjNet);
       const counted = Math.round(Number(s.closingCash) || 0);
 
       rowsHtml += `
@@ -16862,7 +17381,7 @@ class NexusApp {
       if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po?.id)) return;
       if (!po || abonoPoIds.has(po.id)) return;
       const pom = String(po.paymentMethod || '').toLowerCase();
-      if (pom.includes('crédito') || pom.includes('credito')) return;
+      if (this.isStoreCreditMethod(pom)) return;
       if (po.paymentStatus && po.paymentStatus !== 'Pagado Total') return;
       if (!belongsToClosedShift(po)) return;
       const ch = classifyOutflowChannel(po.paymentMethod, po.targetAccount);
@@ -17055,9 +17574,14 @@ class NexusApp {
       const c = Math.round(Number(s.cashSales) || 0);
       const o = Math.round(Number(s.cardSales) || 0) + Math.round(Number(s.creditSales) || 0);
       const e = Math.round(Number(s.cashExpenses) || 0);
-      const exp = Math.round(Number(s.expectedCashInDrawer) || (b + c - e));
+      const adj = Math.round(Number(s.cashAdjustmentsNet) || 0);
+      const exp = (s.expectedCashInDrawer !== undefined && s.expectedCashInDrawer !== null && Number.isFinite(Number(s.expectedCashInDrawer)))
+        ? Math.round(Number(s.expectedCashInDrawer))
+        : (b + c - e + adj);
       const cnt = Math.round(Number(s.closingCash) || 0);
-      const df = Math.round(Number(s.difference) || (cnt - exp));
+      const df = (s.difference !== undefined && s.difference !== null && Number.isFinite(Number(s.difference)))
+        ? Math.round(Number(s.difference))
+        : (cnt - exp);
 
       totBase += b;
       totCash += c;
@@ -17236,7 +17760,7 @@ class NexusApp {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Historial_Cuadres_Caja_${now.toISOString().slice(0, 10)}.xls`;
+    link.download = `Historial_Cuadres_Caja_${this.getLocalDateStr(now)}.xls`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -17263,47 +17787,71 @@ class NexusApp {
     const b = Math.round(Number(shift.openingCash) || 0);
     const c = Math.round(Number(shift.cashSales) || 0);
     const e = Math.round(Number(shift.cashExpenses) || 0);
-    const exp = Math.round(Number(shift.expectedCashInDrawer) || (b + c - e));
+    const adj = Math.round(Number(shift.cashAdjustmentsNet) || 0);
+    const exp = (shift.expectedCashInDrawer !== undefined && shift.expectedCashInDrawer !== null && Number.isFinite(Number(shift.expectedCashInDrawer)))
+      ? Math.round(Number(shift.expectedCashInDrawer))
+      : (b + c - e + adj);
     const cnt = Math.round(Number(shift.closingCash) || 0);
-    const df = Math.round(Number(shift.difference) || (cnt - exp));
+    const df = (shift.difference !== undefined && shift.difference !== null && Number.isFinite(Number(shift.difference)))
+      ? Math.round(Number(shift.difference))
+      : (cnt - exp);
 
     const dateParts = shift.date ? shift.date.split('-') : [];
     const datePattern = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : shift.date;
     const ddMm = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : '';
 
-    const targetShiftId = shift.shiftId || shift.id || null;
+    const targetIds = new Set([shift.shiftId, shift.id].filter(Boolean));
+    const matchesModalShift = (rec) => {
+      if (!rec || rec.excludeFromCashShift) return false;
+      const explicitId = rec.closedShiftId || rec.shiftId;
+      if (targetIds.size > 0 && explicitId) return targetIds.has(explicitId);
+      if (!rec.date) return false;
+      return rec.date === datePattern || rec.date.includes(datePattern) || (shift.date && rec.date.includes(shift.date)) || (ddMm && rec.date.includes(ddMm));
+    };
+
     const dayTxs = (this.data.recentTransactions || []).filter(tx => {
       if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return false;
-      if (targetShiftId && tx.shiftId) return tx.shiftId === targetShiftId;
-      if (!tx.date) return false;
-      return tx.date === datePattern || tx.date.includes(datePattern) || (shift.date && tx.date.includes(shift.date)) || (ddMm && tx.date.includes(ddMm));
+      return matchesModalShift(tx);
+    });
+    const shiftCustomerAbonos = (this.data.abonosVentas || []).filter(ab => {
+      if (!ab || ab.status === 'Reversado' || ab.status === 'Reversada') return false;
+      return matchesModalShift(ab);
     });
 
     const dayExpenses = (this.data.expenses || []).filter(ex => {
-      if (!ex || ex.isBank || ex.excludeFromCashShift || !(ex.method || '').toLowerCase().includes('efectivo')) return false;
-      if (targetShiftId && ex.shiftId) return ex.shiftId === targetShiftId;
-      if (!ex.date) return false;
-      return ex.date.includes(datePattern) || (shift.date && ex.date.includes(shift.date)) || (ddMm && ex.date.includes(ddMm));
+      if (!ex || ex.isBank || ex.excludeFromCashShift) return false;
+      const exM = String(ex.method || '').toLowerCase();
+      const exA = String(ex.targetAccount || '').toLowerCase();
+      if (!(exM.includes('efectivo') || exA.includes('efectivo') || exA.includes('caja'))) return false;
+      return matchesModalShift(ex);
     });
     const shiftCashAbonos = (this.data.abonosCompras || []).filter(ab => {
-      if (!ab || !((ab.method || '').toLowerCase().includes('efectivo') || (ab.method || '').toLowerCase().includes('caja'))) return false;
-      if (targetShiftId && ab.shiftId) return ab.shiftId === targetShiftId;
-      if (!ab.date) return false;
-      return ab.date.includes(datePattern) || (shift.date && ab.date.includes(shift.date)) || (ddMm && ab.date.includes(ddMm));
+      if (!ab || ab.excludeFromCashShift) return false;
+      const abM = String(ab.method || '').toLowerCase();
+      const abA = String(ab.targetAccount || '').toLowerCase();
+      if (!(abM.includes('efectivo') || abA.includes('efectivo') || abA.includes('caja'))) return false;
+      return matchesModalShift(ab);
     });
     const abonoPoSet = new Set((this.data.abonosCompras || []).map(a => a?.poId).filter(Boolean));
     const shiftCashPurchases = (this.data.purchases || []).filter(po => {
       if (!po || po.excludeFromCashShift || abonoPoSet.has(po.id)) return false;
-      if (!(po.paymentMethod || '').toLowerCase().includes('efectivo')) return false;
-      if (po.paymentStatus !== 'Pagado Total' && !po.paymentStatus) return false;
-      if (targetShiftId && po.shiftId) return po.shiftId === targetShiftId;
-      if (!po.date) return false;
-      return po.date.includes(datePattern) || (shift.date && po.date.includes(shift.date)) || (ddMm && po.date.includes(ddMm));
+      if (['OC-069', 'OC-070', 'OC-071', 'OC-072', 'OC-073', 'OC-074', 'OC-075', 'OC-076'].includes(po.id)) return false;
+      const poM = String(po.paymentMethod || '').toLowerCase();
+      const poA = String(po.targetAccount || '').toLowerCase();
+      if (this.isStoreCreditMethod(poM)) return false;
+      if (!(poM.includes('efectivo') || poA.includes('efectivo') || poA.includes('caja'))) return false;
+      if (po.paymentStatus && po.paymentStatus !== 'Pagado Total') return false;
+      return matchesModalShift(po);
+    });
+    const shiftRefunds = (this.data.recentTransactions || []).filter(tx => {
+      if (!tx || tx.status !== 'Reversada' || !tx.refundShiftId) return false;
+      return targetIds.has(tx.refundShiftId) && (Number(tx.cashRefunded) || 0) > 0;
     });
     const allShiftCashOutflows = [
       ...dayExpenses.map(ex => ({ id: ex.id, category: ex.category || 'Gasto Operativo', description: ex.description || '', amount: ex.amount })),
       ...shiftCashAbonos.map(ab => ({ id: ab.id, category: 'Abono Proveedor', description: `${ab.supplier || ''} (${ab.poId || ''})`, amount: ab.amount })),
-      ...shiftCashPurchases.map(po => ({ id: po.id, category: 'Compra Contado', description: `${po.supplier || ''} (${po.productName || ''})`, amount: po.paidAmount || po.total }))
+      ...shiftCashPurchases.map(po => ({ id: po.id, category: 'Compra Contado', description: `${po.supplier || ''} (${po.productName || ''})`, amount: po.paidAmount || po.total })),
+      ...shiftRefunds.map(tx => ({ id: `REV-${tx.id}`, category: 'Reversión Venta', description: `Reembolso Venta #${tx.id} (${tx.customer || 'Cliente'})`, amount: tx.cashRefunded }))
     ];
 
     let txRowsXml = '';
@@ -17317,6 +17865,17 @@ class NexusApp {
         <Cell ss:StyleID="Currency"><Data ss:Type="Number">${Math.round(Number(t.total) || 0)}</Data></Cell>
       </Row>`;
     });
+    shiftCustomerAbonos.forEach(ab => {
+      txRowsXml += `
+      <Row>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ab.id || '')}</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${this.escapeHtml(ab.date || '')}</Data></Cell>
+        <Cell ss:StyleID="TextLeft"><Data ss:Type="String">${this.escapeHtml(ab.customer || 'Cliente')} (Abono ${this.escapeHtml(ab.invoiceId || ab.creditId || '')})</Data></Cell>
+        <Cell ss:StyleID="TextCenter"><Data ss:Type="String">${this.escapeHtml(ab.method || 'Efectivo')}</Data></Cell>
+        <Cell ss:StyleID="Currency"><Data ss:Type="Number">${Math.round(Number(ab.amount) || 0)}</Data></Cell>
+      </Row>`;
+    });
+    const totalIncomeRowsCount = dayTxs.length + shiftCustomerAbonos.length;
 
     let expRowsXml = '';
     allShiftCashOutflows.forEach(ex => {
@@ -17436,9 +17995,9 @@ class NexusApp {
     <Cell ss:StyleID="${df === 0 ? 'CurrencyBold' : (df > 0 ? 'CurrencyAmber' : 'CurrencyRed')}"><Data ss:Type="Number">${df}</Data></Cell>
    </Row>
    <Row ss:Height="12"/>
-   ${dayTxs.length > 0 ? `
+   ${totalIncomeRowsCount > 0 ? `
    <Row>
-    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">TRANSACCIONES REGISTRADAS (${dayTxs.length})</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">TRANSACCIONES Y ABONOS REGISTRADOS (${totalIncomeRowsCount})</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="Header"><Data ss:Type="String">Código</Data></Cell>
@@ -17449,9 +18008,9 @@ class NexusApp {
    </Row>
    ${txRowsXml}
    <Row ss:Height="12"/>` : ''}
-   ${dayExpenses.length > 0 ? `
+   ${allShiftCashOutflows.length > 0 ? `
    <Row>
-    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">EGRESOS Y RETIROS EN EFECTIVO (${dayExpenses.length})</Data></Cell>
+    <Cell ss:MergeAcross="4" ss:StyleID="Section"><Data ss:Type="String">EGRESOS Y RETIROS EN EFECTIVO (${allShiftCashOutflows.length})</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="Header"><Data ss:Type="String">Código</Data></Cell>
@@ -18397,7 +18956,7 @@ class NexusApp {
       <Row ss:Height="22">
         <Cell ss:StyleID="KpiLabel"><Data ss:Type="String">Ingresos Operacionales:</Data></Cell>
         <Cell ss:StyleID="KpiValueGreen"><Data ss:Type="Number">${m.totalGrossRevenue}</Data></Cell>
-        <Cell ss:StyleID="KpiNote"><Data ss:Type="String">100.0% (${validSalesTx.length} ventas registradas)</Data></Cell>
+        <Cell ss:StyleID="KpiNote"><Data ss:Type="String">${m.totalGrossRevenue > 0 ? '100.0%' : '0.0%'} (${validSalesTx.length} ventas registradas)</Data></Cell>
         <Cell ss:StyleID="KpiLabel"><Data ss:Type="String">Costo de Ventas (COGS):</Data></Cell>
         <Cell ss:StyleID="KpiValueAmber"><Data ss:Type="Number">${m.totalCOGS}</Data></Cell>
       </Row>
@@ -18448,7 +19007,7 @@ class NexusApp {
         <Cell ss:StyleID="SubtotalGreenBadge"><Data ss:Type="String">(=) TOTAL BRUTO</Data></Cell>
         <Cell ss:StyleID="SubtotalGreenLeft"><Data ss:Type="String">TOTAL FACTURACIÓN BRUTA OPERACIONAL</Data></Cell>
         <Cell ss:StyleID="SubtotalGreenCurrency"><Data ss:Type="Number">${m.totalGrossRevenue}</Data></Cell>
-        <Cell ss:StyleID="SubtotalGreenPercent"><Data ss:Type="Number">1.0</Data></Cell>
+        <Cell ss:StyleID="SubtotalGreenPercent"><Data ss:Type="Number">${m.totalGrossRevenue > 0 ? 1.0 : 0}</Data></Cell>
         <Cell ss:StyleID="SubtotalGreenLeft"><Data ss:Type="String">Base 100% de ingresos brutos del período</Data></Cell>
       </Row>
       <Row ss:Height="12"><Cell ss:MergeAcross="4"><Data ss:Type="String"></Data></Cell></Row>
@@ -19078,12 +19637,29 @@ class NexusApp {
           </tr>
         `;
       } else {
+        const canEditPO = this.isAdminUser() || this.canPerformAction('edit', 'purchase');
+        const canPayPO = this.isAdminUser() || this.canPerformAction('create', 'supplier_payment');
         tbody.innerHTML = displayPurchases.map(po => {
-          const payBadgeClass = po.paymentStatus === 'Pagado Total' ? 'badge-active' : (po.paymentStatus === 'Pagado Parcial' ? 'badge-warning' : 'badge-danger');
+          const poTotal = Number(po.total) || 0;
+          const poPaid = po.paymentStatus === 'Pagado Total' ? poTotal : Math.min(poTotal, Math.max(0, Number(po.paidAmount) || 0));
+          const pendingBalance = Math.max(0, Math.round((poTotal - poPaid) * 100) / 100);
+          const isPoPaid = po.paymentStatus === 'Pagado Total' || pendingBalance <= 0.01;
+          const payBadgeClass = isPoPaid ? 'badge-active' : (poPaid > 0 ? 'badge-warning' : 'badge-danger');
           const deliverBadgeClass = (po.status || '').toLowerCase() === 'recibido' ? 'badge-active' : 'badge-warning';
-          
-          const matchingCred = credits.find(c => c.supplier === po.supplier);
-          const pendingBalance = matchingCred ? matchingCred.pendingAmount : (po.paymentStatus === 'Pagado Total' ? 0 : po.total);
+          const safePoIdJs = this.escapeJsAttr(po.id);
+          const safeSuppJs = this.escapeJsAttr(po.supplier || '');
+
+          const editPoBtn = canEditPO ? `
+                  <button class="btn-action-edit text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openEditPurchaseOrderModal('${safePoIdJs}')" title="Editar esta compra">
+                    ✏️ Editar
+                  </button>` : '';
+          const payPoBtn = !isPoPaid
+            ? (canPayPO ? `
+                    <button class="btn btn-primary text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openAbonoModalByEntity('supplier', '${safeSuppJs}')" title="Abonar a Proveedor">
+                      💳 Pagar
+                    </button>` : (!canEditPO ? `<span class="badge badge-inactive" style="font-size:0.72rem;">Solo Lectura</span>` : ''))
+            : `
+                    <span style="font-size: 0.75rem; color: var(--emerald-text); font-weight: 700;">✓ Al día</span>`;
 
           return `
             <tr>
@@ -19093,10 +19669,10 @@ class NexusApp {
               </td>
               <td style="color: var(--text-muted); font-size: 0.82rem;">${this.escapeHtml(po.date)}</td>
               <td><span class="font-bold">${Number(po.itemsCount) || 1} ítems</span></td>
-              <td><span style="font-weight: 800; color: var(--text-main);">$ ${Number(po.total).toLocaleString('es-CO')}</span></td>
+              <td><span style="font-weight: 800; color: var(--text-main);">$ ${poTotal.toLocaleString('es-CO')}</span></td>
               <td>
                 <span class="badge ${payBadgeClass}">
-                  <span class="badge-dot"></span>${this.escapeHtml(po.paymentStatus || 'Pendiente')}
+                  <span class="badge-dot"></span>${this.escapeHtml(isPoPaid ? 'Pagado Total' : (poPaid > 0 ? 'Pagado Parcial' : (po.paymentStatus || 'Pendiente')))}
                 </span>
               </td>
               <td>
@@ -19105,17 +19681,7 @@ class NexusApp {
                 </span>
               </td>
               <td style="text-align: center;">
-                <div class="action-btn-group" style="justify-content: center; gap: 4px; flex-wrap: wrap;">
-                  <button class="btn-action-edit text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openEditPurchaseOrderModal('${this.escapeHtml(po.id)}')" title="Editar esta compra">
-                    ✏️ Editar
-                  </button>
-                  ${pendingBalance > 0 ? `
-                    <button class="btn btn-primary text-xs" style="padding: 3px 8px; font-weight: 700;" onclick="app.openAbonoModalByEntity('supplier', '${this.escapeHtml(po.supplier)}')" title="Abonar a Proveedor">
-                      💳 Pagar
-                    </button>
-                  ` : `
-                    <span style="font-size: 0.75rem; color: var(--emerald-text); font-weight: 700;">✓ Al día</span>
-                  `}
+                <div class="action-btn-group" style="justify-content: center; gap: 4px; flex-wrap: wrap;">${editPoBtn}${payPoBtn}
                 </div>
               </td>
             </tr>
@@ -21696,16 +22262,24 @@ class NexusApp {
     const totalAbonosVentas = abonosVentas.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
     const totalPurchases = purchases.reduce((acc, p) => acc + (Number(p.total) || 0), 0);
     const totalPagadoPurchases = purchases.reduce((acc, p) => acc + (Number(p.paidAmount) || 0), 0);
-    const totalPendingPurchases = purchases.reduce((acc, p) => acc + ((Number(p.total) || 0) - (Number(p.paidAmount) || 0)), 0);
+    const totalPendingPurchases = purchases.reduce((acc, p) => acc + Math.max(0, (Number(p.total) || 0) - (Number(p.paidAmount) || 0)), 0);
 
-    // Flujo neto de fondos real (evitando doble conteo de ventas a crédito cuyo cobro entra por abonosVentas)
+    // Flujo neto de fondos real (evitando doble conteo de crédito cliente/proveedor cuyo cobro/pago entra por abonos)
     const collectedSalesCashAndBank = validSalesTx.reduce((acc, tx) => {
+      if (Array.isArray(tx.mixedPayments) && tx.mixedPayments.length > 0) {
+        return acc + tx.mixedPayments.reduce((s, mp) => s + (this.isStoreCreditMethod(mp.method) ? 0 : (Number(mp.amount) || 0)), 0);
+      }
       const m = (tx.paymentMethod || '').toLowerCase();
-      if (m.includes('crédito') || m.includes('credito')) return acc;
+      if (this.isStoreCreditMethod(m)) return acc;
       if (m.includes('separe')) return acc + (Number(tx.separeAbono) || 0);
       return acc + (Number(tx.total) || 0);
     }, 0);
-    const netCashFlow = (collectedSalesCashAndBank + totalAbonosVentas) - (totalExp + totalPagadoPurchases);
+    const periodAbonoPoIds = new Set(abonosCompras.map(a => a && a.poId).filter(Boolean));
+    const totalAbonosComprasPaid = abonosCompras.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+    const directContadoPurchasesPaid = purchases
+      .filter(p => p && !this.isStoreCreditMethod(p.paymentMethod) && !periodAbonoPoIds.has(p.id) && p.paymentStatus === 'Pagado Total')
+      .reduce((acc, p) => acc + (Number(p.paidAmount || p.total) || 0), 0);
+    const netCashFlow = (collectedSalesCashAndBank + totalAbonosVentas) - (totalExp + totalAbonosComprasPaid + directContadoPurchasesPaid);
 
     // 2. Expense classification for P&L
     let expNomina = 0;
@@ -21738,7 +22312,7 @@ class NexusApp {
       if (lower.includes('transferencia') || lower.includes('bancolombia') || lower.includes('nequi') || lower.includes('daviplata') || lower.includes('banco')) return 'Transferencia Bancaria (Bancos)';
       if (lower.includes('tarjeta') || lower.includes('debito') || lower.includes('débito') || lower.includes('datafono') || lower.includes('datáfono')) return 'Tarjetas Débito / Crédito (Datáfono)';
       if (lower.includes('separe')) return 'Plan Separe';
-      if (lower.includes('crédito') || lower.includes('credito')) return 'Crédito Directo (Cartera)';
+      if (this.isStoreCreditMethod(lower)) return 'Crédito Directo (Cartera)';
       return String(rawMethod || 'Otros').trim();
     };
     const addPmAmount = (normMethod, amt) => {
@@ -22747,28 +23321,21 @@ class NexusApp {
         tx.id,
         tx.date || '',
         tx.time || '',
-        `"${(tx.cashier || 'Cajero').replace(/"/g, '""')}"`,
-        `"${(tx.customer || 'Cliente Mostrador').replace(/"/g, '""')}"`,
-        `"${(tx.type || 'Venta POS').replace(/"/g, '""')}"`,
-        `"${itemsDesc.replace(/"/g, '""')}"`,
+        tx.cashier || 'Cajero',
+        tx.customer || 'Cliente Mostrador',
+        tx.type || 'Venta POS',
+        itemsDesc,
         txQty,
         txGrams.toFixed(2),
-        `"${(tx.paymentMethod || 'Efectivo').replace(/"/g, '""')}"`,
+        tx.paymentMethod || 'Efectivo',
         Number(tx.subtotal) || Number(tx.total) || 0,
         Number(tx.total) || 0,
         tx.status || 'Completado'
       ]);
     });
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(';')).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    const cleanPeriodName = (periodText || new Date().toISOString().slice(0, 10)).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
-    link.setAttribute('download', `Reporte_General_Operativo_CharlesJoyas_${cleanPeriodName}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const cleanPeriodName = (periodText || this.getLocalDateStr()).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
+    this._downloadCsv(rows, `Reporte_General_Operativo_CharlesJoyas_${cleanPeriodName}.csv`);
     this.showToast(`Reporte General Operativo exportado en CSV (${periodText || 'Filtrado'})`, 'success');
   }
 
@@ -22779,7 +23346,7 @@ class NexusApp {
       return;
     }
     const headers = ['Ranking', 'Código SKU', 'Producto', 'Categoría', 'Tipo Medida', 'Cantidad Vendida', 'N° Tickets', 'Precio Promedio COP', 'Facturación Total COP', '% Participación', 'Stock Actual'];
-    const rows = list.map((p, idx) => {
+    const rows = [headers, ...list.map((p, idx) => {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const pct = totalRevenue > 0 ? ((p.revenue / totalRevenue) * 100).toFixed(1) : '0.0';
       const avgPrice = p.qty > 0 ? Math.round(p.revenue / p.qty) : 0;
@@ -22796,21 +23363,9 @@ class NexusApp {
         `${pct}%`,
         p.stock !== null && p.stock !== undefined ? p.stock : '-'
       ];
-    });
-    const csvContent = "\uFEFF" + [
-      headers.join(';'), 
-      ...rows.map(r => r.map(c => `"${String(c !== null && c !== undefined ? c : '').replace(/"/g, '""')}"`).join(';'))
-    ].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0];
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Ranking_Ventas_Productos_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    })];
+    const dateStr = this.getLocalDateStr();
+    this._downloadCsv(rows, `Ranking_Ventas_Productos_${dateStr}.csv`);
     this.showToast('Ranking de ventas por producto exportado en CSV', 'success');
   }
 
@@ -22924,6 +23479,16 @@ class NexusApp {
    <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
    <NumberFormat ss:Format="&quot;$&quot;\\ #,##0"/>
   </Style>
+  <Style ss:ID="TotalNumber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#3730A3"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="3" ss:Color="#3730A3"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#1E3A8A"/>
+   <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="#,##0.00"/>
+  </Style>
   <Style ss:ID="TotalLabel">
    <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
    <Borders>
@@ -22970,11 +23535,11 @@ class NexusApp {
    ${xmlRows}
    <Row ss:Height="22">
     <Cell ss:MergeAcross="4" ss:StyleID="TotalLabel"><Data ss:Type="String">TOTAL CONSOLIDADO GENERAL</Data></Cell>
-    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${totalQty.toFixed(2)}</Data></Cell>
+    <Cell ss:StyleID="TotalNumber"><Data ss:Type="Number">${totalQty.toFixed(2)}</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number">${Math.round(totalRevenue)}</Data></Cell>
-    <Cell ss:StyleID="TotalRow"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">100.0%</Data></Cell>
     <Cell ss:StyleID="TotalLabel"><Data ss:Type="String"></Data></Cell>
    </Row>
   </Table>
@@ -23534,9 +24099,9 @@ class NexusApp {
     };
 
     const storeName = this.data.store?.name || 'Charles Joyas SAS';
-    const storeNit = this.data.store?.nit || '901.847.291-3';
+    const storeNit = this.data.store?.taxId || this.data.store?.nit || 'N/A';
     const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
+    const dateStr = this.getLocalDateStr(now);
     const fechaEmision = now.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     // 1. Activos
@@ -23590,7 +24155,7 @@ class NexusApp {
     products.forEach(p => {
       const catName = p.categoryName || p.category || 'Joyas en Oro y Gemas';
       if (!catMap[catName]) {
-        catMap[catName] = { count: 0, grams: 0, units: 0, cost: 0, price: 0 };
+        catMap[catName] = { count: 0, grams: 0, units: 0, cost: 0, pricedCost: 0, price: 0 };
       }
       catMap[catName].count++;
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
@@ -23603,7 +24168,10 @@ class NexusApp {
         catMap[catName].units += u;
       }
       catMap[catName].cost += c;
-      catMap[catName].price += (u * pr);
+      if (pr > 0) {
+        catMap[catName].pricedCost += c;
+        catMap[catName].price += (u * pr);
+      }
     });
 
     let totalCatGrams = 0;
@@ -23617,7 +24185,7 @@ class NexusApp {
       totalCatCost += d.cost;
       totalCatPrice += d.price;
       const partPct = totalAssets > 0 ? (d.cost / totalAssets) : 0;
-      const margin = d.price > 0 ? ((d.price - d.cost) / d.price) : 0;
+      const margin = d.price > 0 ? ((d.price - d.pricedCost) / d.price) : 0;
       rowsInvCategories += `
       <Row ss:Height="20">
         <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(catName)}</Data></Cell>
@@ -23680,7 +24248,7 @@ class NexusApp {
       const bal = Math.round(Number(s.creditBalance) || 0);
       const part = totalLiabilities > 0 ? (bal / totalLiabilities) : 0;
       const doc = s.nit || s.document || 'N/A';
-      const bank = s.bank || s.bankInfo || s.account || 'Bancolombia';
+      const bank = s.bank || s.bankInfo || s.account || 'No especificada';
       rowsSuppliers += `
       <Row ss:Height="20">
         <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(s.name || 'Proveedor')}</Data></Cell>
@@ -24123,7 +24691,7 @@ class NexusApp {
    <Row ss:Height="24">
     <Cell ss:MergeAcross="3" ss:StyleID="TotalRowActivo"><Data ss:Type="String">TOTAL ACTIVOS (1.1 + 1.2)</Data></Cell>
     <Cell ss:StyleID="TotalCellActivo"><Data ss:Type="Number">${totalAssets}</Data></Cell>
-    <Cell ss:StyleID="TotalRowActivo"><Data ss:Type="String">100.0%</Data></Cell>
+    <Cell ss:StyleID="TotalRowActivo"><Data ss:Type="String">${totalAssets > 0 ? '100.0%' : '0.0%'}</Data></Cell>
    </Row>
    <Row ss:Height="8"></Row>
 
@@ -24175,7 +24743,7 @@ class NexusApp {
    <Row ss:Height="22">
     <Cell ss:MergeAcross="3" ss:StyleID="SectionHeader"><Data ss:Type="String">  3. PATRIMONIO NETO (CAPITAL SOCIAL, RESERVAS Y SOLVENCIA)</Data></Cell>
     <Cell ss:StyleID="TotalCellPatrimonio"><Data ss:Type="Number">${netEquity}</Data></Cell>
-    <Cell ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">${(100 - parseFloat(nivelEndeudamiento)).toFixed(1)}%</Data></Cell>
+    <Cell ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">${totalAssets > 0 ? ((netEquity / totalAssets) * 100).toFixed(1) : '0.0'}%</Data></Cell>
    </Row>
    <Row ss:Height="20">
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String">        - Capital Social Aportado, Reservas y Superavit Patrimonial</Data></Cell>
@@ -24189,7 +24757,7 @@ class NexusApp {
    <Row ss:Height="24">
     <Cell ss:MergeAcross="3" ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">TOTAL PATRIMONIO NETO</Data></Cell>
     <Cell ss:StyleID="TotalCellPatrimonio"><Data ss:Type="Number">${netEquity}</Data></Cell>
-    <Cell ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">${(100 - parseFloat(nivelEndeudamiento)).toFixed(1)}%</Data></Cell>
+    <Cell ss:StyleID="TotalRowPatrimonio"><Data ss:Type="String">${totalAssets > 0 ? ((netEquity / totalAssets) * 100).toFixed(1) : '0.0'}%</Data></Cell>
    </Row>
    <Row ss:Height="8"></Row>
 
@@ -24421,15 +24989,15 @@ class NexusApp {
    <Row ss:Height="22">
     <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Razon Corriente (Liquidez)</Data></Cell>
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Activo Corriente / Pasivo Corriente</Data></Cell>
-    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${razonCorriente}x</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${razonCorriente === 'N/A' ? 'N/A' : razonCorriente + 'x'}</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1.5x - 2.5x</Data></Cell>
-    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Por cada $1 de pasivo a corto plazo, la empresa cuenta con $${razonCorriente} de activo corriente para respaldarlo.</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${razonCorriente === 'N/A' ? 'Sin pasivos a corto plazo registrados.' : 'Por cada $1 de pasivo a corto plazo, la empresa cuenta con $' + razonCorriente + ' de activo corriente para respaldarlo.'}</Data></Cell>
    </Row>
 
    <Row ss:Height="22">
     <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Prueba Acida</Data></Cell>
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String">(Activo Corriente - Inventario) / Pasivo</Data></Cell>
-    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${pruebaAcida}x</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${pruebaAcida === 'N/A' ? 'N/A' : pruebaAcida + 'x'}</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">0.5x - 1.0x</Data></Cell>
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Capacidad de cobertura inmediata sin depender de la venta del inventario en metales.</Data></Cell>
    </Row>
@@ -24445,9 +25013,9 @@ class NexusApp {
    <Row ss:Height="22">
     <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">Autonomia Financiera</Data></Cell>
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String">Patrimonio Neto / Pasivo Total</Data></Cell>
-    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${autonomiaFinanciera}x</Data></Cell>
+    <Cell ss:StyleID="CellCenterBold"><Data ss:Type="String">${autonomiaFinanciera === 'N/A' ? 'N/A' : autonomiaFinanciera + 'x'}</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">&gt; 1.0x</Data></Cell>
-    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">El patrimonio neto de los dueños equivale a ${autonomiaFinanciera} veces el total adeudado a proveedores.</Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${autonomiaFinanciera === 'N/A' ? 'Sin obligaciones pendientes con terceros.' : 'El patrimonio neto de los dueños equivale a ' + autonomiaFinanciera + ' veces el total adeudado a proveedores.'}</Data></Cell>
    </Row>
 
    <Row ss:Height="22">
@@ -24477,7 +25045,7 @@ class NexusApp {
     let txs = (this.data.recentTransactions || []).filter(t => {
       if (!t) return false;
       const st = String(t.status || '').toLowerCase();
-      return st !== 'reversada' && st !== 'cancelado' && st !== 'anulado' && st !== 'cancelled';
+      return st !== 'reversada' && st !== 'reversado' && st !== 'cancelado' && st !== 'anulado' && st !== 'anulada' && st !== 'cancelled';
     });
 
     // Date range filtering
@@ -24522,7 +25090,8 @@ class NexusApp {
             name: itName || catalogProd?.name || 'Producto sin nombre',
             category: catalogProd?.categoryName || catalogProd?.category || 'General',
             measureType: it.measureType || catalogProd?.measureType || 'Pesaje',
-            unit: it.unit || (catalogProd?.measureType === 'Unidades' ? 'u.' : 'g'),
+            unit: it.unit || ((catalogProd?.measureType || it.measureType || 'Pesaje') === 'Pesaje' ? (catalogProd?.weightUnit || 'g') : 'u.'),
+            stockUnit: (catalogProd?.measureType || it.measureType || 'Pesaje') === 'Pesaje' ? (catalogProd?.weightUnit || it.unit || 'g') : 'u.',
             stock: catalogProd?.stock !== undefined ? catalogProd.stock : null,
             cost: catalogProd?.cost || 0,
             qty: 0,
@@ -24726,7 +25295,7 @@ class NexusApp {
                 weight: '600',
                 size: 12
               },
-              color: 'var(--text-main)'
+              color: (typeof getComputedStyle === 'function' && document.documentElement) ? (getComputedStyle(document.documentElement).getPropertyValue('--text-main').trim() || '#1E293B') : '#1E293B'
             }
           }
         },
@@ -24811,10 +25380,11 @@ class NexusApp {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const qtyStr = `${p.qty.toFixed(2)} ${p.unit || (isPesaje ? 'g' : 'u.')}`;
 
+      const stockUnitLabel = p.stockUnit || (isPesaje ? (p.weightUnit || 'g') : 'u.');
       const stockBadge = (p.stock !== null && p.stock !== undefined)
         ? (Number(p.stock) <= 0
             ? `<span class="badge badge-danger" style="font-size:0.72rem;">Agotado</span>`
-            : `<span class="badge badge-success" style="font-size:0.72rem;">${Number(p.stock).toFixed(isPesaje ? 2 : 0)} ${p.unit || (isPesaje ? 'g' : 'u.')}</span>`)
+            : `<span class="badge badge-success" style="font-size:0.72rem;">${Number(p.stock).toFixed(isPesaje ? 2 : 0)} ${stockUnitLabel}</span>`)
         : `<span style="color:var(--text-muted); font-size:0.75rem;">-</span>`;
 
       return `
@@ -25130,6 +25700,8 @@ class NexusApp {
             salesCount: matchedTxs.length,
             expensesCount: matchedExps.length,
             ticketPromedio,
+            momSalesGrowth: null,
+            momProfitGrowth: null,
             txList: matchedTxs,
             expList: matchedExps
           };
@@ -25392,7 +25964,7 @@ class NexusApp {
             ${utilidadSign}${utilidadFormatted}
           </td>
           <td style="text-align:center; font-weight:700;">
-            <span class="badge ${item.margin > 10 ? 'badge-active' : (item.margin > 0 ? 'badge-amber' : 'badge-danger')}">
+            <span class="badge ${item.margin > 10 ? 'badge-active' : (item.margin > 0 ? 'badge-warning' : 'badge-danger')}">
               ${item.margin.toFixed(1)}%
             </span>
           </td>
@@ -26233,8 +26805,8 @@ class NexusApp {
       rows.push([
         idx + 1,
         p.year,
-        `"${p.monthName}"`,
-        `"${p.monthLabel}"`,
+        p.monthName,
+        p.monthLabel,
         p.status,
         p.salesCount,
         p.sales,
@@ -26244,19 +26816,12 @@ class NexusApp {
         `${p.marginGross.toFixed(1)}%`,
         p.utilidadNetaReal,
         `${p.marginNetoReal.toFixed(1)}%`,
-        p.momSalesGrowth !== null ? `${p.momSalesGrowth.toFixed(1)}%` : 'Base'
+        (p.momSalesGrowth !== null && p.momSalesGrowth !== undefined) ? `${p.momSalesGrowth.toFixed(1)}%` : '—'
       ]);
     });
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(';')).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    const cleanPeriodName = (periodLabel || new Date().toISOString().slice(0, 10)).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
-    link.setAttribute('download', `Comparativa_Periodos_${cleanPeriodName}_CharlesJoyas.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const cleanPeriodName = (periodLabel || this.getLocalDateStr()).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/__+/g, '_');
+    this._downloadCsv(rows, `Comparativa_Periodos_${cleanPeriodName}_CharlesJoyas.csv`);
     this.showToast(`Comparativa de Periodos (${periodLabel}) exportada en CSV`, 'success');
   }
 
@@ -26419,9 +26984,9 @@ class NexusApp {
         customer: cc.customer || cust.name || 'Cliente sin nombre',
         docType: cust.docType || 'CC',
         document: cust.document || cust.nit || 'No Registrado',
-        phone: cust.phone || '+57 300 000 0000',
-        email: cust.email || 'contacto@cliente.com',
-        address: cust.address || 'Medellín, Colombia',
+        phone: (cust.phone || '').trim(),
+        email: (cust.email || '').trim(),
+        address: (cust.address || '').trim(),
         operationType,
         issueDate: cc.date || cc.createdDate || 'N/A',
         dueDate: cc.dueDate || 'Sin fecha',
@@ -26770,21 +27335,23 @@ class NexusApp {
       }
 
       const cleanCustomer = this.escapeHtml(c.customer);
-      const escapeJsHtmlAttr = (val) => this.escapeHtml(String(val || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
-      const safeCustomerForJs = escapeJsHtmlAttr(c.customer);
-      const safePhoneForJs = escapeJsHtmlAttr(c.phone);
+      const rawInitials = String(c.customer || 'C').trim().slice(0, 2).toUpperCase() || 'C';
+      const safeInitials = this.escapeHtml(rawInitials);
+      const safeCustomerForJs = this.escapeJsAttr(c.customer);
+      const safePhoneForJs = this.escapeJsAttr(c.phone);
+      const phoneLabelHtml = c.phone ? `<span>📞 ${this.escapeHtml(c.phone)}</span>` : `<span style="opacity:0.7;">Sin teléfono</span>`;
 
       return `
         <tr>
           <td>
             <div style="display:flex; align-items:center; gap:0.65rem;">
               <div style="width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg, var(--brand-primary), #4338CA); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.8rem; flex-shrink:0;">
-                ${cleanCustomer.slice(0, 2).toUpperCase()}
+                ${safeInitials}
               </div>
               <div>
                 <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${cleanCustomer}</div>
                 <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem;">
-                  <span>📞 ${this.escapeHtml(c.phone)}</span>
+                  ${phoneLabelHtml}
                 </div>
               </div>
             </div>
@@ -26838,6 +27405,10 @@ class NexusApp {
 
   sendCobranzaWhatsApp(phone, customerName, balance, daysOverdue) {
     const cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+    if (!cleanPhone || cleanPhone.length < 7) {
+      this.showToast(`El cliente "${customerName || 'seleccionado'}" no tiene un número de teléfono válido para WhatsApp.`, 'warning');
+      return;
+    }
     const formattedBalance = this.formatCurrency(balance);
     const storeName = this.data.store?.branding?.appName || this.data.store?.name || 'Charles Joyas SAS';
     
@@ -27347,11 +27918,11 @@ class NexusApp {
         idx + 1,
         c.id,
         c.docType,
-        `"${(c.document || '').replace(/"/g, '""')}"`,
-        `"${(c.customer || '').replace(/"/g, '""')}"`,
-        `"${(c.phone || '').replace(/"/g, '""')}"`,
-        `"${(c.email || '').replace(/"/g, '""')}"`,
-        `"${(c.address || '').replace(/"/g, '""')}"`,
+        c.document || '',
+        c.customer || '',
+        c.phone || '',
+        c.email || '',
+        c.address || '',
         c.operationType,
         c.issueDate,
         c.dueDate,
@@ -27365,18 +27936,11 @@ class NexusApp {
         c.estadoContable,
         c.bucketLabel,
         c.riskLevel,
-        `"${(c.suggestedAction || '').replace(/"/g, '""')}"`
+        c.suggestedAction || ''
       ]);
     });
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(';')).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Cartera_Clientes_Detallada_CharlesJoyas_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    this._downloadCsv(rows, `Cartera_Clientes_Detallada_CharlesJoyas_${this.getLocalDateStr()}.csv`);
     this.showToast('Reporte detallado de cartera exportado en CSV', 'success');
   }
 
@@ -27444,7 +28008,7 @@ class NexusApp {
 
     // 3. Update KPI cards in header
     const kpiGlobalEl = document.getElementById('inf-margen-kpi-global');
-    if (kpiGlobalEl) kpiGlobalEl.textContent = `+${storeGlobalMargin.toFixed(1)}%`;
+    if (kpiGlobalEl) kpiGlobalEl.textContent = `${storeGlobalMargin > 0 ? '+' : ''}${storeGlobalMargin.toFixed(1)}%`;
 
     const kpiProductsEl = document.getElementById('inf-margen-kpi-products');
     if (kpiProductsEl) kpiProductsEl.textContent = `${this.data.products.length} Productos`;
@@ -27497,7 +28061,8 @@ class NexusApp {
             const itPrice = Number(it.price) || 0;
             const itQty = Number(it.qty !== undefined ? it.qty : (it.quantity || 1)) || 0;
             if (itPrice > 0 && itQty > 0) {
-              soldItems.push({ price: itPrice, qty: itQty, total: itPrice * itQty, unit: String(it.unit || '').toLowerCase() });
+              const lineTotal = Number(it.total !== undefined ? it.total : (itPrice * itQty)) || (itPrice * itQty);
+              soldItems.push({ price: itPrice, qty: itQty, total: lineTotal, unit: String(it.unit || '').toLowerCase() });
             }
           }
         });
@@ -27547,12 +28112,14 @@ class NexusApp {
         effectivePrice = Number(p.price);
         profit = effectivePrice - directUnitCost;
         margin = effectivePrice > 0 ? ((profit / effectivePrice) * 100) : 0;
+        const canEditPrice = this.isAdminUser() || this.canPerformAction('edit', 'product');
+        const safePidJs = this.escapeJsAttr(p.id);
         priceDisplay = `
           <div>
             <div style="display:flex; align-items:center; gap:6px;">
               <span style="font-weight:700; color:var(--text-main); font-size:0.95rem;">${this.formatCurrency(effectivePrice)} / ${unit}</span>
               <span class="badge" style="background:rgba(2,132,199,0.1); color:var(--brand-primary); font-size:0.68rem; font-weight:700;">Catálogo</span>
-              <button type="button" class="btn text-xs" style="padding:1px 5px; font-size:0.65rem;" onclick="app.promptSetProductPrice('${p.id}')" title="Modificar precio">✏️</button>
+              ${canEditPrice ? `<button type="button" class="btn text-xs" style="padding:1px 5px; font-size:0.65rem;" onclick="app.promptSetProductPrice('${safePidJs}')" title="Modificar precio">✏️</button>` : ''}
             </div>
             <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Precio fijo configurado</div>
           </div>
@@ -27568,7 +28135,7 @@ class NexusApp {
           benchmarkPricePerGram = Math.round(catData.rev / catData.qty);
           benchmarkLabel = `Ref. ${cat?.name || 'Categoría'}`;
         } else {
-          const targetMargin = storeGlobalMargin > 15 ? storeGlobalMargin : 40.0;
+          const targetMargin = Math.min(94.9, storeGlobalMargin > 15 ? storeGlobalMargin : 40.0);
           benchmarkPricePerGram = Math.round(costPerGram / (1 - (targetMargin / 100)));
           benchmarkLabel = `Sugerido (+${Math.round(targetMargin)}%)`;
         }
@@ -27576,14 +28143,16 @@ class NexusApp {
         effectivePrice = isUnitWithWeight ? Math.round(benchmarkPricePerGram * pWeight) : benchmarkPricePerGram;
         profit = effectivePrice - directUnitCost;
         margin = effectivePrice > 0 ? ((profit / effectivePrice) * 100) : storeGlobalMargin;
+        const canEditPrice = this.isAdminUser() || this.canPerformAction('edit', 'product');
+        const safePidJs = this.escapeJsAttr(p.id);
 
         priceDisplay = `
           <div>
             <div style="display:flex; align-items:center; gap:6px;">
               <span style="font-weight:700; color:var(--text-main); font-size:0.95rem;">${this.formatCurrency(effectivePrice)} / ${unit}</span>
-              <button type="button" class="btn text-xs" style="padding:2px 6px; font-size:0.68rem; font-weight:700; background:rgba(2,132,199,0.08); border:1px solid rgba(2,132,199,0.25); color:var(--brand-primary); border-radius:4px; cursor:pointer;" onclick="app.promptSetProductPrice('${p.id}')" title="Fijar precio de venta para este producto">
+              ${canEditPrice ? `<button type="button" class="btn text-xs" style="padding:2px 6px; font-size:0.68rem; font-weight:700; background:rgba(2,132,199,0.08); border:1px solid rgba(2,132,199,0.25); color:var(--brand-primary); border-radius:4px; cursor:pointer;" onclick="app.promptSetProductPrice('${safePidJs}')" title="Fijar precio de venta para este producto">
                 ✏️ Fijar Precio
-              </button>
+              </button>` : ''}
             </div>
             <div style="font-size:0.72rem; color:var(--brand-primary); font-weight:600; margin-top:2px;">
               ⚡ ${benchmarkLabel} (Sin venta aún)
@@ -27606,9 +28175,9 @@ class NexusApp {
         `
         : `
           <div>
-            <span class="font-bold" style="color:${marginColor}; font-size:1.05rem;">${margin >= 0 ? '+' : ''}${margin.toFixed(1)}%</span>
+            <span class="font-bold" style="color:${marginColor}; font-size:1.05rem;">${margin > 0 ? '+' : ''}${margin.toFixed(1)}%</span>
             <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-top:2px;">
-              ${profit >= 0 ? '+' : ''}${this.formatCurrency(profit)}/${unit}
+              ${profit > 0 ? '+' : ''}${this.formatCurrency(profit)}/${unit}
             </div>
           </div>
         `;
@@ -27664,28 +28233,44 @@ class NexusApp {
   calculateProductRadarMetrics(p) {
     if (!p) return null;
     let sold30d = 0;
-    if (typeof p.sold30d === 'number') {
-      sold30d = p.sold30d;
-    } else {
-      if (this.data.recentTransactions && Array.isArray(this.data.recentTransactions)) {
-        this.data.recentTransactions.forEach(tx => {
-          if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return;
-          if (tx.items && Array.isArray(tx.items)) {
-            tx.items.forEach(it => {
-              if (it.id === p.id || (it.name && p.name && it.name.toLowerCase() === p.name.toLowerCase())) {
-                const rawQ = Number(it.qty !== undefined ? it.qty : it.quantity) || 0;
-                const isPesajeP = (p.measureType || 'Pesaje') === 'Pesaje';
-                const pWeightP = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
-                if (!isPesajeP && pWeightP > 0 && !p.isExtra && (String(it.unit || '').toLowerCase() === 'g' || Math.abs(rawQ - pWeightP) < 0.01 || !Number.isInteger(rawQ))) {
-                  sold30d += Math.round((rawQ / pWeightP) * 100) / 100;
-                } else {
-                  sold30d += rawQ;
-                }
+    const cutoff30dMs = Date.now() - (30 * 86400000);
+    const hasTxs = Array.isArray(this.data.recentTransactions) && this.data.recentTransactions.length > 0;
+    if (hasTxs) {
+      const pNameNorm = String(p.name || '').trim().toLowerCase();
+      const pSkuNorm = String(p.sku || '').trim().toLowerCase();
+      const isPesajeP = (p.measureType || 'Pesaje') === 'Pesaje';
+      const pWeightP = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
+      this.data.recentTransactions.forEach(tx => {
+        if (!tx) return;
+        const st = String(tx.status || '').toLowerCase();
+        if (st === 'reversada' || st === 'reversado' || st === 'anulada' || st === 'anulado' || st === 'cancelado' || st === 'cancelled') return;
+        let txMs = Number(tx.timestamp) || 0;
+        if (!txMs && (tx.isoDate || tx.date)) {
+          const pd = this.parseDateSafe ? this.parseDateSafe(tx.isoDate || tx.date) : null;
+          if (pd) txMs = pd.getTime();
+        }
+        if (txMs > 0 && txMs < cutoff30dMs) return;
+        if (!txMs && (tx.isoDate || tx.date)) return;
+        if (tx.items && Array.isArray(tx.items)) {
+          tx.items.forEach(it => {
+            if (!it) return;
+            const matches = (it.id && p.id && it.id === p.id) ||
+              (it.sku && pSkuNorm && String(it.sku).trim().toLowerCase() === pSkuNorm) ||
+              (it.name && pNameNorm && String(it.name).trim().toLowerCase() === pNameNorm);
+            if (matches) {
+              const rawQ = Number(it.qty !== undefined ? it.qty : it.quantity) || 0;
+              if (!isPesajeP && pWeightP > 0 && !p.isExtra && (String(it.unit || '').toLowerCase() === 'g' || Math.abs(rawQ - pWeightP) < 0.01 || !Number.isInteger(rawQ))) {
+                sold30d += Math.round((rawQ / pWeightP) * 100) / 100;
+              } else {
+                sold30d += rawQ;
               }
-            });
-          }
-        });
-      }
+            }
+          });
+        }
+      });
+      sold30d = Math.round(sold30d * 100) / 100;
+    } else if (typeof p.sold30d === 'number') {
+      sold30d = p.sold30d;
     }
 
     const stock = Number(p.stock) || 0;
@@ -27816,12 +28401,26 @@ class NexusApp {
         });
       case 'dias_asc':
         return list.sort((a, b) => {
-          const diff = (Number(a.diasRestantes) || 0) - (Number(b.diasRestantes) || 0);
+          const va = Number.isNaN(Number(a.diasRestantes)) ? Infinity : Number(a.diasRestantes);
+          const vb = Number.isNaN(Number(b.diasRestantes)) ? Infinity : Number(b.diasRestantes);
+          let diff = 0;
+          if (va !== vb) {
+            if (va === Infinity) diff = 1;
+            else if (vb === Infinity) diff = -1;
+            else diff = va - vb;
+          }
           return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
         });
       case 'dias_desc':
         return list.sort((a, b) => {
-          const diff = (Number(b.diasRestantes) || 0) - (Number(a.diasRestantes) || 0);
+          const va = Number.isNaN(Number(a.diasRestantes)) ? -Infinity : Number(a.diasRestantes);
+          const vb = Number.isNaN(Number(b.diasRestantes)) ? -Infinity : Number(b.diasRestantes);
+          let diff = 0;
+          if (va !== vb) {
+            if (va === Infinity) diff = -1;
+            else if (vb === Infinity) diff = 1;
+            else diff = vb - va;
+          }
           return diff !== 0 ? diff : this.compareProductCodes(a.product, b.product, false);
         });
       case 'nombre_asc':
@@ -27926,9 +28525,11 @@ class NexusApp {
       const cat = this.data.categories?.find(c => c.id === p.category || c.name === p.categoryName);
       const costPerGram = Number(p.cost || cat?.cost || 0);
       const pieceCost = (isUnidades && pWeight > 0) ? Math.round(pWeight * costPerGram) : costPerGram;
-      const formattedCost = (isUnidades && pWeight > 0) 
-        ? `$ ${pieceCost.toLocaleString('es-CO')} / u. (${this.formatCurrency(costPerGram)}/g)`
-        : `$ ${costPerGram.toLocaleString('es-CO')} / g`;
+      const formattedCost = isUnidades
+        ? (pWeight > 0
+            ? `$ ${pieceCost.toLocaleString('es-CO')} / u. (${this.formatCurrency(costPerGram)}/g)`
+            : `$ ${costPerGram.toLocaleString('es-CO')} / u.`)
+        : `$ ${costPerGram.toLocaleString('es-CO')} / ${this.escapeHtml(p.weightUnit || 'g')}`;
       const velDisplay = m.velDiaria > 0 ? `${m.velDiaria}/d` : '0/d';
 
       return `
@@ -28060,11 +28661,15 @@ class NexusApp {
 
     allCategories.forEach(c => {
       const key = (c.name || c.id || '').trim().toLowerCase();
+      const isExtra = Boolean(c.type === 'extras' || c.isExtra);
       catMap.set(key, {
         name: c.name || c.id,
+        isExtra,
         baseCost: Number(c.cost) || 0,
         availableGrams: Number(c.availableGrams) || 0,
+        availableUnits: Number(c.availableUnits) || 0,
         totalGrams: 0,
+        totalUnits: 0,
         totalCostVal: 0
       });
     });
@@ -28075,24 +28680,36 @@ class NexusApp {
       if (!catMap.has(catKey)) {
         catMap.set(catKey, {
           name: rawCatName,
+          isExtra: Boolean(p.isExtra),
           baseCost: Number(p.cost) || 0,
           availableGrams: 0,
+          availableUnits: 0,
           totalGrams: 0,
+          totalUnits: 0,
           totalCostVal: 0
         });
       }
       const entry = catMap.get(catKey);
       const grams = this.getGramsFromProduct(p);
       entry.totalGrams += grams;
+      if ((p.measureType || 'Pesaje') !== 'Pesaje') {
+        entry.totalUnits += Math.max(0, Number(p.stock) || 0);
+      }
       entry.totalCostVal += this.getProductTotalCost(p);
     });
 
     const rowsHoja2 = Array.from(catMap.values())
-      .filter(cat => cat.totalGrams > 0 || cat.availableGrams > 0 || cat.baseCost > 0)
+      .filter(cat => cat.totalGrams > 0 || cat.totalUnits > 0 || cat.availableGrams > 0 || cat.availableUnits > 0 || cat.baseCost > 0)
       .map(cat => {
+        const useUnitsOnly = cat.isExtra || (cat.totalGrams <= 0 && (cat.totalUnits > 0 || cat.availableUnits > 0));
         const totGrams = Math.round((cat.totalGrams > 0 ? cat.totalGrams : cat.availableGrams) * 100) / 100;
-        const avgCost = cat.totalGrams > 0 ? Math.round(cat.totalCostVal / cat.totalGrams) : cat.baseCost;
-        const stockTotalText = `${this.formatNumberWithDots(totGrams, 2)} g`;
+        const totUnits = Math.round((cat.totalUnits > 0 ? cat.totalUnits : cat.availableUnits) * 100) / 100;
+        const avgCost = useUnitsOnly
+          ? (totUnits > 0 ? Math.round(cat.totalCostVal / totUnits) : cat.baseCost)
+          : (cat.totalGrams > 0 ? Math.round(cat.totalCostVal / cat.totalGrams) : cat.baseCost);
+        const stockTotalText = useUnitsOnly
+          ? `${this.formatNumberWithDots(totUnits, 0)} u.`
+          : `${this.formatNumberWithDots(totGrams, 2)} g`;
 
         return `
    <Row ss:Height="21">
@@ -28307,10 +28924,11 @@ class NexusApp {
     const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const filterSuffix = this.currentRadarFilter !== 'todos' ? `_${this.currentRadarFilter}` : '';
-    const dateStr = new Date().toISOString().split('T')[0];
+    const safeFilter = String(this.currentRadarFilter || 'todos').replace(/[^a-zA-Z0-9_-]/g, '');
+    const filterSuffix = (safeFilter && safeFilter !== 'todos') ? `_${safeFilter}` : '';
+    const dateStr = this.getLocalDateStr();
     link.setAttribute('href', url);
-    link.setAttribute('download', `Radar_Stock_${dateStr}.xls`);
+    link.setAttribute('download', `Radar_Stock${filterSuffix}_${dateStr}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -28391,11 +29009,14 @@ class NexusApp {
     if (matchedProduct) {
       const codeStr = matchedProduct.sku || matchedProduct.id;
       if (bannerCodeLabel) bannerCodeLabel.textContent = `Código: ${codeStr} — ${matchedProduct.name}`;
-      if (bannerExtraInfo) bannerExtraInfo.textContent = `Categoría: ${matchedProduct.categoryName || matchedProduct.category || 'General'} | Medida: ${matchedProduct.measureType || 'Unidades'} | Stock: ${matchedProduct.stock} ${matchedProduct.measureType === 'Pesaje' ? 'g' : 'u.'}`;
+      const prodIsPesaje = (matchedProduct.measureType || 'Pesaje') === 'Pesaje';
+      const prodUnitLabel = prodIsPesaje ? (matchedProduct.weightUnit || 'g') : 'u.';
+      if (bannerExtraInfo) bannerExtraInfo.textContent = `Categoría: ${matchedProduct.categoryName || matchedProduct.category || 'General'} | Medida: ${matchedProduct.measureType || 'Unidades'} | Stock: ${matchedProduct.stock} ${prodUnitLabel}`;
 
       // Calcular tendencia exclusivamente con ventas reales (sin inventar datos sintéticos ni mutar catálogo)
       const salesMap = { ...(matchedProduct.monthlySales?.[monthKey] || {}) };
       const revMap = {};
+      const cogsMap = {};
       (this.data.recentTransactions || []).forEach(tx => {
         if (!tx || tx.status === 'Reversada' || tx.status === 'Anulada') return;
         const d = this.parseDateSafe ? this.parseDateSafe(tx.date || tx.isoDate) : null;
@@ -28406,10 +29027,12 @@ class NexusApp {
           if (!matchItem) return;
           const q = Number(it.qty !== undefined ? it.qty : it.quantity) || 0;
           const rev = Number(it.total !== undefined ? it.total : ((Number(it.price) || 0) * q)) || 0;
+          const itemCost = this.calculateTransactionItemCOGS ? this.calculateTransactionItemCOGS(it) : 0;
           if (!matchedProduct.monthlySales?.[monthKey]) {
             salesMap[dayNum] = (Number(salesMap[dayNum]) || 0) + q;
           }
           revMap[dayNum] = (Number(revMap[dayNum]) || 0) + rev;
+          cogsMap[dayNum] = (Number(cogsMap[dayNum]) || 0) + itemCost;
         });
       });
 
@@ -28428,7 +29051,9 @@ class NexusApp {
         revenueData[day - 1] = rev;
         totalUnits += u;
         totalRevenue += rev;
-        if (isUnitWithWeight) {
+        if (cogsMap[day] > 0) {
+          totalCost += cogsMap[day];
+        } else if (isUnitWithWeight) {
           totalCost += (usesMonthlySalesUnits ? (u * pWeight) : u) * (matchedProduct.cost || 0);
         } else {
           totalCost += u * (matchedProduct.cost || 0);
@@ -28436,7 +29061,7 @@ class NexusApp {
       }
 
       const totalProfit = totalRevenue - totalCost;
-      const unitSuffix = matchedProduct.measureType === 'Pesaje' ? ' g' : ' u.';
+      const unitSuffix = ' ' + prodUnitLabel;
 
       if (kpiUnidades) kpiUnidades.textContent = `${totalUnits.toLocaleString('es-CO')}${unitSuffix}`;
       if (kpiIngresos) kpiIngresos.textContent = `$ ${Math.round(totalRevenue).toLocaleString('es-CO')}`;
@@ -28467,7 +29092,9 @@ class NexusApp {
       this.charts.tendenciaDaily.destroy();
     }
 
-    const unitSuffix = product ? (product.measureType === 'Pesaje' ? 'g' : 'u.') : 'u.';
+    const prodIsPesaje = product && (product.measureType || 'Pesaje') === 'Pesaje';
+    const unitSuffix = product ? (prodIsPesaje ? (product.weightUnit || 'g') : 'u.') : 'u.';
+    const yAxisLabel = prodIsPesaje ? `Peso (${unitSuffix})` : 'Unidades';
     const isZeroState = !hasProduct || (unitsData.every(v => v === 0) && revenueData.every(v => v === 0));
 
     // Custom formatting for axis scales
@@ -28477,7 +29104,7 @@ class NexusApp {
       position: 'left',
       title: {
         display: true,
-        text: 'Unidades',
+        text: yAxisLabel,
         color: '#64748b',
         font: { size: 12, weight: '600' }
       },
@@ -28535,7 +29162,7 @@ class NexusApp {
         labels: dayLabels,
         datasets: [
           {
-            label: 'Unidades vendidas',
+            label: `Cantidad (${unitSuffix})`,
             yAxisID: 'y',
             data: unitsData,
             borderColor: '#00d2d3',
@@ -30727,6 +31354,11 @@ class NexusApp {
           unit: unit,
           measureType: i.product?.measureType || 'Pesaje',
           pieceWeight: pWeight,
+          cost: Number(i.product?.cost) || 0,
+          catalogPrice: Number(i.product?.price) || 0,
+          category: i.product?.category || '',
+          categoryName: i.product?.categoryName || '',
+          isExtra: Boolean(i.product?.isExtra),
           price: pPrice,
           total: Math.round(pPrice * i.qty)
         };
@@ -30749,6 +31381,9 @@ class NexusApp {
     };
 
     this.data.recentTransactions.unshift(newTx);
+    if (this.data.cashShiftLog && this.data.cashShiftLog.status === 'Abierto' && this.calculateShiftTotals) {
+      this.calculateShiftTotals();
+    }
     this.data.kpis.salesToday += grandTotal;
     this.data.kpis.transactionsToday += 1;
 
@@ -31127,12 +31762,26 @@ class NexusApp {
     }
   }
 
+  canUseAiCopilot() {
+    if (!this.currentUser) return false;
+    return this.isAdminUser() || this.hasPermission('informes', null) || this.hasPermission('reports', null);
+  }
+
   async checkAiStatus() {
     try {
+      if (this.data?.store?.deepseekApiKey) {
+        try {
+          if (!localStorage.getItem('nexus_deepseek_key')) {
+            localStorage.setItem('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
+          }
+        } catch (_) {}
+        delete this.data.store.deepseekApiKey;
+      }
       const res = await fetch('/api/ai/status');
       if (res.ok) {
         const data = await res.json();
-        const hasSavedLocal = !!localStorage.getItem('nexus_deepseek_key');
+        let hasSavedLocal = false;
+        try { hasSavedLocal = !!localStorage.getItem('nexus_deepseek_key'); } catch (_) {}
         const statusDot = document.getElementById('nexus-ai-status-dot');
         const statusText = document.getElementById('nexus-ai-status-text');
         if (data.hasApiKey || hasSavedLocal) {
@@ -31148,17 +31797,24 @@ class NexusApp {
 
   toggleAiCopilotDrawer() {
     const drawer = document.getElementById('nexus-ai-drawer');
-    const backdrop = document.getElementById('nexus-ai-backdrop');
     if (!drawer) return;
     const isOpen = drawer.classList.contains('open') || drawer.classList.contains('active');
     if (isOpen) {
       this.closeAiCopilotDrawer();
     } else {
+      if (!this.canUseAiCopilot()) {
+        this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI Copilot.', 'danger');
+        return;
+      }
       this.openAiCopilotDrawer();
     }
   }
 
   openAiCopilotDrawer() {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI Copilot.', 'danger');
+      return;
+    }
     const drawer = document.getElementById('nexus-ai-drawer');
     const backdrop = document.getElementById('nexus-ai-backdrop');
     if (drawer) {
@@ -31188,13 +31844,22 @@ class NexusApp {
   }
 
   openAiKeyModal() {
-    if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
+    if (!this.isAdminUser()) {
       this.showToast('Acceso Denegado: Solo Administradores autorizados pueden gestionar la API Key de IA.', 'danger');
       return;
     }
     const modal = document.getElementById('nexus-ai-key-modal');
     if (!modal) return;
-    const currentKey = localStorage.getItem('nexus_deepseek_key') || this.data.store?.deepseekApiKey || '';
+    if (this.data.store?.deepseekApiKey) {
+      try {
+        if (!localStorage.getItem('nexus_deepseek_key')) {
+          localStorage.setItem('nexus_deepseek_key', String(this.data.store.deepseekApiKey));
+        }
+      } catch (_) {}
+      delete this.data.store.deepseekApiKey;
+    }
+    let currentKey = '';
+    try { currentKey = localStorage.getItem('nexus_deepseek_key') || ''; } catch (_) {}
     const input = document.getElementById('nexus-ai-api-key-input');
     if (input) input.value = currentKey;
     modal.classList.add('open');
@@ -31206,24 +31871,19 @@ class NexusApp {
   }
 
   async saveAiKey() {
-    if (!this.isSuperAdminRole(this.currentUser?.role) && !this.hasPermission('config', null)) {
+    if (!this.isAdminUser()) {
       this.showToast('Acceso Denegado: No tienes permisos para guardar la API Key de IA.', 'danger');
       return;
     }
     const input = document.getElementById('nexus-ai-api-key-input');
     const key = (input?.value || '').trim();
+    if (this.data.store) delete this.data.store.deepseekApiKey;
     if (!key) {
       try { localStorage.removeItem('nexus_deepseek_key'); } catch (_) {}
-      if (this.data.store) delete this.data.store.deepseekApiKey;
       this.showToast('API Key de DeepSeek removida', 'warning');
     } else {
       try { localStorage.setItem('nexus_deepseek_key', key); } catch (_) {}
-      if (this.data.store) this.data.store.deepseekApiKey = key;
-      this.showToast('✨ API Key de DeepSeek guardada exitosamente');
-    }
-
-    if (typeof this.savePersistence === 'function') {
-      try { await this.savePersistence(); } catch (_) {}
+      this.showToast('✨ API Key de DeepSeek guardada localmente en este navegador');
     }
 
     this.closeAiKeyModal();
@@ -31253,22 +31913,23 @@ class NexusApp {
   getAiBusinessContext() {
     try {
       const now = new Date();
-      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const todayLat = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+      const todayIso = this.getLocalDateStr(now);
       const txs = (this.data.recentTransactions || []).filter(t => t && t.status !== 'Reversada' && t.status !== 'Anulada');
       const ordersToday = txs.filter(o => {
-        const d = String(o.date || '').trim();
-        return d.startsWith(todayIso) || d === todayLat;
+        const parsed = this.parseDateSafe ? this.parseDateSafe(o.isoDate || o.date) : null;
+        return parsed ? this.getLocalDateStr(parsed) === todayIso : String(o.date || '').startsWith(todayIso);
       });
       const salesToday = ordersToday.reduce((acc, o) => acc + Math.abs(Number(o.total) || 0), 0);
 
-      const customerCredits = this.data.customerCredits || [];
+      const customerCredits = (this.data.customerCredits || []).filter(c => c && c.status !== 'Anulado' && c.status !== 'Saldado');
       const totalReceivables = customerCredits.reduce((acc, c) => acc + Math.max(0, Number(c.currentBalance) || 0), 0);
       const topDebtors = customerCredits
         .filter(c => Number(c.currentBalance) > 0)
+        .sort((a, b) => (Number(b.currentBalance) || 0) - (Number(a.currentBalance) || 0))
         .slice(0, 5)
         .map(c => ({ cliente: c.customer, saldo: c.currentBalance, vence: c.dueDate }));
 
+      if (typeof this.syncSupplierCreditsState === 'function') this.syncSupplierCreditsState();
       const supplierCredits = this.data.supplierCredits || [];
       const totalPayables = supplierCredits.reduce((acc, sc) => acc + Math.max(0, Number(sc.pendingAmount) || 0), 0);
 
@@ -31276,8 +31937,11 @@ class NexusApp {
       const inventoryVal = products.reduce((acc, p) => acc + (this.getProductTotalCost ? this.getProductTotalCost(p) : 0), 0);
       const outOfStock = products.filter(p => (Number(p.stock) || 0) <= 0).length;
 
-      const cashInBox = Number(this.data.cashShiftLog?.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0);
+      const accSummary = this.getAccountsFinancialSummary ? this.getAccountsFinancialSummary() : {};
+      const cashInBox = accSummary.efectivo_caja ? Math.round(Number(accSummary.efectivo_caja.balance) || 0) : Number(this.data.cashShiftLog?.expectedCashInDrawer ?? this.data.store?.cashInBox ?? 0);
+      const bankTotal = Object.values(accSummary).filter(a => a && !a.isCash).reduce((s, a) => s + (Number(a.balance) || 0), 0);
       const shiftStatus = this.data.cashShiftLog?.status === 'Abierto' ? 'Abierto' : 'Cerrado/Inactivo';
+      const shiftTotals = shiftStatus === 'Abierto' && this.calculateShiftTotals ? this.calculateShiftTotals() : null;
 
       return {
         empresa: this.data.store?.name || 'Charles Joyas SAS',
@@ -31286,6 +31950,8 @@ class NexusApp {
           ventasHoy: salesToday,
           transaccionesHoy: ordersToday.length,
           efectivoEnCaja: cashInBox,
+          saldoBancos: bankTotal,
+          liquidezTotal: cashInBox + bankTotal,
           totalCarteraClientes: totalReceivables,
           totalDeudaProveedores: totalPayables,
           valorInventarioCosto: inventoryVal,
@@ -31294,7 +31960,10 @@ class NexusApp {
         },
         turno: {
           estado: shiftStatus,
-          operador: this.currentUser?.name || 'Cajero'
+          operador: this.currentUser?.name || 'Cajero',
+          efectivoEsperadoGaveta: shiftTotals ? shiftTotals.expectedCashInDrawer : cashInBox,
+          bancoEsperadoTurno: shiftTotals ? shiftTotals.expectedCardInAccount : 0,
+          egresosEfectivoTurno: shiftTotals ? shiftTotals.cashExpenses : (Number(this.data.cashShiftLog?.cashExpenses) || 0)
         },
         deudoresPrincipales: topDebtors
       };
@@ -31345,8 +32014,18 @@ class NexusApp {
   }
 
   async sendAiMessage(prompt, action = 'chat', customContext = null) {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para consultar a Nexus AI.', 'danger');
+      return;
+    }
     this.showAiTyping(true);
-    const apiKey = localStorage.getItem('nexus_deepseek_key') || this.data.store?.deepseekApiKey || '';
+    let apiKey = '';
+    try { apiKey = localStorage.getItem('nexus_deepseek_key') || ''; } catch (_) {}
+    if (!apiKey && this.data.store?.deepseekApiKey) {
+      apiKey = String(this.data.store.deepseekApiKey);
+      try { localStorage.setItem('nexus_deepseek_key', apiKey); } catch (_) {}
+      delete this.data.store.deepseekApiKey;
+    }
     const context = customContext || this.getAiBusinessContext();
 
     try {
@@ -31395,22 +32074,23 @@ class NexusApp {
     let html = this.escapeHtml(text);
 
     // Headers
-    html = html.replace(/^### (.*$)/gim, '<h4 style="margin:10px 0 6px 0; color:#A78BFA; font-weight:700; font-size:0.96rem;">$1</h4>');
     html = html.replace(/^#### (.*$)/gim, '<h5 style="margin:8px 0 4px 0; color:#38BDF8; font-weight:700; font-size:0.88rem;">$1</h5>');
+    html = html.replace(/^### (.*$)/gim, '<h4 style="margin:10px 0 6px 0; color:#A78BFA; font-weight:700; font-size:0.96rem;">$1</h4>');
 
-    // Bold & Italic
+    // Blockquote (escapeHtml turns > into &gt;)
+    html = html.replace(/^(?:>|&gt;) (.*$)/gim, '<div style="background:rgba(124,58,237,0.12); border-left:3px solid #7C3AED; padding:6px 10px; margin:8px 0; border-radius:4px; font-size:0.82rem; color:#CBD5E1;">$1</div>');
+
+    // Lists BEFORE italic replacement so "* item" bullets aren't converted into <em>
+    html = html.replace(/^[ \t]*[\*\-] (.*$)/gim, '<li style="margin-bottom:4px; margin-left:14px; list-style-type:disc;">$1</li>');
+    html = html.replace(/^[ \t]*(\d+)\. (.*$)/gim, '<li style="margin-bottom:4px; margin-left:14px; list-style-type:decimal;">$2</li>');
+
+    // Bold & Italic (line-scoped italic to avoid cross-line bullet consumption)
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-    // Blockquote
-    html = html.replace(/^> (.*$)/gim, '<div style="background:rgba(124,58,237,0.12); border-left:3px solid #7C3AED; padding:6px 10px; margin:8px 0; border-radius:4px; font-size:0.82rem; color:#CBD5E1;">$1</div>');
-
-    // Lists
-    html = html.replace(/^[\*\-] (.*$)/gim, '<li style="margin-bottom:4px; margin-left:14px; list-style-type:disc;">$1</li>');
-    html = html.replace(/^(\d+)\. (.*$)/gim, '<li style="margin-bottom:4px; margin-left:14px; list-style-type:decimal;">$2</li>');
+    html = html.replace(/\*([^\*\n]+?)\*/g, '<em>$1</em>');
 
     // Paragraph breaks
     html = html.replace(/\n\n/g, '<div style="height:8px;"></div>');
+    html = html.replace(/<\/li>\n/g, '</li>');
     html = html.replace(/\n/g, '<br>');
 
     return html;
@@ -31419,42 +32099,68 @@ class NexusApp {
   // --- Quick AI Actions ---
 
   askAiDailyDiagnosis() {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI.', 'danger');
+      return;
+    }
     this.openAiCopilotDrawer();
     this.appendUserMessage('📊 Diagnóstico Ejecutivo del Negocio Hoy');
     this.sendAiMessage('Genera un diagnóstico ejecutivo integral de las operaciones del día, ventas, márgenes e indicadores clave.', 'diagnostico');
   }
 
   askAiCashAudit() {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI.', 'danger');
+      return;
+    }
     this.openAiCopilotDrawer();
     this.appendUserMessage('🚨 Auditoría de Turno de Caja y Detección de Fugas');
     this.sendAiMessage('Audita el turno de caja actual, revisa el saldo esperado y genera recomendaciones de control para evitar descuadres.', 'caja');
   }
 
   askAiCustomerCredits() {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI.', 'danger');
+      return;
+    }
     this.openAiCopilotDrawer();
     this.appendUserMessage('💰 Estado de Cartera y Plan de Cobranza');
     this.sendAiMessage('Analiza la cartera de clientes deudores, identifica los saldos más críticos y recomienda una estrategia de cobro oportuno.', 'cartera');
   }
 
   askAiSlowStock() {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI.', 'danger');
+      return;
+    }
     this.openAiCopilotDrawer();
     this.appendUserMessage('📦 Análisis de Inventario y Stock Lento (Hueso)');
     this.sendAiMessage('Analiza el inventario actual y presenta una estrategia de liquidación o combos para liberar capital atrapado en referencias lentas.', 'hueso');
   }
 
   askAiBalanceAnalysis() {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI.', 'danger');
+      return;
+    }
     this.openAiCopilotDrawer();
     this.appendUserMessage('⚖️ Interpretación Estratégica del Balance General Consolidado');
 
+    if (typeof this.syncSupplierCreditsState === 'function') this.syncSupplierCreditsState();
     const invVal = (this.data.products || []).reduce((acc, p) => acc + (this.getProductTotalCost ? this.getProductTotalCost(p) : 0), 0);
     const fixedVal = (this.data.assets || []).reduce((acc, a) => acc + (Number(a.currentVal) || Number(a.costValue) || 0), 0);
-    const cashVal = Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0;
+    const accSummary = this.getAccountsFinancialSummary ? this.getAccountsFinancialSummary() : {};
+    const cashVal = accSummary.efectivo_caja ? Math.round(Number(accSummary.efectivo_caja.balance) || 0) : (Number(this.data.cashShiftLog?.expectedCashInDrawer) || Number(this.data.store?.cashInBox) || 0);
+    const bankVal = Object.values(accSummary).filter(a => a && !a.isCash).reduce((s, a) => s + (Number(a.balance) || 0), 0);
     const clientDebtVal = (this.data.customers || []).reduce((acc, c) => acc + (Number(c.creditBalance) || 0), 0);
-    const assetsCurrent = invVal + cashVal + clientDebtVal;
+    const assetsCurrent = invVal + cashVal + bankVal + clientDebtVal;
     const totalAssets = assetsCurrent + fixedVal;
 
     const suppBalanceTotal = (this.data.suppliers || []).reduce((acc, s) => acc + Math.max(0, Number(s.creditBalance) || 0), 0);
-    const liabilitiesShort = suppBalanceTotal;
+    const orphanCreditsTotal = (this.data.supplierCredits || [])
+      .filter(c => Number(c.pendingAmount) > 0 && !(this.data.suppliers || []).some(s => (s.name || '').toLowerCase().trim() === (c.supplier || '').toLowerCase().trim()))
+      .reduce((acc, c) => acc + (Number(c.pendingAmount) || 0), 0);
+    const liabilitiesShort = suppBalanceTotal + orphanCreditsTotal;
     const liabilitiesLong = Number(this.data.balanceSheet?.liabilitiesLong) || 0;
     const totalLiabilities = liabilitiesShort + liabilitiesLong;
     const netEquity = totalAssets - totalLiabilities;
@@ -31465,6 +32171,8 @@ class NexusApp {
         corrientes: assetsCurrent,
         inventario: invVal,
         cajaDisponible: cashVal,
+        cuentasBancarias: bankVal,
+        tesoreriaTotal: cashVal + bankVal,
         carteraClientes: clientDebtVal,
         activosFijos: fixedVal,
         totalActivos: totalAssets
@@ -31481,6 +32189,10 @@ class NexusApp {
   }
 
   generateAiCollectionMessage(creditId) {
+    if (!this.canUseAiCopilot()) {
+      this.showToast('Acceso Denegado: No tienes permisos para usar Nexus AI.', 'danger');
+      return;
+    }
     const cc = (this.data.customerCredits || []).find(c => String(c.id) === String(creditId));
     if (!cc) {
       this.showToast('Crédito no encontrado', 'danger');
@@ -31490,6 +32202,8 @@ class NexusApp {
     const customer = (this.data.customers || []).find(c => (c.name || '').toLowerCase() === (cc.customer || '').toLowerCase());
     const phone = customer?.phone || '';
     const storeName = this.data.store?.name || 'Charles Joyas SAS';
+    const dueDateParsed = this.parseDateSafe ? this.parseDateSafe(cc.dueDate) : (cc.dueDate ? new Date(cc.dueDate) : null);
+    const diasMora = (dueDateParsed && !isNaN(dueDateParsed.getTime())) ? Math.max(0, Math.floor((Date.now() - dueDateParsed.getTime()) / (1000 * 60 * 60 * 24))) : 0;
 
     this.openAiCopilotDrawer();
     this.appendUserMessage(`✨ Redactar recordatorio de cobro por WhatsApp para ${cc.customer} (Saldo: ${this.formatCurrency(cc.currentBalance)})`);
@@ -31501,7 +32215,7 @@ class NexusApp {
       creditoId: cc.id,
       saldoPendiente: cc.currentBalance,
       fechaVencimiento: cc.dueDate,
-      diasMora: cc.dueDate ? Math.max(0, Math.floor((new Date() - new Date(cc.dueDate)) / (1000 * 60 * 60 * 24))) : 0
+      diasMora: diasMora
     };
 
     const prompt = `Redacta un mensaje de WhatsApp persuasivo, cordial y profesional para recordar el pago pendiente de ${cc.customer}. Incluye saludo cordial, el valor pendiente de ${this.formatCurrency(cc.currentBalance)}, opciones de pago y un llamado a la acción amable.`;

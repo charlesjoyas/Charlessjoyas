@@ -6349,13 +6349,54 @@ body,
   #rep-productos-tbody td:nth-of-type(10)::before { content: "Stock"; }
 
   /* Informe Períodos (7) */
-  #inf-periodos-tbody td:nth-of-type(1)::before { content: "Periodo"; }
-  #inf-periodos-tbody td:nth-of-type(2)::before { content: "Facturación"; }
-  #inf-periodos-tbody td:nth-of-type(3)::before { content: "Costo Merc."; }
-  #inf-periodos-tbody td:nth-of-type(4)::before { content: "Gastos"; }
-  #inf-periodos-tbody td:nth-of-type(5)::before { content: "Utilidad Neta"; }
-  #inf-periodos-tbody td:nth-of-type(6)::before { content: "Margen %"; }
-  #inf-periodos-tbody td:nth-of-type(7)::before { content: "Estado"; }
+  #inf-periodos-tbody td:nth-of-type(1)::before,
+  #inf-periodos-tfoot td:nth-of-type(1)::before { content: "Periodo"; }
+  #inf-periodos-tbody td:nth-of-type(2)::before,
+  #inf-periodos-tfoot td:nth-of-type(2)::before { content: "Facturación"; }
+  #inf-periodos-tbody td:nth-of-type(3)::before,
+  #inf-periodos-tfoot td:nth-of-type(3)::before { content: "Costo Merc."; }
+  #inf-periodos-tbody td:nth-of-type(4)::before,
+  #inf-periodos-tfoot td:nth-of-type(4)::before { content: "Gastos"; }
+  #inf-periodos-tbody td:nth-of-type(5)::before,
+  #inf-periodos-tfoot td:nth-of-type(5)::before { content: "Utilidad Neta"; }
+  #inf-periodos-tbody td:nth-of-type(6)::before,
+  #inf-periodos-tfoot td:nth-of-type(6)::before { content: "Margen %"; }
+  #inf-periodos-tbody td:nth-of-type(7)::before,
+  #inf-periodos-tfoot td:nth-of-type(7)::before { content: "Estado"; }
+  .data-table:has(tbody#inf-periodos-tbody) tfoot,
+  .data-table:has(tbody#inf-periodos-tbody) tfoot tr {
+    display: block;
+    width: 100%;
+  }
+  .data-table:has(tbody#inf-periodos-tbody) tfoot tr {
+    background: var(--canvas-bg, #f8fafc);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.45rem 0.75rem;
+    margin-top: 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+  .data-table:has(tbody#inf-periodos-tbody) tfoot td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.35rem 0.25rem;
+    border-bottom: 1px dashed var(--border-color);
+    text-align: right !important;
+    white-space: normal !important;
+    width: 100% !important;
+    gap: 0.5rem;
+  }
+  .data-table:has(tbody#inf-periodos-tbody) tfoot td:last-child {
+    border-bottom: none;
+  }
+  .data-table:has(tbody#inf-periodos-tbody) tfoot td::before {
+    font-weight: 700;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    text-align: left;
+    flex-shrink: 0;
+  }
 
   /* Informe Cartera Morosidad (8) */
   #inf-cartera-tbody td:nth-of-type(1)::before { content: "Cliente"; }
