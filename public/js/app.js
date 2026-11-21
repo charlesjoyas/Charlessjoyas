@@ -303,7 +303,7 @@ class NexusApp {
       category:document.getElementById('po-category-select')?.value,
       measureType:document.getElementById('po-measure-type')?.value || 'Pesaje',
       quantity:this.parseCleanNumber(document.getElementById('po-quantity')?.value),
-      unitCost:this.parseCleanNumber(document.getElementById('po-unit-cost')?.value),
+      unitCost:this.parseMoneyInput(document.getElementById('po-unit-cost')?.value),
       pieceWeight:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
       paid:document.getElementById('po-payment-status')?.value==='Pagado Total',
       method,targetAccount:/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('po-account-select')?.value || this.getDestinationBankAccounts()[0],
@@ -3952,12 +3952,15 @@ class NexusApp {
     if (measureSelect) measureSelect.value = existing.measureType || 'Pesaje';
     this.onPurchaseMeasureTypeChange();
 
-    if (unitCostInput && existing.cost) {
-      unitCostInput.value = this.formatNumberWithCommas(existing.cost || 0);
+    if (unitCostInput) {
+      const purchaseCost = NexusSafety.isPesaje(existing)
+        ? Number(existing.cost || 0) / NexusSafety.factor(existing.weightUnit)
+        : Number(existing.cost || 0);
+      unitCostInput.value = this.formatNumberWithCommas(purchaseCost, purchaseCost % 1 !== 0);
     }
     if (gramsInput && existing.measureType === 'Unidades') {
       const val = existing.pieceWeight !== undefined && existing.pieceWeight !== null ? existing.pieceWeight : (existing.weight || 0);
-      if (val > 0) gramsInput.value = this.formatNumberWithCommas(val, true);
+      gramsInput.value = this.formatNumberWithCommas(val, true);
     }
     if (catInfo) {
       catInfo.innerHTML = `✅ Reabasteciendo: <b>${this.escapeHtml(existing.name)}</b> (${this.escapeHtml(existing.categoryName || existing.category)})`;
@@ -4018,25 +4021,30 @@ class NexusApp {
   updatePurchaseCalculations() {
     const measureSelect = document.getElementById('po-measure-type');
     const isPesaje = (measureSelect?.value || 'Pesaje') === 'Pesaje';
+    const category = (this.data.categories || []).find(c => c.id === document.getElementById('po-category-select')?.value);
+    const isExtra = Boolean(category?.type === 'extras' || category?.isExtra);
 
     const quantity = this.parseCleanNumber(document.getElementById('po-quantity')?.value);
-    const unitCost = this.parseCleanNumber(document.getElementById('po-unit-cost')?.value);
-    const pieceGrams = this.parseCleanNumber(document.getElementById('po-product-grams')?.value);
+    const unitCost = NexusLedger.money(this.parseMoneyInput(document.getElementById('po-unit-cost')?.value));
+    const pieceGrams = isExtra ? 0 : this.parseCleanNumber(document.getElementById('po-product-grams')?.value);
 
     let totalGrams = 0;
     if (isPesaje) {
       totalGrams = quantity;
     } else {
-      totalGrams = pieceGrams > 0 ? Math.round(quantity * pieceGrams * 100) / 100 : 0;
+      totalGrams = pieceGrams > 0 ? NexusSafety.round(quantity * pieceGrams) : 0;
     }
 
-    const totalCost = totalGrams > 0 ? Math.round(totalGrams * unitCost) : Math.round(quantity * unitCost);
+    const needsPieceWeight = !isPesaje && !isExtra && !(pieceGrams > 0);
+    const totalCost = needsPieceWeight ? 0 : NexusLedger.money((totalGrams > 0 ? totalGrams : quantity) * unitCost);
+    const costLabel = document.getElementById('po-unit-cost-label');
+    if (costLabel) costLabel.textContent = isPesaje || !isExtra ? 'Costo por gramo ($) *' : 'Costo por unidad ($) *';
 
     const totalPreview = document.getElementById('po-preview-total');
     const gramsPreview = document.getElementById('po-preview-grams');
 
     if (totalPreview) {
-      totalPreview.textContent = this.formatCurrency(totalCost);
+      totalPreview.textContent = needsPieceWeight ? 'Indica el peso por pieza' : this.formatCurrency(totalCost);
     }
     if (gramsPreview) {
       if (isPesaje) {
