@@ -1105,10 +1105,10 @@ button.subnav-tab.active,
   margin-bottom: 1.5rem;
 }
 
-/* 5-KPI Balanced Dashboard Grid: Ultra-Smooth, No Gaps Across All Screens */
+/* Six dashboard metrics, including the separate Extra inventory pool. */
 .dashboard-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -1138,24 +1138,18 @@ button.subnav-tab.active,
   text-overflow: unset;
 }
 
-/* Laptops y pantallas medianas (769px a 1420px): 3 arriba y 2 abajo al 100% de ancho sin huecos */
+/* Laptops: two rows of three metrics. */
 @media (max-width: 1420px) and (min-width: 769px) {
   .dashboard-kpi-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     gap: 0.85rem !important;
   }
-  .dashboard-kpi-grid > .kpi-card:nth-child(1),
-  .dashboard-kpi-grid > .kpi-card:nth-child(2),
-  .dashboard-kpi-grid > .kpi-card:nth-child(3) {
-    grid-column: span 2 !important;
-  }
-  .dashboard-kpi-grid > .kpi-card:nth-child(4),
-  .dashboard-kpi-grid > .kpi-card:nth-child(5) {
-    grid-column: span 3 !important;
+  .dashboard-kpi-grid > .kpi-card {
+    grid-column: auto !important;
   }
 }
 
-/* Tablets (481px a 768px): 2 columnas, la 5ª tarjeta ocupa ambas columnas */
+/* Tablets: three rows of two metrics. */
 @media (max-width: 768px) {
   .dashboard-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -1163,9 +1157,6 @@ button.subnav-tab.active,
   }
   .dashboard-kpi-grid > .kpi-card {
     grid-column: auto !important;
-  }
-  .dashboard-kpi-grid > .kpi-card:last-child {
-    grid-column: span 2 !important;
   }
 }
 
