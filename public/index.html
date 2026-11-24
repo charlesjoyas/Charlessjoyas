@@ -31,7 +31,7 @@
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
-    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden] { display: none !important; }
+    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden] { display: none !important; }
     .thermal-ticket-wrapper {
       background: #f8fafc;
       padding: 10px;
@@ -545,7 +545,6 @@
         </div>
 
         <div class="top-bar-right">
-          <button type="button" id="chain-lots-open" class="btn btn-secondary" hidden onclick="app.openChainLots()">Lotes de cadenas · Local</button>
           <!-- THEME TOGGLE BUTTON -->
           <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" onclick="app.toggleTheme()" title="Cambiar Tema (Claro / Oscuro)">
             <svg id="theme-sun-icon" class="theme-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
@@ -1074,6 +1073,7 @@
                   📊 Libro Completo (Compras &amp; Abonos)
                 </button>
                 <button class="btn btn-primary" id="open-purchase-modal-btn">+ Nueva Orden Compra</button>
+                <button type="button" id="chain-lots-open" class="btn btn-secondary" hidden onclick="app.openChainLots()">Consultar lotes</button>
               </div>
             </div>
             <div class="table-wrapper">
@@ -4672,10 +4672,15 @@
             <select id="po-measure-type" class="form-select" onchange="app.onPurchaseMeasureTypeChange()" style="font-weight:600;">
               <option value="Pesaje" selected>Pesaje (Gramos)</option>
               <option value="Unidades">Unidades (Piezas)</option>
+              <option id="po-chain-lot-option" value="chainLot" hidden disabled>Lote de cadenas (unidades + gramos)</option>
             </select>
           </div>
 
           <!-- 3. CANTIDAD Y 4. COSTO EN 2 COLUMNAS -->
+          <div id="po-lot-fields" class="grid-2" hidden style="margin-bottom:0.75rem;">
+            <div class="form-group"><label class="form-label" for="po-lot-code">Código del lote *</label><input id="po-lot-code" class="form-input" maxlength="80" placeholder="LOTE-CAD-001" disabled><small>Otro lote físico requiere otro código de producto.</small></div>
+            <div class="form-group"><label class="form-label" for="po-lot-units">Cadenas recibidas *</label><input id="po-lot-units" class="form-input" type="number" min="1" step="1" oninput="app.updatePurchaseCalculations()" disabled><small>Peso total abajo: punto o coma decimal, sin separadores de miles.</small></div>
+          </div>
           <div class="grid-2" style="margin-bottom: 0.75rem;">
             <div class="form-group">
               <label class="form-label" id="po-quantity-label" for="po-quantity">Cantidad en gramos *</label>
@@ -5670,7 +5675,7 @@
   <script src="js/safety.js?v=1" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=120-lots-local" defer></script>
-  <script src="js/chain-lots.js?v=1" defer></script>
+  <script src="js/app.js?v=120-lots-po-local" defer></script>
+  <script src="js/chain-lots.js?v=2" defer></script>
 </body>
 </html>

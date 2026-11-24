@@ -20,19 +20,19 @@ Los datos de prueba se crean solo la primera vez en `scratch/chain-lots-local/de
 
 ## Probar
 
-1. Entrar en **Lotes de cadenas · Local**. Hay un lote ficticio de 50 cadenas y 200 g, a 400.000 COP/g.
+1. Entrar en **Órdenes de Compra → Consultar lotes**. Hay un lote ficticio de 50 cadenas y 200 g, a 400.000 COP/g.
 2. Pulsar **Vender**, ingresar 2 cadenas, peso real 7,6 g y precio 500.000 COP/g. Al agregar se muestran ambas cantidades en el carrito y en la confirmación de pago.
 3. Cobrar 3.800.000 COP: quedan 48 cadenas y 192,4 g. El costo histórico vendido es 3.040.000 COP y la utilidad bruta es 760.000 COP, antes de otros gastos.
 4. Recargar y reimprimir el recibo: deben conservarse lote, cadenas, peso e importes.
 5. Anular la venta desde el historial, indicando el motivo: vuelven exactamente las cadenas y los gramos.
-6. Probar otro ingreso: crear lote y SKU nuevos, proveedor, categoría, cadenas recibidas, peso conjunto real y costo por gramo. El ingreso crea la compra, la deuda y su auditoría en un solo guardado.
+6. Para ingresar mercancía, abrir **Órdenes de Compra → Nueva Orden Compra → Tipo de medida → Lote de cadenas (unidades + gramos)**. Completar nombre, categoría, SKU, código de lote, cadenas recibidas, peso conjunto real y costo por gramo. Usar los mismos campos de proveedor, estado de pago, medio y cuenta bancaria de una compra normal. El ingreso registra inventario, compra, deuda o pago y auditoría en un solo guardado. El listado de lotes no tiene un formulario de ingreso separado.
 
 ## Reglas y alcance
 
 - Un producto nuevo representa un lote físico, con código de lote y SKU propios. Varios lotes pueden compartir nombre de referencia. Los productos anteriores mantienen su funcionamiento.
 - El saldo `stock` conserva gramos; `stockUnits` registra cadenas completas. La venta guarda `qty` en gramos y `unitCount` en cadenas. No se estima el peso individual ni se calcula una cantidad usando un promedio.
-- El costo se mantiene por gramo; los ingresos sucesivos del mismo lote usan el promedio ponderado existente. Para otro lote físico se debe crear otro SKU. El formulario piloto solo crea lotes nuevos.
-- Los ingresos del formulario piloto quedan a crédito; los pagos se realizan con los módulos de compras y proveedores habituales.
+- El costo se mantiene por gramo; los ingresos sucesivos del mismo lote usan el promedio ponderado existente. Para otro lote físico se debe crear otro SKU. Para reabastecer el mismo lote, buscar su SKU y usar **Cargar sus datos**; después digitar las cadenas y gramos recibidos en esta compra, no los saldos del inventario.
+- La orden admite **Pagado (Contado)** o **Pendiente (A Crédito)**. Están disponibles Efectivo, Tarjeta Débito, Tarjeta Crédito, Transferencia Bancaria y Bancolombia / Nequi, con la misma cuenta bancaria de salida que una compra normal. Un pago total genera su abono distribuido; un ingreso a crédito conserva la deuda hasta registrar pagos posteriores.
 - Una venta no puede superar cadenas o gramos, registrar cadenas fraccionarias, ni agotar solo uno de los dos saldos. El operador debe comprobar conteo/peso; el programa no borra diferencias automáticamente.
 - Cada lote acepta gramos con hasta seis decimales. En sus campos de peso se admite punto o coma decimal, sin separadores de miles.
 - Los saldos, identidad y costo del lote no se ajustan mediante edición genérica de producto. Una compra de lote se corrige mediante reversión documentada y nuevo ingreso; si ya se vendió mercancía, no se puede retirar más stock del disponible.

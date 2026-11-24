@@ -295,16 +295,25 @@ class NexusApp {
     event?.preventDefault();
     if(!this.canPerformAction('create','purchase'))throw new Error('Tu perfil no permite registrar compras.');
     const method=document.getElementById('po-payment-method')?.value || 'Efectivo';
+    const lot=this.isPurchaseChainLot();
+    const lotArgs=lot?{inventoryMode:'chainLot',lotCode:document.getElementById('po-lot-code')?.value?.trim(),unitCount:Number(document.getElementById('po-lot-units')?.value)}:{};
+    if(lot){
+      if(!window.NexusChainLots?.enabled)throw new Error('Los lotes no están habilitados en este entorno.');
+      if(!lotArgs.lotCode||!Number.isSafeInteger(lotArgs.unitCount)||lotArgs.unitCount<=0||!(this.readPurchaseQuantity()>0))throw new Error('Completa el código de lote, las cadenas enteras y el peso real total (hasta seis decimales).');
+      const category=this.data.categories.find(c=>c.id===document.getElementById('po-category-select')?.value);
+      if(!category||category.type==='extras'||category.isExtra)throw new Error('Selecciona una categoría de joyería por pesaje para el lote.');
+    }
     const result=await this.executeFinancialOperation('createPurchase',{
+      ...lotArgs,
       productId:document.getElementById('po-product-id')?.value || undefined,
       sku:document.getElementById('po-product-sku')?.value?.trim() || this.getNextConsecutiveSku(),
       name:document.getElementById('po-product-name')?.value?.trim(),
       supplier:document.getElementById('po-supp-select')?.value,
       category:document.getElementById('po-category-select')?.value,
-      measureType:document.getElementById('po-measure-type')?.value || 'Pesaje',
-      quantity:this.parseCleanNumber(document.getElementById('po-quantity')?.value),
+      measureType:lot?'Pesaje':document.getElementById('po-measure-type')?.value || 'Pesaje',
+      quantity:this.readPurchaseQuantity(),
       unitCost:this.parseMoneyInput(document.getElementById('po-unit-cost')?.value),
-      pieceWeight:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
+      pieceWeight:lot?0:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
       paid:document.getElementById('po-payment-status')?.value==='Pagado Total',
       method,targetAccount:/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('po-account-select')?.value || this.getDestinationBankAccounts()[0],
       reason:'Ingreso de mercancía registrado mediante orden de compra'
@@ -3763,7 +3772,16 @@ class NexusApp {
     }
   }
 
-  openPurchaseModal() {
+  isPurchaseChainLot() { return document.getElementById('po-measure-type')?.value === 'chainLot'; }
+
+  readPurchaseQuantity() {
+    const raw=document.getElementById('po-quantity')?.value;
+    if(!this.isPurchaseChainLot())return this.parseCleanNumber(raw);
+    const value=String(raw??'').trim();
+    return /^\d+(?:[.,]\d{1,6})?$/.test(value)?Number(value.replace(',','.')):NaN;
+  }
+
+  openPurchaseModal(mode = 'Pesaje') {
     const poForm = document.getElementById('add-purchase-form');
     if (poForm) poForm.reset();
     const hiddenId = document.getElementById('po-product-id');
@@ -3776,6 +3794,9 @@ class NexusApp {
     if (costInput) costInput.value = '';
     const gramsInput = document.getElementById('po-product-grams');
     if (gramsInput) gramsInput.value = '';
+    const measure=document.getElementById('po-measure-type');
+    if(measure)measure.value=mode==='chainLot'&&window.NexusChainLots?.enabled?'chainLot':'Pesaje';
+    this._purchaseLotMode=false;
     this.populatePurchaseProductSelect();
     this.openModal('purchase-modal');
   }
@@ -3840,7 +3861,7 @@ class NexusApp {
     if (!catSelect) return;
     const catId = catSelect.value;
     const catObj = (this.data.categories || []).find(c => c.id === catId);
-    if (catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
+    if (!this.isPurchaseChainLot() && catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
       const measureSelect = document.getElementById('po-measure-type');
       if (measureSelect && measureSelect.value !== 'Unidades') {
         measureSelect.value = 'Unidades';
@@ -3906,7 +3927,18 @@ class NexusApp {
 
   onPurchaseMeasureTypeChange() {
     const measureSelect = document.getElementById('po-measure-type');
-    const isPesaje = (measureSelect?.value || 'Pesaje') === 'Pesaje';
+    const lot=this.isPurchaseChainLot();
+    const isPesaje = lot || (measureSelect?.value || 'Pesaje') === 'Pesaje';
+    const fields=document.getElementById('po-lot-fields');
+    if(fields)fields.hidden=!lot;
+    for(const id of ['po-lot-code','po-lot-units']){const field=document.getElementById(id);if(field){field.required=lot;field.disabled=!lot;}}
+    const qty=document.getElementById('po-quantity');
+    if(qty){
+      if(qty.dataset)qty.dataset.plainDecimal=String(lot);
+      if(this._purchaseLotMode!==undefined&&this._purchaseLotMode!==lot)qty.value='';
+      qty.placeholder=lot?'Peso real total, ej. 200,25':'1';
+    }
+    this._purchaseLotMode=lot;
 
     const qtyLabel = document.getElementById('po-quantity-label');
     const qtyUnit = document.getElementById('po-quantity-unit');
@@ -3915,7 +3947,7 @@ class NexusApp {
     const gramsInput = document.getElementById('po-product-grams');
 
     if (isPesaje) {
-      if (qtyLabel) qtyLabel.textContent = 'Cantidad en gramos *';
+      if (qtyLabel) qtyLabel.textContent = lot?'Peso total real del lote (g) *':'Cantidad en gramos *';
       if (qtyUnit) {
         qtyUnit.textContent = 'g';
         qtyUnit.style.color = '#D97706';
@@ -3957,8 +3989,13 @@ class NexusApp {
     if (nameInput && existing.name) nameInput.value = existing.name;
     if (skuInput && (existing.sku || existing.id)) skuInput.value = existing.sku || existing.id;
     if (catSelect && existing.category) catSelect.value = existing.category;
-    if (measureSelect) measureSelect.value = existing.measureType || 'Pesaje';
+    if(NexusSafety.isChainLot(existing)&&!window.NexusChainLots?.enabled){this.showToast('Los lotes no están habilitados en este entorno.','warning');return;}
+    if (measureSelect) measureSelect.value = NexusSafety.isChainLot(existing)?'chainLot':existing.measureType || 'Pesaje';
     this.onPurchaseMeasureTypeChange();
+    const lotCode=document.getElementById('po-lot-code');
+    if(lotCode)lotCode.value=NexusSafety.isChainLot(existing)?existing.lotCode:'';
+    const lotUnits=document.getElementById('po-lot-units');
+    if(lotUnits)lotUnits.value='';
 
     if (unitCostInput) {
       const purchaseCost = NexusSafety.isPesaje(existing)
@@ -4028,11 +4065,12 @@ class NexusApp {
 
   updatePurchaseCalculations() {
     const measureSelect = document.getElementById('po-measure-type');
-    const isPesaje = (measureSelect?.value || 'Pesaje') === 'Pesaje';
+    const lot=this.isPurchaseChainLot();
+    const isPesaje = lot || (measureSelect?.value || 'Pesaje') === 'Pesaje';
     const category = (this.data.categories || []).find(c => c.id === document.getElementById('po-category-select')?.value);
     const isExtra = Boolean(category?.type === 'extras' || category?.isExtra);
 
-    const quantity = this.parseCleanNumber(document.getElementById('po-quantity')?.value);
+    const quantity = this.readPurchaseQuantity();
     const unitCost = NexusLedger.money(this.parseMoneyInput(document.getElementById('po-unit-cost')?.value));
     const pieceGrams = isExtra ? 0 : this.parseCleanNumber(document.getElementById('po-product-grams')?.value);
 
@@ -4056,7 +4094,7 @@ class NexusApp {
     }
     if (gramsPreview) {
       if (isPesaje) {
-        gramsPreview.textContent = `${this.formatNumberWithCommas(totalGrams, true)} g`;
+        gramsPreview.textContent = lot?`${Number(document.getElementById('po-lot-units')?.value)||0} cadenas · ${Number.isFinite(totalGrams)?totalGrams:0} g`:`${this.formatNumberWithCommas(totalGrams, true)} g`;
       } else {
         gramsPreview.textContent = pieceGrams > 0 
           ? `${this.formatNumberWithCommas(totalGrams, true)} g (${this.formatNumberWithCommas(quantity)} u.)`
@@ -9871,6 +9909,7 @@ class NexusApp {
 
       const prodDisplay = po.productName ? `
         <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(po.productName)}</div>
+        ${po.inventoryMode==='chainLot'?`<div class="text-xs">Lote ${this.escapeHtml(po.lotCode)} · ${po.unitCount} cadenas</div>`:''}
         <div class="text-xs" style="color:var(--text-muted);">${po.productSku ? `<span style="font-family:monospace; font-weight:700; color:var(--brand-primary);">${this.escapeHtml(po.productSku)}</span> · ` : ''}${this.escapeHtml(po.supplier || '')}</div>
       ` : `<div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(po.supplier || 'Proveedor')}</div>`;
 
@@ -9893,7 +9932,7 @@ class NexusApp {
           <td>${this.escapeHtml(po.date)}</td>
           <td>
             <div style="display:flex; align-items:center; flex-wrap:wrap; gap:3px;">
-              <span class="font-bold">${qty} ítems</span>
+              <span class="font-bold">${po.inventoryMode==='chainLot'?`${po.unitCount} cadenas`:`${qty} ítems`}</span>
               ${gramsDisplay}
             </div>
             ${unitCost ? `<div class="text-xs" style="color:var(--text-muted); margin-top:2px;">${costLabel}</div>` : ''}
@@ -18020,7 +18059,7 @@ class NexusApp {
     list.forEach(p => {
       const supp = findSupplier(p.supplier);
       const cat = findCategory(p.category) || { name: p.categoryName || p.category || 'General' };
-      const qty = Number(p.quantity !== undefined ? p.quantity : (p.itemsCount || 1)) || 1;
+      const qty = p.inventoryMode==='chainLot'?Number(p.unitCount):Number(p.quantity !== undefined ? p.quantity : (p.itemsCount || 1)) || 1;
       const grams = Number(p.totalGrams) || 0;
       const unitCost = Number(p.unitCost) || 0;
       const total = Number(p.total) || 0;
@@ -18058,7 +18097,7 @@ class NexusApp {
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.nit || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.phone || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(supp?.bank ? `${supp.bank} (${supp.accountType || 'Cta'} #${supp.accountNumber || ''})` : 'N/A')}</Data></Cell>
-        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.productName || 'Joya / Materia Prima')}</Data></Cell>
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml((p.productName || 'Joya / Materia Prima')+(p.inventoryMode==='chainLot'?` · Lote ${p.lotCode}`:''))}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.productSku || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(cName)}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.measureType || 'unidades')}</Data></Cell>
@@ -18454,7 +18493,7 @@ class NexusApp {
     purchases.forEach(p => {
       const supp = findSupplier(p.supplier);
       const cat = findCategory(p.category) || { name: p.categoryName || p.category || 'General' };
-      const qty = Number(p.quantity !== undefined ? p.quantity : (p.itemsCount || 1)) || 1;
+      const qty = p.inventoryMode==='chainLot'?Number(p.unitCount):Number(p.quantity !== undefined ? p.quantity : (p.itemsCount || 1)) || 1;
       const grams = Number(p.totalGrams) || 0;
       const unitCost = Number(p.unitCost) || 0;
       const total = Number(p.total) || 0;
@@ -18471,7 +18510,7 @@ class NexusApp {
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.nit || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(supp?.phone || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(supp?.bank ? `${supp.bank} (${supp.accountType || 'Cta'} #${supp.accountNumber || ''})` : 'N/A')}</Data></Cell>
-        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.productName || 'Joya / Materia Prima')}</Data></Cell>
+        <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml((p.productName || 'Joya / Materia Prima')+(p.inventoryMode==='chainLot'?` · Lote ${p.lotCode}`:''))}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.productSku || 'N/A')}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(cat.name)}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.measureType || 'unidades')}</Data></Cell>
@@ -19662,8 +19701,8 @@ class NexusApp {
       <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.time || '')}</Data></Cell>
       <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.supplier || 'Proveedor')}</Data></Cell>
       <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(p.categoryName || p.category || 'Joyería')}</Data></Cell>
-      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${Number(p.quantity || p.itemsCount || 1)}</Data></Cell>
-      <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${gramsNum.toFixed(2)}</Data></Cell>
+      <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${p.inventoryMode==='chainLot'?Number(p.unitCount):Number(p.quantity || p.itemsCount || 1)}</Data></Cell>
+      <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${p.inventoryMode==='chainLot'?gramsNum:gramsNum.toFixed(2)}</Data></Cell>
       <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number">${totalNum}</Data></Cell>
       <Cell ss:StyleID="CellCurrencyEmerald"><Data ss:Type="Number">${pagadoNum}</Data></Cell>
       <Cell ss:StyleID="CellCurrencyRose"><Data ss:Type="Number">${saldoNum}</Data></Cell>
@@ -20751,6 +20790,7 @@ class NexusApp {
     const formattedTotal = this.formatCurrency(po.total || 0);
 
     const ticketItems = [{
+      inventoryMode:po.inventoryMode,lotCode:po.lotCode,unitCount:po.unitCount,
       name: po.productName || 'Metal en Bruto',
       sku: po.productSku || prod?.sku || '',
       product: prod,

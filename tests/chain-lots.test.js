@@ -140,3 +140,42 @@ test('a negotiated lot total remains exact when price per gram cannot be represe
   assert.equal(h.app.cart.length,1,JSON.stringify(h.app.events));assert.equal(Math.round(h.app.getCartSubtotal()),3800001);
   await h.app.runMutation(()=>h.app.processPaymentSuccess());assert.equal(api.state.recentTransactions[0]?.total,3800001,JSON.stringify(h.app.events));assert.equal(api.state.products[0].stockUnits,48);
 });
+function orderForm(h,fields={}){
+  h.context.window.NexusChainLots={enabled:true};h.app.showPurchaseReceiptModal=()=>{};
+  return h.bindForm('add-purchase-form',{'po-product-id':'','po-product-sku':'CAD-PO-001','po-product-name':'Lote por compra','po-supp-select':'Supplier','po-category-select':'oro18k','po-measure-type':'chainLot','po-quantity':'37,125','po-lot-code':'PO-LOT-001','po-lot-units':'12','po-unit-cost':'425,000','po-product-grams':'','po-payment-status':'Pendiente','po-payment-method':'Efectivo','po-account-select':'Cuenta Carlos','po-preview-total':'','po-preview-grams':'','po-unit-cost-label':'',...fields});
+}
+for(const method of ['Efectivo','Tarjeta Débito','Tarjeta Crédito','Transferencia Bancaria','Bancolombia / Nequi'])test(`lot through ordinary purchase form supports paid ${method}`,async()=>{
+  const h=fixture(),submit=orderForm(h,{'po-payment-status':'Pagado Total','po-payment-method':method});
+  h.app.data.cashShiftLog.openingCash=100000000;
+  const api=await connectOperations(h,{chainLotsEnabled:true});
+  await submit();const s=api.state,po=s.purchases[0];assert.ok(po,JSON.stringify(h.app.events));
+  assert.equal(po.inventoryMode,'chainLot');assert.equal(po.unitCount,12);assert.equal(po.totalGrams,37.125);assert.equal(po.total,15778125);assert.equal(po.paidAmount,15778125);assert.equal(po.paymentMethod,method);assert.equal(s.suppliers[0].creditBalance,0);
+  assert.equal(s.products[0].stockUnits,12);assert.equal(s.products[0].stock,37.125);assert.equal(s.abonosCompras.length,1);assert.equal(s.abonosCompras[0].allocations[0].purchaseId,po.id);
+  const account=method==='Efectivo'?'efectivo_caja':L.movementAccount('Cuenta Carlos',method,s);assert.equal(L.accounts(s)[account].balance,method==='Efectivo'?84221875:-15778125);
+});
+test('lot ordinary purchase form preview and supplier credit agree exactly',async()=>{
+  const h=fixture(),submit=orderForm(h);h.app.updatePurchaseCalculations();
+  assert.equal(h.context.document.getElementById('po-preview-total').textContent,h.app.formatCurrency(15778125));
+  assert.equal(h.context.document.getElementById('po-preview-grams').textContent,'12 cadenas · 37.125 g');
+  const api=await connectOperations(h,{chainLotsEnabled:true});await submit();const s=api.state;assert.equal(s.purchases[0].paymentStatus,'Pendiente');assert.equal(s.suppliers[0].creditBalance,15778125);assert.equal(s.abonosCompras.length,0);assert.equal(s.purchases[0].measureType,'Pesaje');
+});
+test('lot receipt form requires code, whole chains and valid grams before submitting',async()=>{
+  for(const fields of [{'po-lot-code':''},{'po-lot-units':'1.5'},{'po-quantity':'1,234.50'},{'po-quantity':'0'},{'po-quantity':'.1234567'}]){
+    const h=fixture(),submit=orderForm(h,fields),api=await connectOperations(h,{chainLotsEnabled:true}),before=api.state;await submit();assert.deepEqual(api.state,before);assert.ok(h.app.events.some(([msg])=>msg.includes('cadenas enteras')));
+  }
+});
+test('lot category selection cannot silently switch to regular unit purchases',()=>{
+  const h=fixture();h.app.data.categories.push({id:'extra',name:'Extras',type:'extras'});orderForm(h,{'po-category-select':'extra'});h.app.onPurchaseCategoryChange();assert.equal(h.context.document.getElementById('po-measure-type').value,'chainLot');
+});
+test('changing measure hides lot fields and prevents unit counts carrying into a normal purchase',()=>{
+  const h=fixture();const nodes=h.inputs({'po-measure-type':'chainLot','po-lot-fields':'','po-lot-code':'LOT','po-lot-units':'10','po-quantity':'1,250','po-quantity-label':'','po-quantity-unit':'','po-unit-cost-label':'','po-grams-group':'','po-product-grams':''});
+  h.app._purchaseLotMode=false;h.app.onPurchaseMeasureTypeChange();assert.equal(nodes['po-quantity'].value,'');assert.equal(nodes['po-lot-code'].required,true);assert.equal(nodes['po-lot-fields'].hidden,false);
+  nodes['po-measure-type'].value='Pesaje';h.app.onPurchaseMeasureTypeChange();assert.equal(nodes['po-lot-code'].required,false);assert.equal(nodes['po-lot-code'].disabled,true);assert.equal(nodes['po-lot-fields'].hidden,true);
+});
+test('purchase table and normal Excel exports distinguish chain count from grams and identify the lot',async()=>{
+  const h=fixture(),submit=orderForm(h),api=await connectOperations(h,{chainLotsEnabled:true});await submit();h.app.data=publicState(api.state);
+  const nodes=h.inputs({'fin-compras-tbody':''});h.App.prototype.renderFinComprasTable.call(h.app);assert.match(nodes['fin-compras-tbody'].innerHTML,/12 cadenas/);assert.doesNotMatch(nodes['fin-compras-tbody'].innerHTML,/37.125 ítems/);
+  const exports=[];h.app._downloadExcelWorkbook=xml=>exports.push(xml);
+  h.app.exportPurchasesExcel();h.app.exportLibroCompletoComprasYAbonosExcel();assert.equal(exports.length,2);
+  for(const xml of exports){assert.match(xml,/Lote PO-LOT-001/);assert.match(xml,/<Data ss:Type="Number">12<\/Data>/);assert.match(xml,/<Data ss:Type="Number">37\.125<\/Data>/);}
+});
