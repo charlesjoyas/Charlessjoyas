@@ -76,7 +76,7 @@ function browserHarness() {
   return { app, context, App:context.App, seed, inputs, bindForm, storage, handlers };
 }
 
-function memoryApi(seed) {
+function memoryApi(seed, options = {}) {
   let state = clone(seed);
   let failWrite = false;
   const api = createStateApi({
@@ -86,7 +86,7 @@ function memoryApi(seed) {
       if (base !== state.updatedAt) return false;
       state = clone(next);
       return true;
-    }, secret:'test-only-signing-secret-more-than-32-characters'
+    }, secret:'test-only-signing-secret-more-than-32-characters', ...options
   });
   const request = async (name, body = {}, session = '', extra = {}) => {
     const response = { statusCode:200, headers:{}, setHeader(k,v) { this.headers[k.toLowerCase()] = v; }, status(code) { this.statusCode=code; return this; }, json(body) { this.body=clone(body); return this; } };
@@ -101,8 +101,8 @@ function memoryApi(seed) {
   };
   return { request, login, get state() { return clone(state); }, outage: value => { failWrite=value; } };
 }
-async function connectOperations(h){
-  const api=memoryApi({...clone(h.app.data),users:clone(h.seed.users)}),session=await api.login();
+async function connectOperations(h,options={},loginRole='admin'){
+  const api=memoryApi({...clone(h.app.data),users:clone(h.seed.users)},options),session=await api.login(loginRole);
   h.app._confirmedData=clone(h.app.data);h.app.savePersistence=h.App.prototype.savePersistence;
   h.context.fetch=async(url,options={})=>{const r=await api.request(url==='/api/operations'?'operation':options.method==='POST'?'post':'get',options.body?JSON.parse(options.body):{},session);return {ok:r.statusCode===200,status:r.statusCode,json:async()=>r.body};};
   return api;

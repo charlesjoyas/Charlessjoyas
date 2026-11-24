@@ -31,6 +31,7 @@
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
+    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden] { display: none !important; }
     .thermal-ticket-wrapper {
       background: #f8fafc;
       padding: 10px;
@@ -1072,6 +1073,7 @@
                   📊 Libro Completo (Compras &amp; Abonos)
                 </button>
                 <button class="btn btn-primary" id="open-purchase-modal-btn">+ Nueva Orden Compra</button>
+                <button type="button" id="chain-lots-open" class="btn btn-secondary" hidden onclick="app.openChainLots()">Consultar lotes</button>
               </div>
             </div>
             <div class="table-wrapper">
@@ -3240,6 +3242,11 @@
         <form id="pos-add-to-cart-form" onsubmit="event.preventDefault(); app.confirmAddToCartFromModal();">
           <input type="hidden" id="pos-add-product-id">
 
+          <div id="pos-add-chain-units-group" class="form-group" hidden>
+            <label class="form-label" for="pos-add-chain-units">Cadenas a vender (unidades completas)</label>
+            <input id="pos-add-chain-units" class="form-control" type="number" min="1" step="1" value="1">
+            <small>Digita abajo el peso real conjunto. Usa punto o coma decimal, sin separadores de miles.</small>
+          </div>
           <!-- CANTIDAD / PESO A VENDER -->
           <div class="form-group" style="margin-bottom:1rem;">
             <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
@@ -4665,10 +4672,15 @@
             <select id="po-measure-type" class="form-select" onchange="app.onPurchaseMeasureTypeChange()" style="font-weight:600;">
               <option value="Pesaje" selected>Pesaje (Gramos)</option>
               <option value="Unidades">Unidades (Piezas)</option>
+              <option id="po-chain-lot-option" value="chainLot" hidden disabled>Lote de cadenas (unidades + gramos)</option>
             </select>
           </div>
 
           <!-- 3. CANTIDAD Y 4. COSTO EN 2 COLUMNAS -->
+          <div id="po-lot-fields" class="grid-2" hidden style="margin-bottom:0.75rem;">
+            <div class="form-group"><label class="form-label" for="po-lot-code">Código del lote *</label><input id="po-lot-code" class="form-input" maxlength="80" placeholder="LOTE-CAD-001" disabled><small>Otro lote físico requiere otro código de producto.</small></div>
+            <div class="form-group"><label class="form-label" for="po-lot-units">Cadenas recibidas *</label><input id="po-lot-units" class="form-input" type="number" min="1" step="1" oninput="app.updatePurchaseCalculations()" disabled><small>Peso total abajo: punto o coma decimal, sin separadores de miles.</small></div>
+          </div>
           <div class="grid-2" style="margin-bottom: 0.75rem;">
             <div class="form-group">
               <label class="form-label" id="po-quantity-label" for="po-quantity">Cantidad en gramos *</label>
@@ -5663,6 +5675,7 @@
   <script src="js/safety.js?v=1" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=120" defer></script>
+  <script src="js/app.js?v=121" defer></script>
+  <script src="js/chain-lots.js?v=121" defer></script>
 </body>
 </html>

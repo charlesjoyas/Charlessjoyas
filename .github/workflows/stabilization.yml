@@ -1,7 +1,9 @@
 name: Stabilization checks (isolated data)
 on:
   push:
-    branches: [codex/preopening-stabilization]
+    branches: [main, codex/preopening-stabilization]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
