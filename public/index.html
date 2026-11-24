@@ -31,6 +31,7 @@
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
+    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden] { display: none !important; }
     .thermal-ticket-wrapper {
       background: #f8fafc;
       padding: 10px;
@@ -544,6 +545,7 @@
         </div>
 
         <div class="top-bar-right">
+          <button type="button" id="chain-lots-open" class="btn btn-secondary" hidden onclick="app.openChainLots()">Lotes de cadenas · Local</button>
           <!-- THEME TOGGLE BUTTON -->
           <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" onclick="app.toggleTheme()" title="Cambiar Tema (Claro / Oscuro)">
             <svg id="theme-sun-icon" class="theme-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
@@ -3240,6 +3242,11 @@
         <form id="pos-add-to-cart-form" onsubmit="event.preventDefault(); app.confirmAddToCartFromModal();">
           <input type="hidden" id="pos-add-product-id">
 
+          <div id="pos-add-chain-units-group" class="form-group" hidden>
+            <label class="form-label" for="pos-add-chain-units">Cadenas a vender (unidades completas)</label>
+            <input id="pos-add-chain-units" class="form-control" type="number" min="1" step="1" value="1">
+            <small>Digita abajo el peso real conjunto. Usa punto o coma decimal, sin separadores de miles.</small>
+          </div>
           <!-- CANTIDAD / PESO A VENDER -->
           <div class="form-group" style="margin-bottom:1rem;">
             <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
@@ -5663,6 +5670,7 @@
   <script src="js/safety.js?v=1" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=120" defer></script>
+  <script src="js/app.js?v=120-lots-local" defer></script>
+  <script src="js/chain-lots.js?v=1" defer></script>
 </body>
 </html>

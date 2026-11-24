@@ -38,7 +38,26 @@
     const pw = Number(item.pieceWeight || 0);
     return Math.round(cost * q * (pw > 0 && String(item.unit).toLowerCase() !== 'g' ? pw : 1));
   }
-  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost };
+  const isChainLot = p => p?.inventoryMode === 'chainLot';
+  const lotError = message => Object.assign(new Error(message), {status:422, code:'INVALID_LOT'});
+  function assertLot(product) {
+    if (!isChainLot(product)) return;
+    if (!isPesaje(product) || product.weightUnit !== 'g' || product.unit !== 'g' || weight(product) !== 0 || product.isExtra || !String(product.lotCode || '').trim()) throw lotError('La identidad del lote debe conservar pesaje en gramos y su código.');
+    if (typeof product.stockUnits !== 'number' || !Number.isSafeInteger(product.stockUnits) || product.stockUnits < 0 || typeof product.stock !== 'number' || !Number.isFinite(product.stock) || product.stock < 0 || Math.abs(round(product.stock)-product.stock)>1e-9) throw lotError('El lote requiere unidades enteras y gramos válidos, con hasta seis decimales.');
+    if ((product.stockUnits === 0) !== (product.stock === 0)) throw lotError('Las unidades y los gramos del lote deben agotarse juntos. Revisa el conteo y el peso real.');
+  }
+  function lotMovement(product, grams, units, direction = -1) {
+    assertLot(product);
+    if (!isChainLot(product) || ![-1,1].includes(direction) || typeof grams !== 'number' || !Number.isFinite(grams) || grams <= 0 || Math.abs(round(grams)-grams)>1e-9 || typeof units !== 'number' || !Number.isSafeInteger(units) || units <= 0) throw lotError('Indica gramos positivos (hasta seis decimales) y un número entero de cadenas.');
+    const result = { stock: round(product.stock + direction * grams), stockUnits: product.stockUnits + direction * units };
+    assertLot({ ...product, ...result });
+    return result;
+  }
+  function lotItem(product, item) {
+    if (!isChainLot(product) || item.inventoryMode !== 'chainLot' || item.lotCode !== product.lotCode || item.unit !== 'g') throw lotError('La venta no identifica el lote original.');
+    return { grams: Number(item.qty ?? item.quantity), units: item.unitCount };
+  }
+  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.NexusSafety = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

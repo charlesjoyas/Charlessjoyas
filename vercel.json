@@ -2,7 +2,8 @@
   "version": 2,
   "git": {
     "deploymentEnabled": {
-      "codex/preopening-stabilization": false
+      "codex/preopening-stabilization": false,
+      "codex/local-chain-lots": false
     }
   },
   "rewrites": [

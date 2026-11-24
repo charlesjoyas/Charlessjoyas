@@ -208,8 +208,9 @@ async function compareAndSwapStore(expected, data) {
   saveLocalDb(data);
   return true;
 }
-const stateApi = createStateApi({ read: readStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL });
-app.get('/api/health', (req, res) => res.json({ status: 'ok', mongoConnected, storageMode: MONGO_URI ? 'MongoDB' : 'Local JSON', timestamp: new Date() }));
+const chainLotsEnabled = process.env.NEXUS_LOCAL_ONLY === '1' && process.env.NEXUS_ENABLE_CHAIN_LOTS === '1' && !process.env.VERCEL;
+const stateApi = createStateApi({ read: readStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled });
+app.get('/api/health', (req, res) => res.json({ status: 'ok', mongoConnected, storageMode: MONGO_URI ? 'MongoDB' : 'Local JSON', features: { chainLots: chainLotsEnabled }, timestamp: new Date() }));
 app.post('/api/auth/login', stateApi.login);
 app.get('/api/auth/session', stateApi.session);
 app.post('/api/auth/logout', stateApi.logout);

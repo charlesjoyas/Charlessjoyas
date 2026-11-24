@@ -543,6 +543,7 @@ class NexusApp {
     }
 
     const handleInput = () => {
+      if (input.dataset.plainDecimal === 'true') return;
       const rawVal = input.value;
       const cursorPos = input.selectionStart || 0;
 
@@ -577,6 +578,7 @@ class NexusApp {
     input.addEventListener('input', handleInput, !allowDecimals);
 
     input.addEventListener('keydown', (e) => {
+      if (input.dataset.plainDecimal === 'true') return;
       if (e.key === 'Backspace') {
         const selStart = input.selectionStart;
         const selEnd = input.selectionEnd;
@@ -4698,6 +4700,7 @@ class NexusApp {
     }
     const p = this.findProductIdentity(id,sku);
     if (!p) return;
+    if (NexusSafety.isChainLot(p)) { this.showToast('Este producto es un lote. Para corregir su ingreso usa una reversión documentada y registra el lote correcto.', 'info'); this.openChainLots(); return; }
 
     document.getElementById('edit-prod-id').value = p.id;
     const origSkuInput = document.getElementById('edit-prod-orig-sku');
@@ -20449,7 +20452,7 @@ class NexusApp {
     const isVenta = type === 'venta';
 
     const itemsRowsHtml = items.map(item => {
-      const name = this.escapeHtml(item.name || 'Producto Joya');
+      const name = this.escapeHtml(item.name || 'Producto Joya') + (item.inventoryMode === 'chainLot' ? `<br><small>Lote ${this.escapeHtml(item.lotCode)} · ${Number(item.unitCount)} cadenas · ${this.escapeHtml(item.formattedQty || String(item.qty) + ' g')}</small>` : '');
       const sku = item.sku || item.product?.sku || item.productSku || (item.product?.id ? item.product.id : '');
       const codePrefix = sku ? `[${this.escapeHtml(sku)}] ` : '';
       const qtyStr = item.formattedQty || `${item.qty || 1}`;
@@ -20661,6 +20664,7 @@ class NexusApp {
           const totalStr = this.formatCurrency(i.total || (pPrice * i.qty));
           const itemSku = i.sku || p?.sku || (p?.id ? p.id : '');
           return {
+            inventoryMode: i.inventoryMode, lotCode:i.lotCode, unitCount:i.unitCount,
             name: i.name,
             sku: itemSku,
             product: p,
@@ -26433,6 +26437,23 @@ class NexusApp {
     return sub + tax;
   }
 
+  openChainLots() { return window.NexusChainLots?.open(this); }
+
+  readPosQuantity(raw = document.getElementById('pos-add-qty-input')?.value) {
+    const p = this.data.products.find(p => p.id === document.getElementById('pos-add-product-id')?.value);
+    if (!NexusSafety.isChainLot(p)) return this.parseCleanNumber(raw);
+    const value = String(raw ?? '').trim();
+    return /^\d+(?:[.,]\d{1,6})?$/.test(value) ? Number(value.replace(',', '.')) : NaN;
+  }
+
+  readPosUnitPrice() {
+    const input = document.getElementById('pos-add-custom-price-input');
+    const quote = this._posLotQuotedPrice;
+    const id = document.getElementById('pos-add-product-id')?.value;
+    if (quote?.id === id && quote.display === input?.value) return quote.price;
+    return this.parseMoneyInput(input?.value);
+  }
+
   openAddToCartModal(productId) {
     const p = this.data.products.find(item => item.id === productId);
     if (!p) return;
@@ -26470,9 +26491,9 @@ class NexusApp {
 
     if (elId) elId.value = p.id;
     if (elName) elName.textContent = p.name;
-    if (elSku) elSku.textContent = `Código: ${p.sku || p.id}`;
+    if (elSku) elSku.textContent = `Código: ${p.sku || p.id}${NexusSafety.isChainLot(p) ? ' · Lote: ' + p.lotCode : ''}`;
     if (elCat) elCat.textContent = cat?.name || p.categoryName || p.category || 'General';
-    if (elStock) elStock.textContent = isUnitWithWeight ? `Stock: ${stockNum} u. (${maxAvailableQty} g)` : `Stock: ${stockNum} ${unit}`;
+    if (elStock) elStock.textContent = NexusSafety.isChainLot(p) ? `${p.stockUnits} cadenas · ${p.stock} g` : isUnitWithWeight ? `Stock: ${stockNum} u. (${maxAvailableQty} g)` : `Stock: ${stockNum} ${unit}`;
     if (elPill) {
       if (isPesaje) {
         elPill.textContent = '⚖️ Pesaje';
@@ -26561,8 +26582,14 @@ class NexusApp {
       }
     }
 
+    const isLot = NexusSafety.isChainLot(p);
+    const lotGroup = document.getElementById('pos-add-chain-units-group');
+    const lotUnits = document.getElementById('pos-add-chain-units');
+    if (lotGroup) lotGroup.hidden = !isLot;
+    if (lotUnits) { lotUnits.value = existing?.unitCount || 1; lotUnits.max = p.stockUnits || 0; }
     if (elQtyInput) {
-      elQtyInput.value = this.formatNumberWithCommas(defaultQty, isPesaje || isUnitWithWeight);
+      if (elQtyInput.dataset) elQtyInput.dataset.plainDecimal = String(isLot);
+      elQtyInput.value = isLot ? (existing ? String(existing.qty) : '') : this.formatNumberWithCommas(defaultQty, isPesaje || isUnitWithWeight);
       elQtyInput.max = maxAvailableQty;
     }
     if (elUnitBadge) elUnitBadge.textContent = unit;
@@ -26583,6 +26610,7 @@ class NexusApp {
     if (elPriceInput) {
       elPriceInput.value = initialPrice > 0 ? this.formatNumberWithCommas(initialPrice) : '';
     }
+    this._posLotQuotedPrice = isLot && existing && initialPrice > 0 ? {id:p.id,price:initialPrice,display:elPriceInput?.value} : null;
 
     const elPriceUnitTag = document.getElementById('pos-add-price-unit-tag');
     if (elPriceUnitTag) {
@@ -26598,17 +26626,18 @@ class NexusApp {
     this.updateAddToCartModalPreview();
     this.openModal('pos-add-to-cart-modal');
 
+    const focusAtOpen = document.activeElement;
     setTimeout(() => {
-      if (elPriceInput) {
-        elPriceInput.focus();
-        elPriceInput.select();
-      }
+      // Never steal focus after the operator has selected another field.
+      if (document.activeElement !== focusAtOpen || !document.getElementById('pos-add-to-cart-modal')?.classList.contains('open')) return;
+      const target = isLot ? elQtyInput : elPriceInput;
+      if (target) { target.focus(); target.select?.(); }
     }, 150);
   }
 
   onAddToCartQtyInput(val) {
-    const qtyVal = this.parseCleanNumber(val);
-    const priceVal = this.parseMoneyInput(document.getElementById('pos-add-custom-price-input')?.value);
+    const qtyVal = this.readPosQuantity(val);
+    const priceVal = this.readPosUnitPrice();
     const totalSale = Math.round(qtyVal * priceVal);
     const totalInput = document.getElementById('pos-add-total-sale-input');
     if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
@@ -26616,8 +26645,9 @@ class NexusApp {
   }
 
   onAddToCartPriceGramInput(val) {
+    this._posLotQuotedPrice = null;
     const priceVal = this.parseMoneyInput(val);
-    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+    const qtyVal = this.readPosQuantity();
     const totalSale = Math.round(qtyVal * priceVal);
     const totalInput = document.getElementById('pos-add-total-sale-input');
     if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
@@ -26626,10 +26656,14 @@ class NexusApp {
 
   onAddToCartTotalSaleInput(val) {
     const totalSale = this.parseMoneyInput(val);
-    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+    const qtyVal = this.readPosQuantity();
     const priceVal = (qtyVal > 0) ? Math.round(totalSale / qtyVal) : 0;
     const priceInput = document.getElementById('pos-add-custom-price-input');
     if (priceInput) priceInput.value = priceVal > 0 ? this.formatNumberWithCommas(priceVal) : '';
+    const id = document.getElementById('pos-add-product-id')?.value;
+    const p = this.data.products.find(p => p.id === id);
+    // Retain the negotiated whole-peso total even when its price/g is fractional.
+    this._posLotQuotedPrice = NexusSafety.isChainLot(p) && qtyVal > 0 && totalSale > 0 ? {id, price:totalSale/qtyVal, display:priceInput?.value} : null;
     this.updateAddToCartModalPreview();
   }
 
@@ -26638,8 +26672,8 @@ class NexusApp {
     const p = this.data.products.find(item => item.id === pId);
     if (!p) return;
 
-    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
-    const priceVal = this.parseMoneyInput(document.getElementById('pos-add-custom-price-input')?.value);
+    const qtyVal = this.readPosQuantity();
+    const priceVal = this.readPosUnitPrice();
     const totalSale = Math.round(qtyVal * priceVal);
 
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
@@ -26760,6 +26794,7 @@ class NexusApp {
     const pId = document.getElementById('pos-add-product-id')?.value;
     const p = this.data.products.find(item => item.id === pId);
     if (!input || !p) return;
+    if (NexusSafety.isChainLot(p)) { this.showToast('Digita el peso real de las cadenas seleccionadas.', 'info'); return; }
 
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
@@ -26792,6 +26827,7 @@ class NexusApp {
   }
 
   adjustAddToCartPrice(deltaPercent) {
+    this._posLotQuotedPrice = null;
     const input = document.getElementById('pos-add-custom-price-input');
     if (!input) return;
     const cur = this.parseMoneyInput(input.value);
@@ -26799,7 +26835,7 @@ class NexusApp {
     const next = Math.round(cur * (1 + deltaPercent));
     input.value = this.formatNumberWithCommas(next);
 
-    const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+    const qtyVal = this.readPosQuantity();
     const totalSale = Math.round(next * qtyVal);
     const totalInput = document.getElementById('pos-add-total-sale-input');
     if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
@@ -26808,6 +26844,7 @@ class NexusApp {
   }
 
   setAddToCartPriceToBase() {
+    this._posLotQuotedPrice = null;
     const pId = document.getElementById('pos-add-product-id')?.value;
     const p = this.data.products.find(item => item.id === pId);
     const input = document.getElementById('pos-add-custom-price-input');
@@ -26825,7 +26862,7 @@ class NexusApp {
       }
       input.value = suggestedPrice > 0 ? this.formatNumberWithCommas(suggestedPrice) : '';
 
-      const qtyVal = this.parseCleanNumber(document.getElementById('pos-add-qty-input')?.value);
+      const qtyVal = this.readPosQuantity();
       const totalSale = Math.round(suggestedPrice * qtyVal);
       const totalInput = document.getElementById('pos-add-total-sale-input');
       if (totalInput) totalInput.value = totalSale > 0 ? this.formatNumberWithCommas(totalSale) : '';
@@ -26842,8 +26879,8 @@ class NexusApp {
     const qtyInput = document.getElementById('pos-add-qty-input');
     const priceInput = document.getElementById('pos-add-custom-price-input');
 
-    const qty = this.parseCleanNumber(qtyInput?.value);
-    const price = this.parseMoneyInput(priceInput?.value);
+    const qty = this.readPosQuantity(qtyInput?.value);
+    const price = this.readPosUnitPrice();
 
     const stockNum = parseFloat(String(p.stock || 0).replace(',', '.')) || 0;
     const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
@@ -26865,7 +26902,8 @@ class NexusApp {
       return;
     }
 
-    if (this.addToCart(p.id, qty, price)) {
+    const unitCount = NexusSafety.isChainLot(p) ? Number(document.getElementById('pos-add-chain-units')?.value) : null;
+    if (this.addToCart(p.id, qty, price, unitCount)) {
       this.closeModal('pos-add-to-cart-modal');
       this.showToast(`Agregado: ${p.name} (${qty} ${unit} a ${this.formatCurrency(price)})`, 'success');
     }
@@ -26885,9 +26923,14 @@ class NexusApp {
     this.showToast(`Precio actualizado: ${item.product.name} a ${this.formatCurrency(item.customPrice)}`, 'info');
   }
 
-  addToCart(productId, qty = null, customPrice = null) {
+  addToCart(productId, qty = null, customPrice = null, unitCount = null) {
     const product = this.data.products.find(p => p.id === productId);
     if (!product) return false;
+    if (NexusSafety.isChainLot(product)) {
+      if (qty === null || unitCount === null) { this.openAddToCartModal(productId); return false; }
+      try { NexusSafety.lotMovement(product, qty, unitCount); }
+      catch (error) { this.showToast(error.message, 'warning'); return false; }
+    }
     if (product.status === 'inactive') {
       this.showToast(`El producto "${product.name}" está inactivo en catálogo.`, 'danger');
       return false;
@@ -26954,6 +26997,7 @@ class NexusApp {
         basePrice: product.price || 0
       });
     }
+    if (NexusSafety.isChainLot(product)) this.cart.find(i => i.product.id === productId).unitCount = unitCount;
     this.renderCart();
     return true;
   }
@@ -26962,6 +27006,7 @@ class NexusApp {
     const itemIndex = this.cart.findIndex(item => item.product.id === productId);
     if (itemIndex === -1) return;
     const cartItem = this.cart[itemIndex];
+    if (NexusSafety.isChainLot(cartItem.product)) { this.openAddToCartModal(productId); return; }
     const isPesaje = (cartItem.product.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(cartItem.product.pieceWeight !== undefined && cartItem.product.pieceWeight !== null ? cartItem.product.pieceWeight : (cartItem.product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
@@ -26995,6 +27040,7 @@ class NexusApp {
     const itemIndex = this.cart.findIndex(item => item.product.id === productId);
     if (itemIndex === -1) return;
     const cartItem = this.cart[itemIndex];
+    if (NexusSafety.isChainLot(cartItem.product)) { this.openAddToCartModal(productId); return; }
     const isPesaje = (cartItem.product.measureType || 'Pesaje') === 'Pesaje';
     const pWeight = parseFloat(String(cartItem.product.pieceWeight !== undefined && cartItem.product.pieceWeight !== null ? cartItem.product.pieceWeight : (cartItem.product.weight || 0)).replace(',', '.')) || 0;
     const isUnitWithWeight = !isPesaje && pWeight > 0;
@@ -27078,6 +27124,7 @@ class NexusApp {
               </div>
               <div class="cart-item-sku">
                 <span>Código: ${this.escapeHtml(item.product.sku || item.product.code || item.product.id)}</span>
+                ${NexusSafety.isChainLot(item.product) ? `<strong>${item.unitCount} cadenas · Lote ${this.escapeHtml(item.product.lotCode)}</strong>` : ''}
                 ${isUnitWithWeight ? `
                   <span class="badge" style="background:#FEF3C7; color:#B45309; font-size:0.68rem; font-weight:700; padding:1px 5px; margin-left:4px;" title="Peso: ${pWeight} g/u (${unitsCount} u. = ${(Math.round(item.qty * 100) / 100)} g)">
                     ⚖️ ${pWeight} g/u. (${unitsCount} u.)
@@ -27199,7 +27246,7 @@ class NexusApp {
           <div style="text-align:right;">
             <div style="font-weight:800; font-size:0.92rem; color:var(--text-main);">${this.formatCurrency(itemSubtotal)}</div>
             <div style="font-size:0.75rem; font-weight:700; color:${isPesaje ? '#D97706' : '#4F46E5'};">
-              ${isPesaje ? `⚖️ ${this.formatNumberWithCommas(item.qty, true)} ${unit} a vender` : (isUnitWithWeight ? `📦 ${unitsCount} u. (⚖️ ${this.formatNumberWithCommas(item.qty, true)} g)` : `📦 ${item.qty} u. a vender`)}
+              ${NexusSafety.isChainLot(item.product) ? `${item.unitCount} cadenas · Lote ${this.escapeHtml(item.product.lotCode)} · ${item.qty} g` : isPesaje ? `⚖️ ${this.formatNumberWithCommas(item.qty, true)} ${unit} a vender` : (isUnitWithWeight ? `📦 ${unitsCount} u. (⚖️ ${this.formatNumberWithCommas(item.qty, true)} g)` : `📦 ${item.qty} u. a vender`)}
             </div>
           </div>
         </div>
@@ -27841,7 +27888,7 @@ class NexusApp {
 
     try {
       // Pre-validación integral de precios, estado activo y stock disponible antes de mutar inventario
-      const requestedUnitsByProdId = new Map();
+      const requestedUnitsByProdId = new Map(), lotBalances = new Map();
       for (const cartItem of this.cart) {
         const pPrice = this.getCartItemPrice(cartItem);
         if (!Number.isFinite(pPrice) || pPrice <= 0) {
@@ -27856,6 +27903,10 @@ class NexusApp {
         if (liveProd.status === 'inactive') {
           this.showToast(`El producto "${liveProd.name}" está inactivo en catálogo y no se puede vender.`, 'danger');
           return;
+        }
+        if (NexusSafety.isChainLot(liveProd)) {
+          try { lotBalances.set(liveProd.id, { ...liveProd, ...NexusSafety.lotMovement(lotBalances.get(liveProd.id) || liveProd, cartItem.qty, cartItem.unitCount) }); }
+          catch (error) { this.showToast(error.message, 'warning'); return; }
         }
         const soldQty = Number(cartItem.qty) || 0;
         if (!Number.isFinite(soldQty) || soldQty <= 0) {
@@ -28071,6 +28122,7 @@ class NexusApp {
         const roundScale = 1000000;
         const unitsToDeduct = isUnitWithWeight ? (NexusSafety.round(soldQty / pWeight)) : soldQty;
         p.stock = Math.round(((Number(p.stock) || 0) - unitsToDeduct) * roundScale) / roundScale;
+        if (NexusSafety.isChainLot(p)) p.stockUnits -= cartItem.unitCount;
         if (p.stock <= 0) {
           p.stock = 0;
           p.status = 'out_of_stock';
@@ -28191,6 +28243,7 @@ class NexusApp {
         const pWeight = parseFloat(String(i.product?.pieceWeight !== undefined && i.product?.pieceWeight !== null ? i.product?.pieceWeight : (i.product?.weight || 0)).replace(',', '.')) || 0;
         const unit = isPesaje ? (i.product?.weightUnit || 'g') : (pWeight > 0 ? 'g' : 'u.');
         return {
+          ...(NexusSafety.isChainLot(i.product) ? {inventoryMode:'chainLot', lotCode:i.product.lotCode, unitCount:i.unitCount} : {}),
           id: i.product.id,
           sku: i.product.sku || i.product.id || '',
           name: i.product.name,
@@ -28248,6 +28301,7 @@ class NexusApp {
       const formattedLineTotal = this.formatCurrency(pPrice * i.qty);
 
       return {
+        ...(NexusSafety.isChainLot(i.product) ? {inventoryMode:'chainLot', lotCode:i.product.lotCode, unitCount:i.unitCount} : {}),
         product: i.product,
         name: i.product.name,
         sku: i.product.sku || i.product.id || '',
