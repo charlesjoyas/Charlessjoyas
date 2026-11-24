@@ -179,3 +179,9 @@ test('purchase table and normal Excel exports distinguish chain count from grams
   h.app.exportPurchasesExcel();h.app.exportLibroCompletoComprasYAbonosExcel();assert.equal(exports.length,2);
   for(const xml of exports){assert.match(xml,/Lote PO-LOT-001/);assert.match(xml,/<Data ss:Type="Number">12<\/Data>/);assert.match(xml,/<Data ss:Type="Number">37\.125<\/Data>/);}
 });
+for(const sequence of [['P1','P2'],['P2','P1','P2']])test(`sale modal enables lot validation only for lots: ${sequence.join(' → ')}`,()=>{
+  const h=fixture();h.app.data.products=[lot(),product({id:'P2',sku:'941',stock:1.07})];h.app.cart=[{product:h.app.data.products[0],qty:7.6,unitCount:2,customPrice:500000}];
+  const nodes=h.inputs({'pos-add-product-id':'','pos-add-chain-units-group':'','pos-add-chain-units':'1','pos-add-qty-input':'','pos-add-custom-price-input':'','pos-add-total-sale-input':''});
+  for(const id of sequence){h.app.openAddToCartModal(id);const isLot=id==='P1';assert.equal(nodes['pos-add-chain-units'].disabled,!isLot);assert.equal(nodes['pos-add-chain-units'].required,isLot);assert.equal(nodes['pos-add-chain-units-group'].hidden,!isLot);assert.equal(nodes['pos-add-chain-units'].max,isLot?'50':'');assert.equal(nodes['pos-add-chain-units'].value,isLot?2:'');}
+  assert.equal(h.app.cart.length,1);assert.equal(h.app.cart[0].unitCount,2);assert.equal(h.app.cart[0].qty,7.6);
+});
