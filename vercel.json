@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "codex/preopening-stabilization": false,
-      "codex/local-chain-lots": false
+      "codex/local-chain-lots": false,
+      "codex/fix-pos-hidden-lot-field": false
     }
   },
   "rewrites": [

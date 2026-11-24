@@ -26626,7 +26626,13 @@ class NexusApp {
     const lotGroup = document.getElementById('pos-add-chain-units-group');
     const lotUnits = document.getElementById('pos-add-chain-units');
     if (lotGroup) lotGroup.hidden = !isLot;
-    if (lotUnits) { lotUnits.value = existing?.unitCount || 1; lotUnits.max = p.stockUnits || 0; }
+    if (lotUnits) {
+      // Hidden controls still participate in native form validation unless disabled.
+      lotUnits.disabled = !isLot;
+      lotUnits.required = isLot;
+      lotUnits.value = isLot ? (existing?.unitCount || 1) : '';
+      lotUnits.max = isLot ? String(p.stockUnits || 0) : '';
+    }
     if (elQtyInput) {
       if (elQtyInput.dataset) elQtyInput.dataset.plainDecimal = String(isLot);
       elQtyInput.value = isLot ? (existing ? String(existing.qty) : '') : this.formatNumberWithCommas(defaultQty, isPesaje || isUnitWithWeight);
