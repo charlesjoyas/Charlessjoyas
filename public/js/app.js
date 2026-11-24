@@ -1127,52 +1127,22 @@ class NexusApp {
   }
 
   getGramsFromProduct(p) {
-    if (!p) return 0;
-    if (p.isExtra) return 0;
-    if (this.data && Array.isArray(this.data.categories)) {
-      const cat = this.data.categories.find(c => {
-        const cId = String(c.id || '').toLowerCase().trim();
-        const cName = String(c.name || '').toLowerCase().trim();
-        const pCat = String(p.category || '').toLowerCase().trim();
-        const pCatName = String(p.categoryName || '').toLowerCase().trim();
-        return pCat === cId || pCat === cName || pCatName === cName || pCatName === cId;
-      });
-      if (cat && (cat.type === 'extras' || cat.isExtra)) return 0;
-    }
-    const stock = parseFloat(String(p.stock || 0).replace(',', '.')) || 0;
-    if (stock <= 0) return 0;
-    const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
-    if (!isPesaje) {
-      const pieceWeight = parseFloat(String(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0)).replace(',', '.')) || 0;
-      return pieceWeight > 0 ? (stock * pieceWeight) : 0;
-    }
-    const unit = (p.weightUnit || p.unit || 'g').toLowerCase();
-    if (unit === 'kg') return stock * 1000;
-    if (unit === 'mg') return stock / 1000;
-    if (unit === 'µg' || unit === 'ug') return stock / 1000000;
-    if (unit === 'oz') return stock * 28.3495;
-    return stock;
+    if (!p || NexusSafety.isExtraInventory(p, this.data?.categories)) return 0;
+    return NexusSafety.physicalGrams(p);
   }
 
-  getProductTotalCost(p) {
-    if (!p) return 0;
-    const cost = Math.max(0, parseFloat(String(p.cost || 0).replace(',', '.')) || 0);
-    const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
-    if (!isPesaje) {
-      const grams = this.getGramsFromProduct(p);
-      if (grams > 0) {
-        return Math.round(grams * cost * 100) / 100;
-      }
-    }
-    const stock = Math.max(0, parseFloat(String(p.stock || 0).replace(',', '.')) || 0);
-    return Math.round(stock * cost * 100) / 100;
+  getCategoryProductGrams(p) {
+    const category=NexusSafety.categoryFor(p,this.data?.categories);
+    return category?.inventoryScope==='extra' ? NexusSafety.physicalGrams(p) : this.getGramsFromProduct(p);
   }
+
+  getProductTotalCost(p) { return p ? NexusSafety.productValue(p) : 0; }
 
   syncAllCategoryGrams() {
     if (!this.data || !Array.isArray(this.data.categories) || !Array.isArray(this.data.products)) return;
     this.data.categories.forEach(cat => {
       const prodsInCat = this.data.products.filter(p => {
-        if (!p) return false;
+        if (!p || (p.isExtra && !NexusSafety.isExtraCategory(cat))) return false;
         const pCat = String(p.category || '').toLowerCase().trim();
         const pCatName = String(p.categoryName || '').toLowerCase().trim();
         const cId = String(cat.id || '').toLowerCase().trim();
@@ -1195,7 +1165,7 @@ class NexusApp {
         }
         cat.totalValuation = Math.round((prodsInCat.length > 0 ? totalCost : ((cat.availableUnits || 0) * (cat.cost || 0))) * 100) / 100;
       } else {
-        const totalGrams = prodsInCat.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
+        const totalGrams = prodsInCat.reduce((sum, p) => sum + (this.getCategoryProductGrams(p) || 0), 0);
         cat.availableGrams = prodsInCat.length > 0 ? (Math.round(totalGrams * 100) / 100) : (Math.max(0, Number(cat.availableGrams) || 0));
         if (isUnidades) {
           const totalUnits = prodsInCat.reduce((sum, p) => sum + Math.max(0, (parseFloat(String(p.stock || 0).replace(',', '.')) || 0)), 0);
@@ -1212,22 +1182,8 @@ class NexusApp {
         }
       }
     });
-    if (this.data.kpis) {
-      const totalGlobalGrams = this.data.products.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
-      const totalGlobalCost = this.data.products.reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
-      const pesajeProducts = this.data.products.filter(p => {
-        if (!p || p.isExtra) return false;
-        const c = (this.data.categories || []).find(cat => cat.id === p.category || cat.name === p.categoryName);
-        if (c && (c.type === 'extras' || c.isExtra)) return false;
-        return (p.measureType || 'Pesaje') === 'Pesaje' || (this.getGramsFromProduct(p) > 0);
-      });
-      const pesajeCost = pesajeProducts.reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
-      const roundedGrams = Math.round(totalGlobalGrams * 100) / 100;
-      this.data.kpis.totalGrams = roundedGrams;
-      this.data.kpis.inventoryValue = Math.round(totalGlobalCost * 100) / 100;
-      this.data.kpis.avgCostGrams = roundedGrams;
-      this.data.kpis.avgCostPerGram = roundedGrams > 0 ? Math.round(pesajeCost / roundedGrams) : 0;
-    }
+    this.data.kpis ||= {};
+    Object.assign(this.data.kpis,NexusSafety.inventoryMetrics(this.data.products,this.data.categories));
   }
 
   getNextSupplierCreditId() {
@@ -3381,6 +3337,7 @@ class NexusApp {
           };
         }
 
+        if(catType==='extraWeighted')newCat.inventoryScope='extra';
         this.data.categories.unshift(newCat);
         await this.savePersistence();
         this.syncAllModules();
@@ -4863,10 +4820,10 @@ class NexusApp {
       if (extrasFields) extrasFields.style.display = 'none';
     }
 
-    const prodsInCat = (this.data.products || []).filter(p => p.category === cat.id || p.categoryName === cat.name);
+    const prodsInCat = (this.data.products || []).filter(p => NexusSafety.categoryFor(p,this.data.categories)?.id===cat.id && (!p.isExtra || NexusSafety.isExtraCategory(cat)));
     const totalUnitsInProds = prodsInCat.reduce((sum, p) => sum + (parseFloat(String(p.stock || 0).replace(',', '.')) || 0), 0);
     const totalCostInProds = prodsInCat.reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
-    const totalGramsInProds = prodsInCat.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
+    const totalGramsInProds = prodsInCat.reduce((sum, p) => sum + (this.getCategoryProductGrams(p) || 0), 0);
 
     if (isExtras) {
       cat.availableGrams = 0;
@@ -5011,7 +4968,7 @@ class NexusApp {
     const cat = (this.data.categories || []).find(c => c.id === id);
     if (!cat) return;
     const prodsInCat = (this.data.products || []).filter(p => p.category === cat.id || p.categoryName === cat.name);
-    const prodsGrams = prodsInCat.reduce((sum, p) => sum + this.getGramsFromProduct(p), 0);
+    const prodsGrams = prodsInCat.reduce((sum, p) => sum + this.getCategoryProductGrams(p), 0);
     let current = (cat.availableGrams !== undefined && cat.availableGrams !== null) ? Number(cat.availableGrams) : prodsGrams;
     cat.availableGrams = Math.max(0, Math.round((current + delta) * 100) / 100);
     await this.savePersistence();
@@ -6194,18 +6151,10 @@ class NexusApp {
     }, 0);
     const marginPct = totalInvValue > 0 ? (((totalInvValue - totalPricedCostValue) / totalInvValue) * 100).toFixed(1) : "0.0";
 
-    const pesajeProducts = (this.data.products || []).filter(p => {
-      if (!p) return false;
-      if (p.isExtra) return false;
-      const cat = (this.data.categories || []).find(c => c.id === p.category || c.name === p.categoryName);
-      if (cat && (cat.type === 'extras' || cat.isExtra)) return false;
-      return (p.measureType || 'Pesaje') === 'Pesaje' || (this.getGramsFromProduct(p) > 0);
-    });
-    // Live inventory calculation: always derived directly from current products stock
-    const totalGrams = Math.round((this.data.products || []).reduce((acc, p) => acc + (this.getGramsFromProduct(p) || 0), 0) * 100) / 100;
-
-    const pesajeCost = pesajeProducts.reduce((acc, p) => acc + this.getProductTotalCost(p), 0);
-    const liveAvgCostPerGram = totalGrams > 0 ? Math.round(pesajeCost / totalGrams) : 0;
+    const inventory=NexusSafety.inventoryMetrics(this.data.products,this.data.categories);
+    const pesajeProducts=(this.data.products||[]).filter(p=>!NexusSafety.isExtraInventory(p,this.data.categories)&&(NexusSafety.isPesaje(p)||NexusSafety.physicalGrams(p)>0));
+    const totalGrams=inventory.totalGrams;
+    const liveAvgCostPerGram=inventory.avgCostPerGram;
 
     // Batch DOM lookups: single pass over the live DOM for all KPI slots.
     // Using a helper to avoid 9 separate tree traversals.
@@ -6255,14 +6204,12 @@ class NexusApp {
     }
     if (kpiTxEl) kpiTxEl.innerText = effectiveTxToday;
 
-    // Dynamic valuation based strictly on live products
-    const liveInvVal = (this.data.products || []).reduce((sum, p) => sum + (this.getProductTotalCost(p) || 0), 0);
-    this.data.kpis.inventoryValue = liveInvVal;
-    this.data.kpis.totalGrams = totalGrams;
-    this.data.kpis.avgCostPerGram = liveAvgCostPerGram;
-    this.data.kpis.avgCostGrams = totalGrams;
-
-    const generalInvCost = liveInvVal;
+    Object.assign(this.data.kpis,inventory);
+    const generalInvCost = inventory.generalInventoryValue;
+    const extraValue=_q('kpi-extra-inv-val');if(extraValue)extraValue.innerText=this.formatCurrency(inventory.extrasInventoryValue);
+    const totalValue=_q('kpi-total-inv-val');if(totalValue)totalValue.innerText=this.formatCurrency(inventory.inventoryValue);
+    const breakdown=_q('kpi-extra-details');
+    if(breakdown)breakdown.textContent=inventory.extrasByCategory.filter(c=>c.value>0).map(c=>`${c.name}: ${this.formatCurrency(c.value)}`).join(' · ') || 'Sin productos Extra con existencias';
     const avgCostPerGram = liveAvgCostPerGram;
     const avgCostBasisGrams = totalGrams;
 
@@ -6271,7 +6218,7 @@ class NexusApp {
       kpiInvValEl.innerText = this.formatCurrency(invVal);
       kpiInvValEl.title = `Costo General de Inventario: ${this.formatCurrency(generalInvCost)}`;
     }
-    if (kpiSkusCntEl) kpiSkusCntEl.innerText = `${this.data.products.length} Códigos activos`;
+    if (kpiSkusCntEl) kpiSkusCntEl.innerText = `${inventory.generalSkusCount} códigos del inventario principal`;
     if (kpiAvgCostEl) {
       kpiAvgCostEl.innerText = `${this.formatCurrency(avgCostPerGram)} / g`;
       kpiAvgCostEl.title = `Costo Promedio Ponderado: ${this.formatCurrency(avgCostPerGram)} COP por gramo`;
@@ -10628,11 +10575,11 @@ class NexusApp {
     const canDeleteCategory = this.canPerformAction('delete', 'category');
 
     tbody.innerHTML = (this.data.categories || []).map(cat => {
-      const prodsInCat = (this.data.products || []).filter(p => p && (p.category === cat.id || (!p.category && p.categoryName === cat.name)));
+      const prodsInCat = (this.data.products || []).filter(p => p && NexusSafety.categoryFor(p,this.data.categories)?.id===cat.id && (!p.isExtra || NexusSafety.isExtraCategory(cat)));
       const count = prodsInCat.length;
       cat.itemsCount = count;
 
-      const prodsGrams = prodsInCat.reduce((sum, p) => sum + (this.getGramsFromProduct(p) || 0), 0);
+      const prodsGrams = prodsInCat.reduce((sum, p) => sum + (this.getCategoryProductGrams(p) || 0), 0);
       const totalUnits = prodsInCat
         .filter(p => p.measureType === 'Unidades')
         .reduce((sum, p) => sum + (parseFloat(String(p.stock || 0).replace(',', '.')) || 0), 0);
@@ -10727,7 +10674,7 @@ class NexusApp {
       return `
         <tr>
           <td><span class="font-bold text-xs" style="color:var(--text-subtle);">${this.escapeHtml(cat.id)}</span></td>
-          <td><span class="font-bold" style="color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(cat.name)}</span></td>
+          <td><span class="font-bold" style="color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(cat.name)}</span>${cat.inventoryScope==='extra'?'<br><span class="badge">Extra · promedio propio</span>':''}</td>
           <td><span class="badge" style="background:var(--canvas-bg); border:1px solid var(--border-color); color:var(--text-muted); font-weight:600;">${count} productos</span></td>
           <td>${stockDisplay}</td>
           <td>${costDisplay}</td>

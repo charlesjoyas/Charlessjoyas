@@ -6,6 +6,45 @@
   const weight = p => Number(p.pieceWeight ?? p.weight ?? 0);
   const isPesaje = p => (p.measureType || 'Pesaje') === 'Pesaje';
   const sku = value => String(value || '').trim().toLowerCase().replace(/^0+(?=\d)/, '');
+  function categoryFor(product, categories = []) {
+    const normalize = value => String(value || '').trim().toLowerCase();
+    return categories.find(c => normalize(c.id) === normalize(product.category))
+      || categories.find(c => normalize(c.name) === normalize(product.category) || normalize(c.name) === normalize(product.categoryName));
+  }
+  const isExtraCategory = category => !!(category?.isExtra || category?.type === 'extras' || category?.inventoryScope === 'extra');
+  const isExtraInventory = (product, categories = []) => {
+    const category = categoryFor(product, categories);
+    return !!(product.isExtra || isExtraCategory(category));
+  };
+  // Physical quantity and valuation remain independent from the reporting group.
+  function physicalGrams(product) {
+    if (product.isExtra) return 0;
+    const stock = Math.max(0, Number(product.stock) || 0);
+    return round(isPesaje(product) ? stock * factor(product.weightUnit || product.unit) : stock * weight(product));
+  }
+  function productValue(product) {
+    const stock = Math.max(0, Number(product.stock) || 0), cost = Math.max(0, Number(product.cost) || 0);
+    return round(!isPesaje(product) && !product.isExtra && weight(product) > 0 ? stock * weight(product) * cost : stock * cost, 2);
+  }
+  function inventoryMetrics(products = [], categories = []) {
+    let generalValue = 0, extraValue = 0, grams = 0, metalValue = 0, generalCodes = 0;
+    const groups = new Map();
+    for (const product of products) {
+      const value = productValue(product), physical = physicalGrams(product);
+      if (isExtraInventory(product, categories)) {
+        extraValue += value;
+        const category = categoryFor(product, categories), grouped = isExtraCategory(category), key = grouped ? category.id : 'product:'+product.id;
+        if (!groups.has(key)) groups.set(key, { id:key, name:grouped ? category.name : product.name || 'Extra individual', value:0, grams:0, units:0, products:0 });
+        const group = groups.get(key);group.value += value;group.grams += physical;group.products++;
+        if (!isPesaje(product)) group.units += Math.max(0, Number(product.stock) || 0);
+      } else {
+        generalValue += value;grams += physical;generalCodes++;
+        if (isPesaje(product) || physical > 0) metalValue += value;
+      }
+    }
+    const extrasByCategory = [...groups.values()].map(group => ({ ...group, value:round(group.value,2), grams:round(group.grams), units:round(group.units), averageCostPerGram:group.grams>0?round(group.value/group.grams,2):0, averageCostPerUnit:group.units>0?round(group.value/group.units,2):0 }));
+    return { inventoryValue:round(generalValue+extraValue,2), generalInventoryValue:round(generalValue,2), extrasInventoryValue:round(extraValue,2), totalGrams:round(grams), avgCostGrams:round(grams), avgCostPerGram:grams>0?Math.round(metalValue/grams):0, skusCount:products.length, generalSkusCount:generalCodes, extrasByCategory };
+  }
   function replenishment(product, quantity, costPerGram, pieceWeight) {
     const current = Number(product.stock) || 0;
     const pesaje = isPesaje(product);
@@ -57,7 +96,7 @@
     if (!isChainLot(product) || item.inventoryMode !== 'chainLot' || item.lotCode !== product.lotCode || item.unit !== 'g') throw lotError('La venta no identifica el lote original.');
     return { grams: Number(item.qty ?? item.quantity), units: item.unitCount };
   }
-  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem };
+  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.NexusSafety = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
