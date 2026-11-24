@@ -37,7 +37,7 @@ Los datos de prueba se crean solo la primera vez en `scratch/chain-lots-local/de
 - Cada lote acepta gramos con hasta seis decimales. En sus campos de peso se admite punto o coma decimal, sin separadores de miles.
 - Los saldos, identidad y costo del lote no se ajustan mediante edición genérica de producto. Una compra de lote se corrige mediante reversión documentada y nuevo ingreso; si ya se vendió mercancía, no se puede retirar más stock del disponible.
 - Los guardados usan la versión del servidor, rechazan conflictos entre dispositivos y conservan identificadores de operación para evitar duplicar ingresos ante reintentos.
-- El piloto se habilita únicamente cuando el servidor tiene las dos variables locales activas y no corre en Vercel. La rama está excluida del despliegue automático en `vercel.json`.
+- Los lotes se habilitan únicamente si el servidor tiene `NEXUS_ENABLE_CHAIN_LOTS=1`. La demo también configura `NEXUS_LOCAL_ONLY=1`, un archivo ficticio y escucha solo en `127.0.0.1`; estas opciones de aislamiento no se usan en producción. La rama de pruebas está excluida del despliegue automático en `vercel.json`.
 
 ## Validación
 

@@ -1,4 +1,4 @@
-/* Local pilot only. All receipts use the ordinary purchase order form. */
+/* Enabled by the server feature flag. All receipts use the ordinary purchase order form. */
 (function () {
   'use strict';
   let enabled = false;
@@ -35,7 +35,7 @@
   async function init(){
     try{
       const res=await fetch('/api/health',{cache:'no-store'}),health=await res.json();
-      enabled=res.ok&&health.features?.chainLots===true&&health.storageMode==='Local JSON';
+      enabled=res.ok&&health.features?.chainLots===true;
       const button=document.getElementById('chain-lots-open');if(button)button.hidden=!enabled;
       const option=document.getElementById('po-chain-lot-option');if(option){option.hidden=!enabled;option.disabled=!enabled;}
     }catch(_){}
