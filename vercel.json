@@ -11,7 +11,8 @@
       "codex/release-update-notice": false,
       "codex/fix-pos-search-spacing": false,
       "codex/pos-product-counter": false,
-      "codex/fix-supplier-email-edit": false
+      "codex/fix-supplier-email-edit": false,
+      "codex/fix-cash-outflow-labels": false
     }
   },
   "headers": [
