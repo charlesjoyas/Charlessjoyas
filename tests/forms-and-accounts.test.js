@@ -12,6 +12,20 @@ test('editing supplier contact details preserves every separate credit and its p
   const submit=h.bindForm('edit-supplier-form',{'edit-supp-id':'S1','edit-supp-name':'Supplier','edit-supp-nit':'TEST-NIT','edit-supp-phone':'NEW PHONE','edit-supp-pending-balance':300,'edit-supp-active':true});await submit();
   assert.equal(api.state.suppliers[0].phone,'NEW PHONE',JSON.stringify(h.app.events));assert.deepEqual(api.state.supplierCredits,credits);assert.equal(api.state.suppliers[0].creditBalance,300);
 });
+
+test('supplier email edit succeeds with a fractional debt and cannot rewrite it from the display field',async()=>{
+  const h=browserHarness();supplierFixture(h);h.app.data.suppliers[0].creditBalance=300.56;h.app.data.supplierCredits[0].totalOwed=100.56;h.app.data.supplierCredits[0].pendingAmount=100.56;
+  const before=clone(h.app.data),api=await connectOperations(h);
+  const submit=h.bindForm('edit-supplier-form',{'edit-supp-id':'S1','edit-supp-name':'Supplier','edit-supp-nit':'TEST-NIT','edit-supp-email':'updated@example.test','edit-supp-pending-balance':301,'edit-supp-active':true});await submit();
+  assert.equal(api.state.suppliers[0].email,'updated@example.test',JSON.stringify(h.app.events));assert.equal(api.state.suppliers[0].creditBalance,300.56);
+  for(const key of ['supplierCredits','purchases','products','abonosCompras','recentTransactions','expenses','accountAdjustments'])assert.deepEqual(api.state[key]||[],before[key]||[],key+' must not change during email editing');
+});
+
+test('supplier contact edit does not fill in or otherwise rewrite historical credit metadata',async()=>{
+  const h=browserHarness();supplierFixture(h);delete h.app.data.supplierCredits[0].supplier;const before=clone(h.app.data.supplierCredits),api=await connectOperations(h);
+  const submit=h.bindForm('edit-supplier-form',{'edit-supp-id':'S1','edit-supp-name':'Supplier','edit-supp-nit':'TEST-NIT','edit-supp-email':'updated@example.test','edit-supp-pending-balance':300,'edit-supp-active':true});await submit();
+  assert.equal(api.state.suppliers[0].email,'updated@example.test',JSON.stringify(h.app.events));assert.deepEqual(api.state.supplierCredits,before);
+});
 test('creating a new bank account records only its own initial balance',async()=>{
   const h=browserHarness(),api=await connectOperations(h);const submit=h.bindForm('add-paymethod-form',{'pm-name-input':'Banco Diario','pm-fee-input':'0','pm-is-account-select':'true','pm-initial-balance-input':1000});await submit();
   const pm=api.state.paymentMethods.find(p=>p.name==='Banco Diario');assert.ok(pm,JSON.stringify(h.app.events));assert.equal(L.accounts(api.state)[pm.accountKey||L.account(pm.name,true)].balance,1000);assert.equal(api.state.accountAdjustments.length,0);

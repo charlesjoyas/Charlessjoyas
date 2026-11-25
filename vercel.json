@@ -10,7 +10,8 @@
       "codex/web-push-notifications": false,
       "codex/release-update-notice": false,
       "codex/fix-pos-search-spacing": false,
-      "codex/pos-product-counter": false
+      "codex/pos-product-counter": false,
+      "codex/fix-supplier-email-edit": false
     }
   },
   "headers": [
