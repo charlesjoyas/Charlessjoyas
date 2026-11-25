@@ -40,6 +40,12 @@ const DB_FILE = process.env.NEXUS_DB_FILE || path.join(__dirname, 'db.json');
 const AUTH_SECRET = process.env.AUTH_SECRET || (!process.env.VERCEL ? crypto.randomBytes(48).toString('hex') : '');
 
 app.disable('x-powered-by');
+// Public deployment metadata only; this endpoint does not open MongoDB.
+const publishedHtml=fs.readFileSync(path.join(__dirname,'public','index.html'),'utf8');
+const publishedRelease=publishedHtml.match(/<meta name="nexus-release" content="([^"]+)">/)?.[1]||'development';
+app.get('/api/version',(req,res)=>{
+  res.setHeader('Cache-Control','no-store');res.json({release:publishedRelease});
+});
 app.use(express.json({ limit: '10mb' }));
 // Security Middleware: Strict restriction on internal database, config, backups, reports and server files
 app.use((req, res, next) => {

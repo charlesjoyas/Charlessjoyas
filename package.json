@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Nexus POS SaaS - Sistema Punto de Venta, Inventario y Finanzas",
   "scripts": {
+    "build": "node scripts/stamp-release.js",
     "start": "node server.js",
     "dev": "node server.js",
     "demo:lotes": "node scripts/chain-lots-local.js",

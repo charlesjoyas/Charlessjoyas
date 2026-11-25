@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="nexus-release" content="development">
   <!-- SEO & Social -->
   <meta name="description" content="Charles Joyas SAS — Sistema POS, Inventario, Taller y ERP para joyería. Control de ventas, compras, créditos y reportes financieros en tiempo real.">
   <meta name="robots" content="noindex, nofollow">
@@ -33,6 +34,11 @@
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
+    #release-update-notice[hidden] { display:none !important; }
+    #release-update-notice { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 18px; margin-bottom:20px; border:1px solid var(--primary-indigo,#0089c9); border-radius:12px; background:var(--bg-card,#f1f7ff); color:var(--text-primary,#0f172a); }
+    #release-update-notice .release-copy { flex:1 1 260px; }
+    #release-update-help { font-size:.85rem; margin-top:4px; }
+    #release-update-notice button:disabled { opacity:.5; cursor:not-allowed; }
     #push-notifications-modal { z-index: 15000; }
     #push-notifications-modal button:disabled { opacity: .45; cursor: not-allowed; }
     #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden] { display: none !important; }
@@ -565,6 +571,11 @@
       </header>
 
       <div class="content-body">
+        <aside id="release-update-notice" hidden aria-label="Actualización disponible">
+          <div class="release-copy"><div role="status" aria-live="polite"><strong>Hay una nueva versión disponible.</strong> Te sugerimos actualizar la página para cargar las últimas mejoras.</div><div id="release-update-help"></div></div>
+          <button id="release-update-button" type="button" class="btn btn-primary" onclick="CharlesRelease.reload()">Actualizar página</button>
+          <button type="button" class="btn btn-secondary" onclick="CharlesRelease.later()">Más tarde</button>
+        </aside>
         <!-- ----------------------------------------------------------------
              PARENT VIEW 1: DASHBOARD & MANAGEMENT PANES
              ---------------------------------------------------------------- -->
@@ -5706,8 +5717,9 @@
   <script src="js/safety.js?v=123" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=124" defer></script>
+  <script src="js/app.js?v=125" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
   <script src="js/push-notifications.js?v=1" defer></script>
+  <script src="js/release-notice.js?v=1" defer></script>
 </body>
 </html>
