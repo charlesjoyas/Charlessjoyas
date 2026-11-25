@@ -942,7 +942,10 @@
               <div class="card-header" style="margin-bottom:0.75rem; flex-shrink:0;">
                 <div>
                   <h3 class="card-title">Orden POS #4892</h3>
-                  <span class="text-xs color:var(--text-muted);">Carrito de venta actual</span>
+                  <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                    <span class="text-xs color:var(--text-muted);">Carrito de venta actual</span>
+                    <span id="cart-product-count" class="badge" role="status" aria-live="polite" style="background:var(--bg-surface-hover); color:var(--brand-primary); border:1px solid var(--border-color); white-space:nowrap;">0 productos</span>
+                  </div>
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                   <button type="button" class="btn btn-secondary text-xs" style="padding:4px 8px;" onclick="app.showToast('Cliente mostrador seleccionado')">👤 Cliente Mostrador</button>
@@ -5717,7 +5720,7 @@
   <script src="js/safety.js?v=123" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=125" defer></script>
+  <script src="js/app.js?v=126" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
   <script src="js/push-notifications.js?v=1" defer></script>
   <script src="js/release-notice.js?v=1" defer></script>
