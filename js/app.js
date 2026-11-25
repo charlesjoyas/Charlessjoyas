@@ -12703,12 +12703,12 @@ class NexusApp {
         </td>
         <td style="padding:7px 10px; font-size:0.8rem;">
           <span class="badge" style="background:${e.badgeBg}; color:${e.badgeColor}; font-size:0.72rem; font-weight:700; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
-            <span>${e.icon}</span> ${this.escapeHtml(e.type)}
+            <span>${e.icon}</span> ${this.escapeHtml(e.typeLabel || e.type)}
           </span>
         </td>
         <td style="padding:7px 10px; font-size:0.82rem;">
           <span class="badge" style="background:#FFE4E6; color:#E11D48; font-weight:700; font-size:0.74rem; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
-            <span>💵</span> Efectivo (Caja)
+            <span>${e.isBank ? '🏦' : '💵'}</span> ${this.escapeHtml(e.targetAccount || (e.isBank ? 'Cuenta bancaria' : 'Efectivo'))}
           </span>
         </td>
         <td style="padding:7px 10px; font-size:0.8rem; color:var(--text-muted);">${this.escapeHtml(e.cashier || 'Cajero')}</td>
@@ -12797,7 +12797,20 @@ class NexusApp {
 
   getCashShiftExpenses() {
     if(this.data.cashShiftLog?.status!=='Abierto')return [];
-    return NexusLedger.movements(this.data).filter(m=>m.amount<0&&['purchase','supplier_payment','expense','sale_refund','legacy_refund'].includes(m.type)&&NexusLedger.inShift(m,this.data.cashShiftLog)).map(m=>({id:m.id,date:m.date,time:m.time,concept:m.concept,category:m.category||m.type,type:m.type,typeKey:m.accountKey==='efectivo_caja'?'gastos':'banco',isCash:m.accountKey==='efectivo_caja',isBank:m.accountKey!=='efectivo_caja',method:m.method,targetAccount:NexusLedger.names[m.accountKey]||m.accountKey,badgeBg:'#FEF3C7',badgeColor:'#92400E',icon:'🧾',cashier:m.operator,amount:Math.abs(m.amount)}));
+    const types={
+      expense:{typeKey:'gastos',typeLabel:'Gasto',icon:'🧾'},
+      supplier_payment:{typeKey:'abonos',typeLabel:'Abono a proveedor',icon:'💳'},
+      purchase:{typeKey:'compras',typeLabel:'Compra de mercancía',icon:'💎'},
+      sale_refund:{typeKey:'devoluciones',typeLabel:'Devolución de venta',icon:'↩️'},
+      legacy_refund:{typeKey:'devoluciones',typeLabel:'Devolución',icon:'↩️'}
+    };
+    return NexusLedger.movements(this.data).filter(m=>m.amount<0&&types[m.type]&&NexusLedger.inShift(m,this.data.cashShiftLog)).map(m=>{
+      const meta=types[m.type];
+      const description=m.concept&&m.concept!==m.type?m.concept:meta.typeLabel;
+      const beneficiary=m.party&&m.party!=='—'?m.party:'';
+      const accountName=NexusLedger.names[m.accountKey]||(this.data.paymentMethods||[]).find(pm=>NexusLedger.paymentAccountKey(pm)===m.accountKey)?.name||m.accountKey;
+      return {id:m.id,date:m.date,time:m.time,concept:beneficiary?`${description} · ${beneficiary}`:description,category:m.category||meta.typeLabel,type:m.type,...meta,isCash:m.accountKey==='efectivo_caja',isBank:m.accountKey!=='efectivo_caja',method:m.method,targetAccount:accountName,badgeBg:'#FEF3C7',badgeColor:'#92400E',cashier:m.operator,amount:Math.abs(m.amount)};
+    });
   }
 
   renderCashShiftExpensesSummary() {
@@ -12819,6 +12832,7 @@ class NexusApp {
     const totalGastosOperativos = expensesList.filter(e => e.typeKey === 'gastos').reduce((sum, e) => sum + e.amount, 0);
     const totalAbonosProveedores = expensesList.filter(e => e.typeKey === 'abonos').reduce((sum, e) => sum + e.amount, 0);
     const totalComprasMercancia = expensesList.filter(e => e.typeKey === 'compras').reduce((sum, e) => sum + e.amount, 0);
+    const totalDevoluciones = expensesList.filter(e => e.typeKey === 'devoluciones').reduce((sum, e) => sum + e.amount, 0);
     const totalTotal = expensesList.reduce((sum, e) => sum + e.amount, 0);
 
     const cashExpensesList = expensesList.filter(e => e.isCash !== false && !e.isBank);
@@ -12829,6 +12843,7 @@ class NexusApp {
     const countGastos = expensesList.filter(e => e.typeKey === 'gastos').length;
     const countAbonos = expensesList.filter(e => e.typeKey === 'abonos').length;
     const countCompras = expensesList.filter(e => e.typeKey === 'compras').length;
+    const countDevoluciones = expensesList.filter(e => e.typeKey === 'devoluciones').length;
     const countCash = cashExpensesList.length;
     const countBank = bankExpensesList.length;
 
@@ -12840,7 +12855,7 @@ class NexusApp {
       return `
         <tr class="cash-expense-row cash-expense-${e.typeKey} cash-expense-${e.isBank ? 'banco' : 'efectivo'}" style="border-bottom:1px solid var(--border-color); transition:background 0.15s ease;">
           <td style="padding:8px 10px; font-size:0.82rem; font-family:monospace; font-weight:700; color:var(--text-main);">
-            ${this.escapeHtml(e.id)}
+            <span title="${this.escapeHtml(e.id)}" style="display:block; max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(e.id)}</span>
           </td>
           <td style="padding:8px 10px; font-size:0.8rem; color:var(--text-muted); white-space:nowrap;">
             ${this.escapeHtml(e.date)}${e.time ? ` · ${this.escapeHtml(e.time)}` : ''}
@@ -12850,7 +12865,7 @@ class NexusApp {
           </td>
           <td style="padding:8px 10px; font-size:0.8rem;">
             <span class="badge" style="background:${e.badgeBg}; color:${e.badgeColor}; font-size:0.72rem; font-weight:700; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
-              <span>${e.icon}</span> ${this.escapeHtml(e.type)}
+            <span>${e.icon}</span> ${this.escapeHtml(e.typeLabel || e.type)}
             </span>
           </td>
           <td style="padding:8px 10px; font-size:0.8rem;">
@@ -12889,6 +12904,7 @@ class NexusApp {
           <div style="font-family:var(--font-heading); font-size:1.05rem; font-weight:800; color:#4F46E5; margin-top:2px;">-${this.formatCurrency(totalAbonosProveedores + totalComprasMercancia)}</div>
           <div style="font-size:0.68rem; color:var(--text-subtle); margin-top:2px;">Abonos y compras</div>
         </div>
+        ${countDevoluciones > 0 ? `<div style="background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:0.6rem 0.85rem;"><div style="font-size:0.72rem; font-weight:600; color:var(--text-muted);">↩️ Devoluciones (${countDevoluciones})</div><div style="font-family:var(--font-heading); font-size:1.05rem; font-weight:800; color:var(--text-main); margin-top:2px;">-${this.formatCurrency(totalDevoluciones)}</div></div>` : ''}
         <div style="background:rgba(244,63,94,0.06); border:1px solid rgba(244,63,94,0.25); border-radius:var(--radius-sm); padding:0.6rem 0.85rem;">
           <div style="font-size:0.72rem; font-weight:700; color:var(--rose-text);">📤 Total Egresos Turno</div>
           <div style="font-family:var(--font-heading); font-size:1.15rem; font-weight:900; color:var(--rose-text); margin-top:2px;">-${this.formatCurrency(totalTotal)}</div>
@@ -12903,8 +12919,9 @@ class NexusApp {
           <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('efectivo', this)">💵 Caja Efectivo (${countCash})</button>
           <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('banco', this)">🏦 Cuentas Bancarias (${countBank})</button>
           <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('gastos', this)">🧾 Gastos (${countGastos})</button>
-          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('abonos', this)">💳 Proveedores (${countAbonos})</button>
+          <button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('abonos', this)">💳 Abonos a proveedores (${countAbonos})</button>
           ${countCompras > 0 ? `<button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('compras', this)">💎 Compras (${countCompras})</button>` : ''}
+          ${countDevoluciones > 0 ? `<button type="button" class="finanzas-period-pill" onclick="app.filterCashShiftExpensesTable('devoluciones', this)">↩️ Devoluciones (${countDevoluciones})</button>` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:0.6rem;">
           <span style="font-size:0.76rem; color:var(--text-muted);">
@@ -12917,8 +12934,8 @@ class NexusApp {
       </div>
 
       <!-- TABLA DETALLADA DE SALIDAS -->
-      <div style="max-height:360px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
-        <table style="width:100%; border-collapse:collapse;">
+      <div style="max-height:360px; overflow:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
+        <table style="width:100%; min-width:1060px; border-collapse:collapse;">
           <thead style="position:sticky; top:0; background:var(--canvas-bg); z-index:1;">
             <tr style="border-bottom:1px solid var(--border-color); color:var(--text-muted); font-size:0.75rem; text-align:left;">
               <th style="padding:7px 10px;">Código</th>
