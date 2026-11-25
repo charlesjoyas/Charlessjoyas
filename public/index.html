@@ -9,6 +9,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/app-180.png">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
   <meta name="theme-color" content="#0F172A">
@@ -31,6 +33,8 @@
 
   <!-- Thermal Receipt Styles & Print Rules -->
   <style>
+    #push-notifications-modal { z-index: 15000; }
+    #push-notifications-modal button:disabled { opacity: .45; cursor: not-allowed; }
     #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden] { display: none !important; }
     .thermal-ticket-wrapper {
       background: #f8fafc;
@@ -554,7 +558,7 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             <span>+ Nueva Venta POS</span>
           </button>
-          <button class="btn btn-icon" title="Notificaciones" onclick="app.showToast('Sin alertas críticas pendientes')">
+          <button class="btn btn-icon" title="Notificaciones" onclick="app.openNotifications()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           </button>
         </div>
@@ -5678,12 +5682,32 @@
   <div class="modal-backdrop" id="reconciliation-action-modal"><div class="modal-card" style="max-width:800px; max-height:90vh; overflow:hidden;"><div class="modal-header"><h3 id="reconciliation-action-title">Conciliar registro</h3><button class="modal-close-btn" onclick="app.closeModal('reconciliation-action-modal')">×</button></div><form onsubmit="event.preventDefault(); app.submitReconciliationAction()"><div class="modal-body"><div id="reconciliation-action-fields"></div><label>Soporte verificable (recibo, factura, respaldo)</label><input class="form-control" id="reconciliation-reference" required><label>Motivo de la corrección</label><textarea class="form-control" id="reconciliation-reason" required></textarea></div><div class="modal-footer"><button type="submit" class="btn btn-primary">Guardar conciliación documentada</button></div></form></div></div>
 
   <!-- defer: scripts download in parallel with HTML parsing, execute in order after DOM is ready -->
+  <div class="modal-backdrop" id="push-notifications-modal" role="dialog" aria-modal="true" aria-labelledby="push-title">
+    <div class="modal-card" style="max-width:560px;width:calc(100% - 24px)">
+      <div class="modal-header"><h3 id="push-title">Notificaciones del dispositivo</h3><button type="button" class="modal-close-btn" aria-label="Cerrar" onclick="app.closeModal('push-notifications-modal')">×</button></div>
+      <div class="modal-body">
+        <p id="push-status" role="status" aria-live="polite">Comprobando este dispositivo…</p>
+        <div style="display:grid;gap:14px;margin:20px 0">
+          <label><input id="push-sales" type="checkbox" disabled onchange="CharlesPush.changed()"> Ventas</label>
+          <label><input id="push-purchases" type="checkbox" disabled onchange="CharlesPush.changed()"> Compras</label>
+          <label><input id="push-cash" type="checkbox" disabled onchange="CharlesPush.changed()"> Movimientos de caja</label>
+        </div>
+        <p style="font-size:.85rem;color:var(--text-muted)">Los avisos corresponden a nuevos movimientos guardados y a los permisos de tu cuenta. Se desactivan en este dispositivo al cerrar sesión.</p>
+      </div>
+      <div class="modal-footer" style="display:flex;flex-wrap:wrap;gap:10px">
+        <button id="push-enable" type="button" class="btn btn-primary" disabled onclick="CharlesPush.enable()">Activar en este dispositivo</button>
+        <button id="push-test" type="button" class="btn btn-secondary" disabled onclick="CharlesPush.test()">Enviar prueba</button>
+        <button id="push-disable" type="button" class="btn btn-secondary" disabled onclick="CharlesPush.disable()">Desactivar</button>
+      </div>
+    </div>
+  </div>
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=48" defer></script>
   <script src="js/safety.js?v=123" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=123" defer></script>
+  <script src="js/app.js?v=124" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
+  <script src="js/push-notifications.js?v=1" defer></script>
 </body>
 </html>

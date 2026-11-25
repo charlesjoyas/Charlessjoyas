@@ -5,9 +5,13 @@
       "codex/preopening-stabilization": false,
       "codex/local-chain-lots": false,
       "codex/fix-pos-hidden-lot-field": false,
-      "codex/separate-extra-inventory": false
+      "codex/separate-extra-inventory": false,
+      "codex/web-push-notifications": false
     }
   },
+  "headers": [
+    {"source":"/push-sw.js","headers":[{"key":"Cache-Control","value":"no-cache"},{"key":"Service-Worker-Allowed","value":"/"}]}
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.js" }
   ]
