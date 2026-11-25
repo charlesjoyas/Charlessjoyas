@@ -109,7 +109,8 @@ const DataSchema = new mongoose.Schema({
   content: mongoose.Schema.Types.Mixed,
   updatedAt: { type: Date, default: Date.now }
 });
-const DataModel = mongoose.model('NexusData', DataSchema);
+// Serverless loaders can evaluate this entry point again in a warm process.
+const DataModel = mongoose.models.NexusData || mongoose.model('NexusData', DataSchema);
 
 // Robust Serverless-friendly MongoDB Atlas Connection Manager
 async function ensureDbConnected() {
