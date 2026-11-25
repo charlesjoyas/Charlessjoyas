@@ -10,7 +10,7 @@ for (const name of assets) {
 }
 for (const name of ['server.js','lib/state-api.js','lib/operations.js','lib/financial-validation.js','lib/local-recovery.js','lib/mongo-recovery.js','scripts/reconcile-history.js','scripts/local-recovery.js','scripts/mongo-recovery.js','scripts/export-git-evidence.js','scripts/validate-isolated-copy.js','scripts/build-reconciliation-review.js','js/app.js','js/data.js','js/safety.js','js/ledger.js','js/reconciliation.js','showcase/js/showcase.js']) execFileSync(process.execPath,['--check',path.join(root,name)]);
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
-for(const name of ['lib/web-push.js','js/push-notifications.js','js/release-notice.js','scripts/stamp-release.js','push-sw.js'])execFileSync(process.execPath,['--check',path.join(root,name)]);
+for(const name of ['lib/web-push.js','lib/product-names.js','js/push-notifications.js','js/release-notice.js','scripts/stamp-release.js','push-sw.js'])execFileSync(process.execPath,['--check',path.join(root,name)]);
 execFileSync(process.execPath,['--check',path.join(root,'js/chain-lots.js')]);
 execFileSync(process.execPath,['--check',path.join(root,'scripts/chain-lots-local.js')]);
 const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
