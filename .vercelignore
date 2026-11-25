@@ -15,6 +15,7 @@ db.json.*
 AUDITORIA_*/
 *.pdf
 tests/
-scripts/
+scripts/*
+!scripts/stamp-release.js
 docs/
 README.md
