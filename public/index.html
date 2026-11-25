@@ -3066,9 +3066,10 @@
           <div class="form-group" style="margin-bottom:0.9rem;">
             <label class="form-label" style="font-weight:700; font-size:0.78rem;">Producto / Joya Vinculada</label>
             <div class="modal-grid-asym-15-1">
-              <input type="text" id="edit-po-product-name" class="form-control" placeholder="Nombre del producto / joya">
+              <input type="text" id="edit-po-product-name" class="form-control" placeholder="Nombre del producto / joya" required maxlength="200">
               <input type="text" id="edit-po-product-sku" class="form-control" placeholder="Código / SKU (opcional)" style="font-family:monospace;">
             </div>
+            <small style="color:var(--text-muted);">Actualiza el nombre de esta referencia en el catálogo y sus compras vigentes.</small>
           </div>
 
           <!-- Fila 2: Cantidad, Gramos y Costo Unitario -->
@@ -3083,7 +3084,7 @@
             <div class="modal-grid-3">
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.75rem;">Cantidad (Unid / Ítems)</label>
-                <input type="number" step="0.01" min="0" id="edit-po-qty" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
+                <input type="number" step="any" min="0" id="edit-po-qty" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.75rem;">Gramos Totales (g)</label>
@@ -3091,7 +3092,7 @@
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.75rem;">Costo Unitario ($)</label>
-                <input type="number" step="1" min="0" id="edit-po-unit-cost" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
+                <input type="number" step="any" min="0" id="edit-po-unit-cost" class="form-control" oninput="app.onEditPOQtyOrCostChange()">
               </div>
             </div>
             <div style="margin-top:0.6rem; display:flex; align-items:center; gap:0.5rem;">
@@ -3108,7 +3109,7 @@
             <div class="modal-grid-2" style="margin-bottom:0.75rem;">
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.76rem; font-weight:700;">Total de la Compra ($)</label>
-                <input type="number" step="1" min="0" id="edit-po-total" class="form-control" style="font-weight:800; font-size:0.95rem;" required oninput="app.onEditPOTotalChange()">
+                <input type="number" step="0.01" min="0" id="edit-po-total" class="form-control" style="font-weight:800; font-size:0.95rem;" required oninput="app.onEditPOTotalChange()">
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.76rem; font-weight:700;">Estado de Pago</label>
@@ -3121,11 +3122,11 @@
             <div class="modal-grid-2">
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.75rem; color:var(--emerald-text, #059669); font-weight:700;">Monto Ya Pagado / Abonado ($)</label>
-                <input type="number" step="1" min="0" id="edit-po-paid" class="form-control" style="color:var(--emerald-text, #059669); font-weight:700;" oninput="app.onEditPOPaidChange()">
+                <input type="number" step="0.01" min="0" id="edit-po-paid" class="form-control" style="color:var(--emerald-text, #059669); font-weight:700;" oninput="app.onEditPOPaidChange()">
               </div>
               <div class="form-group" style="margin:0;">
                 <label class="form-label" style="font-size:0.75rem; color:var(--rose-text, #e11d48); font-weight:700;">Saldo Pendiente de esta Compra ($)</label>
-                <input type="number" step="1" min="0" id="edit-po-pending" class="form-control" style="color:var(--rose-text, #e11d48); font-weight:800;" oninput="app.onEditPOPendingChange()">
+                <input type="number" step="0.01" min="0" id="edit-po-pending" class="form-control" style="color:var(--rose-text, #e11d48); font-weight:800;" oninput="app.onEditPOPendingChange()">
               </div>
             </div>
           </div>
@@ -4846,7 +4847,7 @@
           <div class="grid-2" style="margin-bottom:0.75rem;">
             <div class="form-group" id="edit-prod-name-group">
               <label class="form-label">Producto *</label>
-              <input type="text" id="edit-prod-name" class="form-input" required>
+              <input type="text" id="edit-prod-name" class="form-input" required maxlength="200">
             </div>
             <div class="form-group" id="edit-prod-weight-unit-group">
               <label class="form-label">Medida en pesaje</label>
@@ -5721,7 +5722,7 @@
   <script src="js/safety.js?v=123" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=128" defer></script>
+  <script src="js/app.js?v=129" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
   <script src="js/push-notifications.js?v=1" defer></script>
   <script src="js/release-notice.js?v=1" defer></script>

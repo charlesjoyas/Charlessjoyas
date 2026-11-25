@@ -609,7 +609,6 @@ class NexusApp {
   attachGlobalNumberMasks() {
     const integerInputs = [
       'new-prod-cost',
-      'edit-prod-cost',
       'pos-add-custom-price-input',
       'pos-add-total-sale-input',
       'po-unit-cost',
@@ -647,6 +646,7 @@ class NexusApp {
     });
 
     const decimalInputs = [
+      'edit-prod-cost',
       'new-prod-piece-weight',
       'new-prod-stock',
       'edit-prod-piece-weight',
@@ -3647,7 +3647,8 @@ class NexusApp {
             p.unit = 'u.';
           }
           p.supplier = document.getElementById('edit-prod-supplier').value;
-          p.cost = Math.max(0, this.parseMoneyInput(document.getElementById('edit-prod-cost')?.value) || 0);
+          const costText = document.getElementById('edit-prod-cost')?.value || '';
+          if (costText !== this.formatNumberWithCommas(p.cost, true)) p.cost = Math.max(0, this.parseMoneyInput(costText) || 0);
           p.price = Number(p.price || 0); // Preserva precio previo si existía, o 0 para fijar en POS
 
           // GRAMAJE / CANTIDAD TOTAL DEL ARTÍCULO
@@ -4694,14 +4695,18 @@ class NexusApp {
     }
     const p = this.findProductIdentity(id,sku);
     if (!p) return;
-    if (NexusSafety.isChainLot(p)) { this.showToast('Este producto es un lote. Para corregir su ingreso usa una reversión documentada y registra el lote correcto.', 'info'); this.openChainLots(); return; }
+    if (NexusSafety.isChainLot(p)) {
+      const purchase = (this.data.purchases || []).find(po => po.productId === p.id && !NexusLedger.inactive(po.status) && (!po.productSku || NexusSafety.sku(po.productSku) === NexusSafety.sku(p.sku)));
+      if (purchase) { this.openEditPurchaseOrderModal(purchase.id); return; }
+      this.showToast('No se encontró la compra vigente de este lote. Revisa su ingreso antes de editarlo.', 'warning'); return;
+    }
 
     document.getElementById('edit-prod-id').value = p.id;
     const origSkuInput = document.getElementById('edit-prod-orig-sku');
     if (origSkuInput) origSkuInput.value = p.sku || '';
     document.getElementById('edit-prod-sku').value = p.sku || '001';
     document.getElementById('edit-prod-name').value = p.name;
-    document.getElementById('edit-prod-cost').value = p.cost !== undefined ? this.formatNumberWithCommas(p.cost) : '';
+    document.getElementById('edit-prod-cost').value = p.cost !== undefined ? this.formatNumberWithCommas(p.cost, true) : '';
     document.getElementById('edit-prod-stock').value = p.stock !== undefined ? this.formatNumberWithCommas(p.stock, true) : 0;
     const stockHint = document.getElementById('edit-prod-stock-hint');
     if (stockHint) {
@@ -10285,11 +10290,11 @@ class NexusApp {
     const qty = po.quantity !== undefined ? Number(po.quantity) : (Number(po.itemsCount) || 1);
     const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
     const unitCost = Number(po.unitCost) || 0;
-    const total = Math.round(Number(po.total) || 0);
+    const total = Number(po.total) || 0;
     const isPaid = this.getPurchasePending(po)<=.01;
-    const paid = Math.min(total, Math.max(0, Math.round(Number(po.paidAmount) || 0)));
+    const paid = Number(po.paidAmount) || 0;
     const editPoPendingSource=this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value);
-    const pending = Math.max(0, total - paid - Number(editPoPendingSource?.creditAdjustment||0));
+    const pending = NexusLedger.money(Math.max(0, total - paid - Number(editPoPendingSource?.creditAdjustment||0)));
 
     document.getElementById('edit-po-qty').value = qty;
     document.getElementById('edit-po-grams').value = grams;document.getElementById('edit-po-grams').readOnly=true;
@@ -10417,8 +10422,8 @@ class NexusApp {
 
     const suppInput = (document.getElementById('edit-po-supplier')?.value || po.supplier || '').trim();
     const suppNorm = suppInput.toLowerCase();
-    const newTotal = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-total')?.value) || 0));
-    const newPending = Math.max(0, Math.round(parseFloat(document.getElementById('edit-po-pending')?.value) || 0));
+    const newTotal = Math.max(0, Number(document.getElementById('edit-po-total')?.value) || 0);
+    const newPending = Math.max(0, Number(document.getElementById('edit-po-pending')?.value) || 0);
     const syncMode = 'apply_delta';
 
     const oldTotal = Math.round(Number(po.total) || 0);
@@ -10467,7 +10472,7 @@ class NexusApp {
   async saveEditedPurchaseOrder(event) {
     event?.preventDefault();
     const id=document.getElementById('edit-po-id')?.value,po=this.data.purchases.find(p=>p.id===id);if(!po)return;
-    const args={purchaseId:id,date:document.getElementById('edit-po-date')?.value,supplier:document.getElementById('edit-po-supplier')?.value,productSku:document.getElementById('edit-po-product-sku')?.value,quantity:Number(document.getElementById('edit-po-qty')?.value),unitCost:Number(document.getElementById('edit-po-unit-cost')?.value),total:Number(document.getElementById('edit-po-total')?.value),paidAmount:Number(document.getElementById('edit-po-paid')?.value),reason:document.getElementById('edit-po-reason')?.value?.trim()};
+    const args={purchaseId:id,date:document.getElementById('edit-po-date')?.value,supplier:document.getElementById('edit-po-supplier')?.value,productSku:document.getElementById('edit-po-product-sku')?.value,productName:document.getElementById('edit-po-product-name')?.value?.trim(),quantity:Number(document.getElementById('edit-po-qty')?.value),unitCost:Number(document.getElementById('edit-po-unit-cost')?.value),total:Number(document.getElementById('edit-po-total')?.value),paidAmount:Number(document.getElementById('edit-po-paid')?.value),reason:document.getElementById('edit-po-reason')?.value?.trim()};
     if(!args.reason)throw new Error('Escribe el motivo y el soporte de la corrección.');
     const p=this.data.products.find(p=>p.id===po.productId),inventoryChange=args.quantity!==Number(po.quantity)||args.unitCost!==Number(po.unitCost)||args.total!==Number(po.total);
     const untouched=po.inventoryAfter&&p&&Math.abs(Number(p.stock)-Number(po.inventoryAfter.stock))<.000001&&Math.abs(Number(p.cost)-Number(po.inventoryAfter.cost))<.0001;
