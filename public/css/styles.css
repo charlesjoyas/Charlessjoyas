@@ -1935,6 +1935,11 @@ button.subnav-tab.active,
   box-shadow: var(--shadow-sm);
 }
 
+/* Keep the icon gutter after the shared form-control padding above. */
+.table-search-input input {
+  padding-left: 2.5rem;
+}
+
 .form-control:focus, .form-input:focus, .form-select:focus, .table-search-input input:focus {
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 4px var(--brand-glow);

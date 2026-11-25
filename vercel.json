@@ -8,7 +8,8 @@
       "codex/fix-pos-hidden-lot-field": false,
       "codex/separate-extra-inventory": false,
       "codex/web-push-notifications": false,
-      "codex/release-update-notice": false
+      "codex/release-update-notice": false,
+      "codex/fix-pos-search-spacing": false
     }
   },
   "headers": [
