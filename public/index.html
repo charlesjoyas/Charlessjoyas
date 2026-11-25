@@ -5083,7 +5083,7 @@
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Identificacion - Nit</label>
-                <input type="text" id="edit-supp-nit" class="form-input" placeholder="ej. 900.123.456-7" required>
+                <input type="text" id="edit-supp-nit" class="form-input" placeholder="ej. 900.123.456-7">
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Nombres</label>
@@ -5091,11 +5091,11 @@
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Teléfono</label>
-                <input type="text" id="edit-supp-phone" class="form-input" placeholder="Teléfono" required>
+                <input type="text" id="edit-supp-phone" class="form-input" placeholder="Teléfono">
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Email</label>
-                <input type="email" id="edit-supp-email" class="form-input" placeholder="Email" required>
+                <input type="email" id="edit-supp-email" class="form-input" placeholder="Email">
               </div>
             </div>
 
@@ -5103,7 +5103,7 @@
             <div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Dirección</label>
-                <input type="text" id="edit-supp-address" class="form-input" placeholder="Dirección" required>
+                <input type="text" id="edit-supp-address" class="form-input" placeholder="Dirección">
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Tipo cuenta</label>
@@ -5125,7 +5125,8 @@
               </div>
               <div class="form-group" style="margin-bottom: 0.85rem;">
                 <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.3rem;">Saldo pendiente</label>
-                <input type="text" inputmode="numeric" id="edit-supp-pending-balance" class="form-input" placeholder="0">
+                <input type="text" id="edit-supp-pending-balance" class="form-input" placeholder="0" readonly aria-describedby="edit-supp-balance-help">
+                <small id="edit-supp-balance-help" style="color:var(--text-muted);">Solo consulta. El saldo se modifica mediante abonos o ajustes documentados.</small>
               </div>
               <div class="form-group" style="margin-top: 0.75rem;">
                 <label style="display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
@@ -5720,7 +5721,7 @@
   <script src="js/safety.js?v=123" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=126" defer></script>
+  <script src="js/app.js?v=127" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
   <script src="js/push-notifications.js?v=1" defer></script>
   <script src="js/release-notice.js?v=1" defer></script>

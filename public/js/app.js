@@ -632,7 +632,6 @@ class NexusApp {
       'cash-physical-counted',
       'open-cash-base-input',
       'supp-pending-balance-input',
-      'edit-supp-pending-balance',
       'srv-price-input',
       'edit-srv-price',
       'ast-cost-input',
@@ -2849,10 +2848,6 @@ class NexusApp {
           const accountType = document.getElementById('edit-supp-account-type')?.value || 'Ahorros';
           const accountNumber = (document.getElementById('edit-supp-account-number')?.value || '').trim();
           const bank = (document.getElementById('edit-supp-bank')?.value || '').trim();
-          const pendingBalance = Math.max(0, this.parseCleanNumber(document.getElementById('edit-supp-pending-balance')?.value));
-          if (Math.abs(pendingBalance - (Number(supp.creditBalance) || 0)) > 0.01) {
-            throw new Error('El saldo del proveedor se modifica mediante abonos. Los ajustes de deuda histórica requieren conciliación.');
-          }
 
           if (!name) {
             this.showToast('El nombre del proveedor es obligatorio.', 'warning');
@@ -2879,14 +2874,14 @@ class NexusApp {
           supp.accountType = accountType;
           supp.accountNumber = accountNumber;
           supp.bank = bank;
-          supp.creditBalance = pendingBalance;
+          // Contact edits preserve the original debt, including its cents.
           supp.status = isActive ? "Active" : "Inactive";
 
           if (!Array.isArray(this.data.supplierCredits)) this.data.supplierCredits = [];
-          (this.data.supplierCredits || []).forEach(sc => {
-            if (sc.supplier === oldName || sc.supplierId === supp.id) sc.supplier = name;
-          });
           if (oldName && oldName !== name) {
+            (this.data.supplierCredits || []).forEach(sc => {
+              if (sc.supplier === oldName || sc.supplierId === supp.id) sc.supplier = name;
+            });
             (this.data.purchases || []).forEach(po => { if (po.supplier === oldName) po.supplier = name; });
             (this.data.abonosCompras || []).forEach(ab => { if (ab.supplier === oldName) ab.supplier = name; });
             (this.data.products || []).forEach(pr => { if (pr.supplier === oldName) pr.supplier = name; });
@@ -5076,7 +5071,7 @@ class NexusApp {
     if (accType) accType.value = s.accountType || 'Ahorros';
     document.getElementById('edit-supp-account-number').value = s.accountNumber || '';
     document.getElementById('edit-supp-bank').value = s.bank || '';
-    document.getElementById('edit-supp-pending-balance').value = this.formatNumberWithCommas(s.creditBalance || 0);
+    document.getElementById('edit-supp-pending-balance').value = this.formatNumberWithCommas(s.creditBalance || 0, true);
 
     this.openModal('edit-supplier-modal');
   }
