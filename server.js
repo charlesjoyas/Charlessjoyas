@@ -209,7 +209,27 @@ async function compareAndSwapStore(expected, data) {
   return true;
 }
 const chainLotsEnabled = process.env.NEXUS_ENABLE_CHAIN_LOTS === '1';
-const stateApi = createStateApi({ read: readStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled });
+const {createPushService}=require('./lib/web-push');
+const {waitUntil}=require('@vercel/functions');
+let pushIndexes;
+async function pushCollection(name) {
+  if(!MONGO_URI||!await ensureDbConnected())throw new Error('Push storage unavailable');
+  const db=mongoose.connection.db;
+  if(!pushIndexes)pushIndexes=db.collection('web_push_deliveries').createIndex({expiresAt:1},{expireAfterSeconds:0}).catch(error=>{pushIndexes=null;throw error;});
+  await pushIndexes;
+  return db.collection(name);
+}
+const pushService=createPushService({collection:pushCollection,readState:readStore,secret:AUTH_SECRET,secure:!!process.env.VERCEL,
+  enabled:!!MONGO_URI&&process.env.NEXUS_ENABLE_WEB_PUSH==='1',publicKey:process.env.WEB_PUSH_PUBLIC_KEY,privateKey:process.env.WEB_PUSH_PRIVATE_KEY,subject:process.env.WEB_PUSH_SUBJECT,
+  background:job=>{if(process.env.VERCEL)waitUntil(job);}
+});
+const stateApi = createStateApi({ read: readStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled,
+  onCommitted:pushService.committed,onLogout:pushService.logout });
+app.use('/api/push',stateApi.authorizePush);
+app.get('/api/push/config',pushService.config);
+app.post('/api/push/subscription',pushService.subscribe);
+app.delete('/api/push/subscription',pushService.unsubscribe);
+app.post('/api/push/test',pushService.test);
 app.get('/api/health', (req, res) => res.json({ status: 'ok', mongoConnected, storageMode: MONGO_URI ? 'MongoDB' : 'Local JSON', features: { chainLots: chainLotsEnabled }, timestamp: new Date() }));
 app.post('/api/auth/login', stateApi.login);
 app.get('/api/auth/session', stateApi.session);

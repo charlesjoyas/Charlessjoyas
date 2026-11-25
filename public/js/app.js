@@ -1667,7 +1667,10 @@ class NexusApp {
   async switchUser() { this.logout(); this.showToast('El siguiente usuario debe iniciar sesión con su contraseña.', 'info'); }
 
   logout() {
-    fetch('/api/auth/logout', {method:'POST',headers:{'X-Nexus-Client':'stabilized-v1'}}).catch(() => {});
+    const pushDevice=window.CharlesPush?.device();
+    window.CharlesPush?.reset();
+    this._pushUserId=null;
+    fetch('/api/auth/logout', {method:'POST',headers:{'X-Nexus-Client':'stabilized-v1',...(pushDevice?{'X-Nexus-Push-Device':pushDevice}:{})}}).catch(() => {});
     this.currentUser = null;
     this.currentParentView = null;
     this.currentSubView = null;
@@ -1987,6 +1990,7 @@ class NexusApp {
 
   updateUIForRole() {
     if (!this.currentUser) return;
+    if(this._pushUserId!==this.currentUser.id){this._pushUserId=this.currentUser.id;window.CharlesPush?.prepare();}
     this.renderPosMetalRates();
 
     const avatarEl = document.getElementById('sidebar-user-avatar');
@@ -29129,6 +29133,8 @@ class NexusApp {
       });
     }
   }
+
+  openNotifications() { window.CharlesPush?.open(); }
 }
 
 const app = new NexusApp();
