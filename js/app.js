@@ -27069,6 +27069,11 @@ class NexusApp {
   }
 
   renderCart() {
+    const count = this.cart.length;
+    const productCount = document.getElementById('cart-product-count');
+    if (productCount) productCount.textContent = `${count} ${count === 1 ? 'producto' : 'productos'}`;
+    const mobileCount = document.getElementById('mobile-cart-count');
+    if (mobileCount) mobileCount.textContent = String(count);
     const container = document.getElementById('cart-items-container');
     const subtotalEl = document.getElementById('cart-subtotal');
     const taxEl = document.getElementById('cart-tax');
