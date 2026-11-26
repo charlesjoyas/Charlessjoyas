@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { createStateApi } = require('./lib/state-api');
 const {createRevisionReader}=require('./lib/revision-reader');
-const {compactMongoPipeline}=require('./lib/compact-state');
+const {compactMongoPipeline,auditMongoPipeline}=require('./lib/compact-state');
 const localRecovery=require('./lib/local-recovery');
 const fs = require('fs');
 const path = require('path');
@@ -221,8 +221,8 @@ async function readCompactStore(){
 async function readAuditEntry(id){
   if(!MONGO_URI)return (await readStore())?.financialLedger?.find(e=>e.id===id);
   if(!await ensureDbConnected())throw new Error('Database unavailable');
-  const doc=await DataModel.findOne({key:'main_store'}).select({'content.financialLedger':{$elemMatch:{id}},_id:0}).lean();
-  return doc?.content?.financialLedger?.[0]||null;
+  const rows=await DataModel.aggregate(auditMongoPipeline(id));
+  return rows[0]?.entry||null;
 }
 async function readLogo(revision){
   if(!MONGO_URI)return (await readStore())?.store?.branding?.logoUrl;
