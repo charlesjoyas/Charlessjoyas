@@ -10293,7 +10293,9 @@ class NexusApp {
     }
 
     const qty = po.quantity !== undefined ? Number(po.quantity) : (Number(po.itemsCount) || 1);
-    const grams = Number(po.totalGrams) || Number(po.productGrams) || 0;
+    const weightInfo=NexusSafety.purchaseWeightInfo(po,this.data.products.find(p=>p.id===po.productId),this.data.categories);
+    const grams=weightInfo.grams;
+    this._editPoPieceWeight=weightInfo.pieceWeight;this._editPoWeightChanged=false;
     const unitCost = Number(po.unitCost) || 0;
     const total = Number(po.total) || 0;
     const isPaid = this.getPurchasePending(po)<=.01;
@@ -10302,7 +10304,9 @@ class NexusApp {
     const pending = NexusLedger.money(Math.max(0, total - paid - Number(editPoPendingSource?.creditAdjustment||0)));
 
     document.getElementById('edit-po-qty').value = qty;
-    document.getElementById('edit-po-grams').value = grams;document.getElementById('edit-po-grams').readOnly=true;
+    const gramsField=document.getElementById('edit-po-grams');gramsField.value=grams;gramsField.readOnly=!weightInfo.editable;gramsField.required=weightInfo.editable;
+    const gramsHelp=document.getElementById('edit-po-grams-help');if(gramsHelp)gramsHelp.textContent=weightInfo.extra?'Esta categoría se maneja por unidades, sin gramaje.':weightInfo.lot?'El peso de los lotes se corrige con una reversión documentada.':'Corregir gramos conserva el total y los pagos; recalcula el costo por gramo. En piezas, exige mercancía intacta y sin otras compras ni ventas.';
+    const qtyLabel=document.getElementById('edit-po-qty-label');if(qtyLabel)qtyLabel.textContent=weightInfo.measureType==='Pesaje'?'Cantidad comprada (g)':'Cantidad comprada (unidades)';
     document.getElementById('edit-po-unit-cost').value = unitCost;
     document.getElementById('edit-po-adjust-stock').checked = false;
 
@@ -10335,14 +10339,27 @@ class NexusApp {
     this.onEditPOTotalChange();
   }
 
+  onEditPOGramsChange() {
+    const po=this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value);if(!po)return;
+    const info=NexusSafety.purchaseWeightInfo(po,this.data.products.find(p=>p.id===po.productId),this.data.categories);if(!info.editable)return;
+    const grams=Number(document.getElementById('edit-po-grams')?.value),quantity=Number(document.getElementById('edit-po-qty')?.value),total=Number(document.getElementById('edit-po-total')?.value);
+    this._editPoWeightChanged=true;if(!(grams>0)||!Number.isFinite(grams))return;
+    if(info.measureType==='Pesaje')document.getElementById('edit-po-qty').value=grams;
+    else if(quantity>0)this._editPoPieceWeight=grams/quantity;
+    if(total>0)document.getElementById('edit-po-unit-cost').value=total/grams;
+    this.updateEditPOPreview();
+  }
+
   onEditPOQtyOrCostChange() {
     const po=this.data.purchases.find(p=>p.id===document.getElementById('edit-po-id')?.value);
     const qty = parseFloat(document.getElementById('edit-po-qty')?.value) || 0;
     const unitCost = parseFloat(document.getElementById('edit-po-unit-cost')?.value) || 0;
-    const grams=po?.measureType==='Pesaje'?qty:qty*Number(po?.productGrams||0);
-    const gramsEl=document.getElementById('edit-po-grams');if(gramsEl){gramsEl.value=grams;gramsEl.readOnly=true;}
+    const info=NexusSafety.purchaseWeightInfo(po||{},this.data.products.find(p=>p.id===po?.productId),this.data.categories);
+    const grams=info.extra?0:info.measureType==='Pesaje'?qty:NexusSafety.round(qty*(this._editPoWeightChanged?this._editPoPieceWeight:info.pieceWeight));
+    const gramsEl=document.getElementById('edit-po-grams');if(gramsEl)gramsEl.value=grams;
     if (unitCost > 0) {
-      const autoTotal = grams > 0 ? Math.round(grams * unitCost) : Math.round(qty * unitCost);
+      if(!info.extra&&!(grams>0)){this.updateEditPOPreview();return;}
+      const autoTotal = NexusLedger.money((info.extra?qty:grams) * unitCost);
       const totalEl = document.getElementById('edit-po-total');
       if (totalEl) totalEl.value = autoTotal;
       this.onEditPOTotalChange();
@@ -10478,6 +10495,8 @@ class NexusApp {
     event?.preventDefault();
     const id=document.getElementById('edit-po-id')?.value,po=this.data.purchases.find(p=>p.id===id);if(!po)return;
     const args={purchaseId:id,date:document.getElementById('edit-po-date')?.value,supplier:document.getElementById('edit-po-supplier')?.value,productSku:document.getElementById('edit-po-product-sku')?.value,productName:document.getElementById('edit-po-product-name')?.value?.trim(),quantity:Number(document.getElementById('edit-po-qty')?.value),unitCost:Number(document.getElementById('edit-po-unit-cost')?.value),total:Number(document.getElementById('edit-po-total')?.value),paidAmount:Number(document.getElementById('edit-po-paid')?.value),reason:document.getElementById('edit-po-reason')?.value?.trim()};
+    const weightInfo=NexusSafety.purchaseWeightInfo(po,this.data.products.find(p=>p.id===po.productId),this.data.categories),gramsField=document.getElementById('edit-po-grams');
+    if(weightInfo.editable&&gramsField){args.totalGrams=Number(gramsField.value);args.preserveWeightTotal=!!this._editPoWeightChanged&&args.total===Number(po.total);}
     if(!args.reason)throw new Error('Escribe el motivo y el soporte de la corrección.');
     const p=this.data.products.find(p=>p.id===po.productId),inventoryChange=args.quantity!==Number(po.quantity)||args.unitCost!==Number(po.unitCost)||args.total!==Number(po.total);
     const untouched=po.inventoryAfter&&p&&Math.abs(Number(p.stock)-Number(po.inventoryAfter.stock))<.000001&&Math.abs(Number(p.cost)-Number(po.inventoryAfter.cost))<.0001;

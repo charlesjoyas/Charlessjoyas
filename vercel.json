@@ -14,7 +14,8 @@
       "codex/fix-supplier-email-edit": false,
       "codex/fix-cash-outflow-labels": false,
       "codex/fix-purchase-product-name": false,
-      "codex/fix-purchase-save-status": false
+      "codex/fix-purchase-save-status": false,
+      "codex/fix-production-purchase-grams": false
     }
   },
   "headers": [
