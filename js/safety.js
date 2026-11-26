@@ -46,7 +46,7 @@
     return { inventoryValue:round(generalValue+extraValue,2), generalInventoryValue:round(generalValue,2), extrasInventoryValue:round(extraValue,2), totalGrams:round(grams), avgCostGrams:round(grams), avgCostPerGram:grams>0?Math.round(metalValue/grams):0, skusCount:products.length, generalSkusCount:generalCodes, extrasByCategory };
   }
   const isScrapGold = p => p?.materialForm === 'scrapGold';
-  const validScrapWeight = (value, allowZero = false) => typeof value==='number'&&Number.isFinite(value)&&(allowZero&&value===0||value>=0.000001)&&Number.isFinite(round(value))&&Math.abs(round(value)-value)<=1e-9;
+  const validScrapWeight = (value, allowZero = false) => typeof value==='number'&&Number.isFinite(value)&&(allowZero&&value===0||value>=0.000001)&&Number.isFinite(round(value))&&Number(value.toFixed(6))===value;
   const parseGramInput = raw => /^\d+(?:[.,]\d{1,6})?$/.test(String(raw??'').trim())?Number(String(raw).trim().replace(',','.')):NaN;
   function scrapCategoryTotals(products = [], categories = []) {
     return categories.filter(c=>products.some(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id)).map(c=>{

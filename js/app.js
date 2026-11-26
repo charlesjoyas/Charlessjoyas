@@ -1148,6 +1148,10 @@ class NexusApp {
   }
 
   getProductTotalCost(p) { return p ? NexusSafety.productValue(p) : 0; }
+  getInventoryCategoryLabel(p) {
+    const label=p.categoryName||p.category||'General';
+    return NexusSafety.isScrapGold(p)?label+' · '+({italiano:'Italiano',nacional:'Nacional'}[p.scrapOrigin]||'Sin clasificar'):label;
+  }
 
   syncAllCategoryGrams() {
     if (!this.data || !Array.isArray(this.data.categories) || !Array.isArray(this.data.products)) return;
@@ -10812,13 +10816,13 @@ class NexusApp {
         p.barcode || 'S/B',
         p.id || '',
         p.name || '',
-        p.categoryName || p.category || 'General',
+        this.getInventoryCategoryLabel(p),
         p.measureType || 'Pesaje',
         unit,
         p.supplier || 'ANÓNIMO',
         this.formatNumberWithDots(unitPieceCost, 0),
         priceNum > 0 ? this.formatNumberWithDots(priceNum, 0) : '0',
-        (isPesaje || pWeight > 0) ? this.formatNumberWithDots(stockNum, 2) : this.formatNumberWithDots(stockNum, 0),
+        (isPesaje || pWeight > 0) ? this.formatNumberWithDots(stockNum, NexusSafety.isScrapGold(p)?6:2) : this.formatNumberWithDots(stockNum, 0),
         estadoIndicator,
         estadoCatalogo,
         this.formatNumberWithDots(totalCostVal, 0),
@@ -10965,7 +10969,7 @@ class NexusApp {
 
       totalCosto += totalCostVal;
       totalVenta += totalPriceVal;
-      totalGramos += this.getGramsFromProduct(p);
+      totalGramos += NexusSafety.isScrapGold(p)?NexusSafety.physicalGrams(p):this.getGramsFromProduct(p);
       if (!isPesaje) {
         totalUnidades += stockNum;
       }
@@ -10979,7 +10983,7 @@ class NexusApp {
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.barcode || 'S/B')}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.id || '')}</Data></Cell>
         <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.name || '')}</Data></Cell>
-        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(p.categoryName || p.category || 'General')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(this.getInventoryCategoryLabel(p))}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.measureType || 'Pesaje')}</Data></Cell>
         <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${pWeight}</Data></Cell>
         <Cell ss:StyleID="${(isPesaje || pWeight > 0) ? 'CellGrams' : 'CellNumber'}"><Data ss:Type="Number">${stockNum}</Data></Cell>
@@ -11074,7 +11078,7 @@ class NexusApp {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const pWeight = parseNum(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0));
       const cost = parseNum(p.cost || entry.baseCost || 0);
-      const prodGrams = this.getGramsFromProduct(p);
+      const prodGrams = NexusSafety.isScrapGold(p)?NexusSafety.physicalGrams(p):this.getGramsFromProduct(p);
 
       entry.stockGrams += prodGrams;
       if (!isPesaje) {
@@ -11200,6 +11204,8 @@ class NexusApp {
     });
 
     const totalGramosGestionados = totalStockGrams + totalSoldGrams;
+    const hasScrap=allProds.some(NexusSafety.isScrapGold);
+    const consolidatedAverageCost=hasScrap?NexusSafety.inventoryMetrics(allProds,cats).avgCostPerGram:(totalStockGrams>0?Math.round(totalStockCost/totalStockGrams):0);
     const rotacionGlobal = totalGramosGestionados > 0 ? (totalSoldGrams / totalGramosGestionados) * 100 : 0;
     const margenBrutoGlobal = totalSoldCop - totalSoldCost;
     const pctMargenGlobal = totalSoldCop > 0 ? (margenBrutoGlobal / totalSoldCop) * 100 : 0;
@@ -11238,7 +11244,7 @@ class NexusApp {
     activeCats.forEach(c => {
       const totG = Math.round((c.stockGrams + c.soldGrams) * 100) / 100;
       const soldG = Math.round(c.soldGrams * 100) / 100;
-      const stockG = Math.round(c.stockGrams * 100) / 100;
+      const stockG = c.id==='chatarra'?NexusSafety.round(c.stockGrams):Math.round(c.stockGrams * 100) / 100;
       const rotPct = totG > 0 ? (c.soldGrams / totG) * 100 : 0;
       const soldU = Math.round(c.soldUnits);
       const stockU = Math.round(c.stockUnits);
@@ -11286,10 +11292,10 @@ class NexusApp {
       const soldU = Math.round(p.soldUnits);
       const soldCop = Math.round(p.soldTotalCop);
       const stockG = (p.measureType === 'Pesaje' || p.pieceWeight > 0)
-        ? `${this.getGramsFromProduct(p).toLocaleString('es-CO')} g`
+        ? `${(NexusSafety.isScrapGold(p)?NexusSafety.physicalGrams(p):this.getGramsFromProduct(p)).toLocaleString('es-CO',{maximumFractionDigits:NexusSafety.isScrapGold(p)?6:3})} g`
         : `${parseNum(p.stock).toLocaleString('es-CO')} u.`;
       const totG = (p.measureType === 'Pesaje' || p.pieceWeight > 0)
-        ? Math.round((this.getGramsFromProduct(p) + p.soldGrams) * 100) / 100
+        ? NexusSafety.isScrapGold(p)?NexusSafety.round(NexusSafety.physicalGrams(p)+p.soldGrams):Math.round((this.getGramsFromProduct(p) + p.soldGrams) * 100) / 100
         : soldG;
       const isAgotado = parseNum(p.stock) <= 0;
       const estadoBadge = isAgotado ? 'BadgeRose' : 'BadgeGreen';
@@ -11499,7 +11505,7 @@ class NexusApp {
    </Row>
    ${rowsTabla2Xml}
    <Row ss:Height="24">
-    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES BALANCE</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${hasScrap?'TOTALES BALANCE · promedio principal sin Chatarra':'TOTALES BALANCE'}</Data></Cell>
     <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalGramosGestionados * 100) / 100}</Data></Cell>
     <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalSoldGrams * 100) / 100}</Data></Cell>
     <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalStockGrams * 100) / 100}</Data></Cell>
@@ -11507,7 +11513,7 @@ class NexusApp {
     <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${Math.round(totalSoldUnits)}</Data></Cell>
     <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${Math.round(totalStockUnits)}</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalStockCost)}</Data></Cell>
-    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalStockGrams > 0 ? Math.round(totalStockCost / totalStockGrams) : 0}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${consolidatedAverageCost}</Data></Cell>
     <Cell ss:StyleID="BadgeGreen"><Data ss:Type="String">CONSOLIDADO</Data></Cell>
    </Row>
    <Row ss:Height="15"></Row>
