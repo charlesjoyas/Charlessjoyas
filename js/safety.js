@@ -96,7 +96,16 @@
     if (!isChainLot(product) || item.inventoryMode !== 'chainLot' || item.lotCode !== product.lotCode || item.unit !== 'g') throw lotError('La venta no identifica el lote original.');
     return { grams: Number(item.qty ?? item.quantity), units: item.unitCount };
   }
-  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics };
+  function purchaseWeightInfo(po, product, categories = []) {
+    const category=categoryFor({category:po.category||product?.category,categoryName:po.categoryName||product?.categoryName},categories);
+    const extra=!!(product?.isExtra||category?.isExtra||category?.type==='extras');
+    const measureType=po.measureType||product?.measureType||'Pesaje',quantity=Number(po.quantity??po.itemsCount??0);
+    let pieceWeight=Number(po.productGrams)||0;
+    if(!extra&&measureType==='Unidades'&&pieceWeight<=0&&Number(po.totalGrams)>0&&quantity>0)pieceWeight=Number(po.totalGrams)/quantity;
+    const lot=isChainLot(product)||po.inventoryMode==='chainLot';
+    return {extra,lot,measureType,quantity,pieceWeight:extra?0:pieceWeight,grams:extra?0:measureType==='Pesaje'?quantity:round(quantity*pieceWeight),editable:!!product&&!extra&&!lot&&product.id===po.productId&&sku(product.sku)===sku(po.productSku)};
+  }
+  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics, purchaseWeightInfo };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.NexusSafety = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
