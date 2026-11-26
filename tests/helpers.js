@@ -81,10 +81,11 @@ function memoryApi(seed, options = {}) {
   let failWrite = false;
   const api = createStateApi({
     read: async () => clone(state),
-    compareAndSwap: async (base, next) => {
+    compareAndSwap: async (base, next, previous, writeOptions) => {
       if (failWrite) throw new Error('Storage outage');
       if (base !== state.updatedAt) return false;
-      state = clone(next);
+      const {stateUpdate}=require('../lib/state-update'),{applyUpdate}=require('./update-fixture');
+      state = clone(applyUpdate({content:state},stateUpdate(previous||state,next,writeOptions)).content);
       return true;
     }, secret:'test-only-signing-secret-more-than-32-characters', ...options
   });
