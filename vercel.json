@@ -19,7 +19,8 @@
       "codex/fix-product-category-correction": false,
       "codex/fix-mongo-read-timeouts": false,
       "codex/lazy-audit-and-branding": false,
-      "codex/fix-lazy-audit-projection": false
+      "codex/fix-lazy-audit-projection": false,
+      "codex/fix-purchase-save-transfer": false
     }
   },
   "headers": [

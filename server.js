@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { createStateApi } = require('./lib/state-api');
 const {createRevisionReader}=require('./lib/revision-reader');
 const {compactMongoPipeline,auditMongoPipeline}=require('./lib/compact-state');
+const {stateUpdate}=require('./lib/state-update');
 const localRecovery=require('./lib/local-recovery');
 const fs = require('fs');
 const path = require('path');
@@ -240,15 +241,18 @@ async function readStore() {
   if (process.env.VERCEL) throw new Error('MONGO_URI is required');
   return loadLocalDb();
 }
-async function compareAndSwapStore(expected, data) {
+async function compareAndSwapStore(expected, data, previous, options={}) {
   if (MONGO_URI) {
     if (!await ensureDbConnected()) throw new Error('Database unavailable');
     const saved = await DataModel.updateOne(
       { key: 'main_store', 'content.updatedAt': expected },
-      { $set: { content: data, updatedAt: new Date(data.updatedAt) } }
+      stateUpdate(previous,data,options)
     );
     // The business database is the only write target in Mongo mode. Backups are explicit snapshots.
-    if(saved.matchedCount===1){readMongoSnapshot.committed(data);readMongoCompact.committed(data);}
+    if(saved.matchedCount===1){
+      if(options.compactSource)readMongoSnapshot.invalidate();else readMongoSnapshot.committed(data);
+      readMongoCompact.committed(data);
+    }
     return saved.matchedCount===1;
   }
   if (process.env.VERCEL) throw new Error('MONGO_URI is required');
@@ -268,7 +272,7 @@ async function pushCollection(name) {
   await pushIndexes;
   return db.collection(name);
 }
-const pushService=createPushService({collection:pushCollection,readState:readStore,secret:AUTH_SECRET,secure:!!process.env.VERCEL,
+const pushService=createPushService({collection:pushCollection,readState:readAuthStore,secret:AUTH_SECRET,secure:!!process.env.VERCEL,
   enabled:!!MONGO_URI&&process.env.NEXUS_ENABLE_WEB_PUSH==='1',publicKey:process.env.WEB_PUSH_PUBLIC_KEY,privateKey:process.env.WEB_PUSH_PRIVATE_KEY,subject:process.env.WEB_PUSH_SUBJECT,
   background:job=>{if(process.env.VERCEL)waitUntil(job);}
 });

@@ -292,6 +292,8 @@ class NexusApp {
       const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1','X-Nexus-Response-Mode':'compact-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
       const result=await res.json();
       if(!res.ok||!result.success)throw Object.assign(new Error((result.error || 'El servidor no confirmó la operación.')+(result.reference?` Referencia: ${result.reference}.`:'')),{status:res.status,code:result.code});
+      const knownLogo=this.data.store?.branding?.logoUrl,replyLogo=result.data?.store?.branding?.logoUrl;
+      if(!result.alreadyApplied&&result.data?._transport?.mode==='compact-v1'&&String(knownLogo||'').startsWith('/api/branding/logo?')&&String(replyLogo||'').startsWith('/api/branding/logo?revision='))result.data.store.branding.logoUrl=knownLogo;
       this.data=result.data;this._lastServerUpdatedAt=result.updatedAt;this._confirmedData=JSON.parse(JSON.stringify(result.data));
       this._requiresRefresh=false;
       this.currentUser=this.data.users.find(u=>u.id===this.currentUser?.id)||this.currentUser;
