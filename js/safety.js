@@ -48,9 +48,9 @@
   const isScrapGold = p => p?.materialForm === 'scrapGold';
   function scrapCategoryTotals(products = [], categories = []) {
     return categories.filter(c=>products.some(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id)).map(c=>{
-      const members=products.filter(p=>categoryFor(p,categories)?.id===c.id);
+      const members=products.filter(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id);
       const total=list=>{const grams=round(list.reduce((s,p)=>s+physicalGrams(p),0)),value=round(list.reduce((s,p)=>s+productValue(p),0),2);return {grams,value,average:grams>0?round(value/grams,2):0};};
-      return {id:c.id,name:c.name,jewelry:total(members.filter(p=>!isScrapGold(p))),scrap:total(members.filter(isScrapGold)),total:total(members)};
+      return {id:c.id,name:c.name,total:total(members)};
     });
   }
   function replenishment(product, quantity, costPerGram, pieceWeight) {
