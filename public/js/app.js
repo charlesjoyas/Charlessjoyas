@@ -1173,7 +1173,8 @@ class NexusApp {
         cat.totalValuation = Math.round((prodsInCat.length > 0 ? totalCost : ((cat.availableUnits || 0) * (cat.cost || 0))) * 100) / 100;
       } else {
         const totalGrams = prodsInCat.reduce((sum, p) => sum + (this.getCategoryProductGrams(p) || 0), 0);
-        cat.availableGrams = prodsInCat.length > 0 ? (Math.round(totalGrams * 100) / 100) : (Math.max(0, Number(cat.availableGrams) || 0));
+        cat.availableGrams = cat.id==='chatarra'?NexusSafety.round(totalGrams):prodsInCat.length > 0 ? (Math.round(totalGrams * 100) / 100) : (Math.max(0, Number(cat.availableGrams) || 0));
+        if(cat.id==='chatarra'&&totalGrams===0)cat.cost=0;
         if (isUnidades) {
           const totalUnits = prodsInCat.reduce((sum, p) => sum + Math.max(0, (parseFloat(String(p.stock || 0).replace(',', '.')) || 0)), 0);
           cat.availableUnits = prodsInCat.length > 0 ? totalUnits : (Number(cat.availableUnits) || 0);
@@ -4717,6 +4718,7 @@ class NexusApp {
     const origSkuInput = document.getElementById('edit-prod-orig-sku');
     if (origSkuInput) origSkuInput.value = p.sku || '';
     document.getElementById('edit-prod-sku').value = p.sku || '001';
+    document.getElementById('edit-prod-sku').readOnly = NexusSafety.isScrapGold(p);
     document.getElementById('edit-prod-name').value = p.name;
     document.getElementById('edit-prod-cost').value = p.cost !== undefined ? this.formatNumberWithCommas(p.cost, true) : '';
     document.getElementById('edit-prod-stock').value = p.stock !== undefined ? this.formatNumberWithCommas(p.stock, true) : 0;
@@ -26461,7 +26463,7 @@ class NexusApp {
 
   readPosQuantity(raw = document.getElementById('pos-add-qty-input')?.value) {
     const p = this.data.products.find(p => p.id === document.getElementById('pos-add-product-id')?.value);
-    if (!NexusSafety.isChainLot(p)) return this.parseCleanNumber(raw);
+    if (!NexusSafety.isChainLot(p)&&!NexusSafety.isScrapGold(p)) return this.parseCleanNumber(raw);
     const value = String(raw ?? '').trim();
     return /^\d+(?:[.,]\d{1,6})?$/.test(value) ? Number(value.replace(',', '.')) : NaN;
   }
@@ -26614,7 +26616,7 @@ class NexusApp {
       lotUnits.max = isLot ? String(p.stockUnits || 0) : '';
     }
     if (elQtyInput) {
-      if (elQtyInput.dataset) elQtyInput.dataset.plainDecimal = String(isLot);
+      if (elQtyInput.dataset) elQtyInput.dataset.plainDecimal = String(isLot||NexusSafety.isScrapGold(p));
       elQtyInput.value = isLot ? (existing ? String(existing.qty) : '') : this.formatNumberWithCommas(defaultQty, isPesaje || isUnitWithWeight);
       elQtyInput.max = maxAvailableQty;
     }
@@ -26636,7 +26638,7 @@ class NexusApp {
     if (elPriceInput) {
       elPriceInput.value = initialPrice > 0 ? this.formatNumberWithCommas(initialPrice) : '';
     }
-    this._posLotQuotedPrice = isLot && existing && initialPrice > 0 ? {id:p.id,price:initialPrice,display:elPriceInput?.value} : null;
+    this._posLotQuotedPrice = (isLot||NexusSafety.isScrapGold(p)) && existing && initialPrice > 0 ? {id:p.id,price:initialPrice,display:elPriceInput?.value} : null;
 
     const elPriceUnitTag = document.getElementById('pos-add-price-unit-tag');
     if (elPriceUnitTag) {
@@ -26689,7 +26691,7 @@ class NexusApp {
     const id = document.getElementById('pos-add-product-id')?.value;
     const p = this.data.products.find(p => p.id === id);
     // Retain the negotiated whole-peso total even when its price/g is fractional.
-    this._posLotQuotedPrice = NexusSafety.isChainLot(p) && qtyVal > 0 && totalSale > 0 ? {id, price:totalSale/qtyVal, display:priceInput?.value} : null;
+    this._posLotQuotedPrice = (NexusSafety.isChainLot(p)||NexusSafety.isScrapGold(p)) && qtyVal > 0 && totalSale > 0 ? {id, price:totalSale/qtyVal, display:priceInput?.value} : null;
     this.updateAddToCartModalPreview();
   }
 
@@ -26836,9 +26838,10 @@ class NexusApp {
     }
     const deltaStep = delta > 0 ? step : -step;
 
-    let cur = this.parseCleanNumber(input.value);
-    let next = Math.round((cur + deltaStep) * 100) / 100;
-    const minVal = isUnitWithWeight ? pWeight : (isPesaje ? 0.01 : 1);
+    let cur = NexusSafety.isScrapGold(p)?this.readPosQuantity(input.value):this.parseCleanNumber(input.value);
+    if(NexusSafety.isScrapGold(p)&&!Number.isFinite(cur)){this.showToast('Digita un peso válido antes de ajustarlo.','warning');return;}
+    let next = NexusSafety.isScrapGold(p)?NexusSafety.round(cur+deltaStep):Math.round((cur + deltaStep) * 100) / 100;
+    const minVal = NexusSafety.isScrapGold(p)?0.000001:isUnitWithWeight ? pWeight : (isPesaje ? 0.01 : 1);
     if (next < minVal) next = minVal;
     if (next > maxStock) next = maxStock;
     input.value = this.formatNumberWithCommas(next, isPesaje || isUnitWithWeight);
@@ -26952,6 +26955,7 @@ class NexusApp {
   addToCart(productId, qty = null, customPrice = null, unitCount = null) {
     const product = this.data.products.find(p => p.id === productId);
     if (!product) return false;
+    if(NexusSafety.isScrapGold(product)&&qty!==null&&!NexusSafety.validScrapWeight(Number(qty))){this.showToast('Digita un peso de Chatarra válido, con hasta seis decimales.','warning');return false;}
     if (NexusSafety.isChainLot(product)) {
       if (qty === null || unitCount === null) { this.openAddToCartModal(productId); return false; }
       try { NexusSafety.lotMovement(product, qty, unitCount); }
@@ -27075,7 +27079,8 @@ class NexusApp {
     const maxStock = isUnitWithWeight ? NexusSafety.round(maxStockUnits * pWeight) : maxStockUnits;
     const roundPrec = 1000000;
 
-    let val = this.parseCleanNumber(rawValue);
+    let val = NexusSafety.isScrapGold(cartItem.product)?NexusSafety.parseGramInput(rawValue):this.parseCleanNumber(rawValue);
+    if(NexusSafety.isScrapGold(cartItem.product)&&(!Number.isFinite(val)||val>0&&!NexusSafety.validScrapWeight(val))){this.showToast('Digita gramos con hasta seis decimales, sin separadores de miles.','warning');this.renderCart();return;}
     if (isNaN(val) || val <= 0) {
       this.cart.splice(itemIndex, 1);
     } else {
