@@ -198,6 +198,28 @@ class NexusApp {
     a.href=url;a.download='conciliacion-charles-joyas.json';a.click();URL.revokeObjectURL(url);
   }
 
+  openAuditHistory(page = 0) {
+    if(!this.isAdminUser())return this.blockUnsafeOperation('El historial requiere un administrador.');
+    this._auditRows=[...(this.data.financialLedger||[])].sort((a,b)=>Number(b.timestamp||0)-Number(a.timestamp||0));
+    const pageCount=Math.max(1,Math.ceil(this._auditRows.length/100));this._auditPage=Math.max(0,Math.min(pageCount-1,Math.floor(Number(page)||0)));const start=this._auditPage*100;
+    const host=document.getElementById('audit-summary-list'),details=document.getElementById('audit-entry-details');
+    if(details)details.textContent='Selecciona un registro para consultar sus valores antes y después.';
+    this._auditRequestId=null;
+    if(host)host.innerHTML=this._auditRows.length?`<table class="data-table"><thead><tr><th>Fecha</th><th>Registrado por</th><th>Motivo</th><th></th></tr></thead><tbody>${this._auditRows.slice(start,start+100).map((e,i)=>`<tr><td>${this.escapeHtml(e.date||'')}</td><td>${this.escapeHtml(e.actor||'Registro del sistema')}</td><td>${this.escapeHtml(e.reason||'Actualización documentada')}</td><td><button type="button" class="btn btn-secondary" onclick="app.openAuditDetails(${start+i})">Ver detalle</button></td></tr>`).join('')}</tbody></table><p>Registros ${start+1}–${Math.min(start+100,this._auditRows.length)} de ${this._auditRows.length}. El historial completo se conserva.</p><div>${this._auditPage>0?`<button type="button" class="btn" onclick="app.openAuditHistory(${this._auditPage-1})">Anterior</button>`:''}${this._auditPage+1<pageCount?`<button type="button" class="btn" onclick="app.openAuditHistory(${this._auditPage+1})">Siguiente</button>`:''}</div>`:'No hay correcciones registradas.';
+    this.openModal('audit-history-modal');
+  }
+
+  async openAuditDetails(index) {
+    const entry=this._auditRows?.[index],host=document.getElementById('audit-entry-details');if(!entry||!host)return;
+    this._auditRequestId=entry.id;host.textContent='Consultando los valores originales…';
+    try{
+      const res=await fetch('/api/audit?id='+encodeURIComponent(entry.id),{cache:'no-store',signal:AbortSignal.timeout(90000)}),data=await res.json();
+      if(!res.ok)throw new Error(data.error||'No se pudo consultar el detalle.');
+      if(this._auditRequestId!==entry.id)return;
+      host.textContent=JSON.stringify(data.entry,null,2);
+    }catch(error){if(this._auditRequestId===entry.id)host.textContent=error.message;}
+  }
+
   openReconciliationAction(index) {
     const issue=this.reconciliationReport?.issues[index];if(!issue?.action)return;
     this.reconciliationAction=issue;
@@ -267,7 +289,7 @@ class NexusApp {
     const body={type,args,operationId,actorId:this.currentUser?.id,baseUpdatedAt:this._lastServerUpdatedAt};
     try {
       this.setPendingFinancialCommand(body);
-      const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
+      const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1','X-Nexus-Response-Mode':'compact-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
       const result=await res.json();
       if(!res.ok||!result.success)throw Object.assign(new Error((result.error || 'El servidor no confirmó la operación.')+(result.reference?` Referencia: ${result.reference}.`:'')),{status:res.status,code:result.code});
       this.data=result.data;this._lastServerUpdatedAt=result.updatedAt;this._confirmedData=JSON.parse(JSON.stringify(result.data));
@@ -1086,7 +1108,7 @@ class NexusApp {
   }
 
   async loadPersistence() {
-    const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(90000) });
+    const res = await fetch('/api/data', { cache: 'no-store', headers:{'X-Nexus-Response-Mode':'compact-v1'}, signal: AbortSignal.timeout(90000) });
     if (!res.ok) throw Object.assign(new Error('No se pudo cargar la base de datos. Verifica la conexión e inicia sesión.'), { status: res.status });
     const state = await res.json();
     if (!Array.isArray(state.products)) throw new Error('Respuesta de datos inválida.');
@@ -1221,7 +1243,7 @@ class NexusApp {
     this.syncAllCategoryGrams();
     try {
       const res = await fetch('/api/data', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexus-Client': 'stabilized-v1' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexus-Client': 'stabilized-v1', 'X-Nexus-Response-Mode': 'compact-v1' },
         body: JSON.stringify({ baseUpdatedAt: this._lastServerUpdatedAt ?? null, data: this.data }),
         signal: AbortSignal.timeout(90000)
       });
@@ -1287,7 +1309,7 @@ class NexusApp {
   async syncRemoteDataIfChanged() {
     if (!this.currentUser || this._isSaving || this._mutationActive || this._requiresRefresh) return;
     try {
-      const res = await fetch('/api/data', { cache: 'no-store', headers:this._lastServerUpdatedAt?{'X-Nexus-Known-Revision':this._lastServerUpdatedAt}:{}, signal: AbortSignal.timeout(90000) });
+      const res = await fetch('/api/data', { cache: 'no-store', headers:{'X-Nexus-Response-Mode':'compact-v1',...(this._lastServerUpdatedAt?{'X-Nexus-Known-Revision':this._lastServerUpdatedAt}:{})}, signal: AbortSignal.timeout(90000) });
       if (res.status === 401) { this.logout(); return; }
       if (!res.ok) return;
       const remote = await res.json();
@@ -1557,9 +1579,10 @@ class NexusApp {
     try {
       const pendingImages = Array.from(doc.images).filter(image => !image.complete);
       if (pendingImages.length) {
+        const imageWait=pendingImages.some(image=>String(image.src||'').includes('/api/branding/logo?'))?15000:750;
         await Promise.race([
           Promise.allSettled(pendingImages.map(image => image.decode())),
-          new Promise(resolve => setTimeout(resolve, 750))
+          new Promise(resolve => setTimeout(resolve, imageWait))
         ]);
       }
 
@@ -1640,7 +1663,7 @@ class NexusApp {
     if (this._loggingIn) return;
     this._loggingIn = true;
     try {
-      const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({email:document.getElementById('login-email')?.value?.trim(),password:document.getElementById('login-password')?.value}),signal:AbortSignal.timeout(25000) });
+      const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1','X-Nexus-Response-Mode':'compact-v1'}, body:JSON.stringify({email:document.getElementById('login-email')?.value?.trim(),password:document.getElementById('login-password')?.value}),signal:AbortSignal.timeout(25000) });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'No se pudo iniciar sesión.');
       await this.loginUser(result.user);
@@ -1674,7 +1697,7 @@ class NexusApp {
     const pushDevice=window.CharlesPush?.device();
     window.CharlesPush?.reset();
     this._pushUserId=null;
-    fetch('/api/auth/logout', {method:'POST',headers:{'X-Nexus-Client':'stabilized-v1',...(pushDevice?{'X-Nexus-Push-Device':pushDevice}:{})}}).catch(() => {});
+    fetch('/api/auth/logout', {method:'POST',headers:{'X-Nexus-Client':'stabilized-v1','X-Nexus-Response-Mode':'compact-v1',...(pushDevice?{'X-Nexus-Push-Device':pushDevice}:{})}}).catch(() => {});
     this.currentUser = null;
     this.currentParentView = null;
     this.currentSubView = null;
@@ -5289,7 +5312,7 @@ class NexusApp {
     const newPassword = document.getElementById(prefix + '-new')?.value || '';
     const confirmPassword = document.getElementById(prefix + '-confirm')?.value || '';
     if (newPassword.length < 4 || newPassword !== confirmPassword) throw new Error('La nueva contraseña debe tener al menos 4 caracteres y coincidir con su confirmación.');
-    const res = await fetch('/api/auth/password', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({userId,currentPassword,newPassword}),signal:AbortSignal.timeout(15000) });
+    const res = await fetch('/api/auth/password', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1','X-Nexus-Response-Mode':'compact-v1'}, body:JSON.stringify({userId,currentPassword,newPassword}),signal:AbortSignal.timeout(15000) });
     const result = await res.json();
     if(!res.ok) throw new Error(result.error || 'No se pudo cambiar la contraseña.');
     await this.loadPersistence();

@@ -89,8 +89,8 @@ function memoryApi(seed, options = {}) {
     }, secret:'test-only-signing-secret-more-than-32-characters', ...options
   });
   const request = async (name, body = {}, session = '', extra = {}) => {
-    const response = { statusCode:200, headers:{}, setHeader(k,v) { this.headers[k.toLowerCase()] = v; }, status(code) { this.statusCode=code; return this; }, json(body) { this.body=clone(body); return this; } };
-    await api[name]({ method:['get','session'].includes(name)?'GET':'POST', headers:{ 'x-nexus-client':'stabilized-v1', cookie:session, ...extra }, body:clone(body) }, response);
+    const response = { statusCode:200, headers:{}, setHeader(k,v) { this.headers[k.toLowerCase()] = v; }, status(code) { this.statusCode=code; return this; }, json(body) { this.body=clone(body); return this; },send(bytes){this.raw=Buffer.from(bytes);return this;} };
+    await api[name]({ method:['get','session','audit','logo'].includes(name)?'GET':'POST', headers:{ 'x-nexus-client':'stabilized-v1', cookie:session, ...extra }, body:clone(body),query:name==='audit'?{id:body.id}:name==='logo'?body:{} }, response);
     response.cookie = response.headers['set-cookie']?.split(';')[0];
     return response;
   };
@@ -104,7 +104,7 @@ function memoryApi(seed, options = {}) {
 async function connectOperations(h,options={},loginRole='admin'){
   const api=memoryApi({...clone(h.app.data),users:clone(h.seed.users)},options),session=await api.login(loginRole);
   h.app._confirmedData=clone(h.app.data);h.app.savePersistence=h.App.prototype.savePersistence;
-  h.context.fetch=async(url,options={})=>{const r=await api.request(url==='/api/operations'?'operation':options.method==='POST'?'post':'get',options.body?JSON.parse(options.body):{},session);return {ok:r.statusCode===200,status:r.statusCode,json:async()=>r.body};};
+  h.context.fetch=async(url,options={})=>{const headers=Object.fromEntries(Object.entries(options.headers||{}).map(([k,v])=>[k.toLowerCase(),v]));const r=await api.request(url==='/api/operations'?'operation':options.method==='POST'?'post':'get',options.body?JSON.parse(options.body):{},session,headers);return {ok:r.statusCode===200,status:r.statusCode,json:async()=>r.body};};
   return api;
 }
 const product = (fields = {}) => ({ id:'P1',sku:'001',name:'Audit jewelry',measureType:'Pesaje',weightUnit:'g',unit:'g',category:'oro18k',categoryName:'Oro 18K Italiano & Ley',stock:10,cost:100,price:200,minStock:.5,status:'active',...fields });
