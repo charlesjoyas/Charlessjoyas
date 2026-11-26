@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { createStateApi } = require('./lib/state-api');
+const {createRevisionReader}=require('./lib/revision-reader');
 const localRecovery=require('./lib/local-recovery');
 const fs = require('fs');
 const path = require('path');
@@ -135,9 +136,11 @@ async function ensureDbConnected() {
   }
   try {
     connectingPromise = mongoose.connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 6000,
-      socketTimeoutMS: 20000
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      socketTimeoutMS: 75000,
+      compressors: ['zlib'],
+      maxPoolSize: 5
     });
     await connectingPromise;
     mongoConnected = true;
@@ -188,12 +191,27 @@ function saveLocalDb(data) {
   }
 }
 
+// Authentication and polling only need a small projection, never the full inventory/history.
+async function readAuthStore(){
+  if(MONGO_URI){
+    if(!await ensureDbConnected())throw new Error('Database unavailable');
+    const projection={'content.perfiles':1,'content.updatedAt':1,_id:0};
+    for(const field of ['id','name','email','role','customPermissions','status','password','passwordHash'])projection['content.users.'+field]=1;
+    const doc=await DataModel.findOne({key:'main_store'}).select(projection).lean();
+    return doc?.content||null;
+  }
+  if(process.env.VERCEL)throw new Error('MONGO_URI is required');
+  return loadLocalDb();
+}
+const readMongoSnapshot=createRevisionReader({metadata:readAuthStore,full:async()=>{
+  const doc=await DataModel.findOne({key:'main_store'}).select({content:1,_id:0}).lean();
+  return doc?.content||null;
+}});
 // MongoDB is authoritative when configured. Never promote an older local copy during an outage.
 async function readStore() {
   if (MONGO_URI) {
     if (!await ensureDbConnected()) throw new Error('Database unavailable');
-    const doc = await DataModel.findOne({ key: 'main_store' }).lean();
-    return doc?.content || null;
+    return readMongoSnapshot();
   }
   if (process.env.VERCEL) throw new Error('MONGO_URI is required');
   return loadLocalDb();
@@ -201,13 +219,13 @@ async function readStore() {
 async function compareAndSwapStore(expected, data) {
   if (MONGO_URI) {
     if (!await ensureDbConnected()) throw new Error('Database unavailable');
-    const saved = await DataModel.findOneAndUpdate(
+    const saved = await DataModel.updateOne(
       { key: 'main_store', 'content.updatedAt': expected },
-      { $set: { content: data, updatedAt: new Date(data.updatedAt) } },
-      { new: true }
+      { $set: { content: data, updatedAt: new Date(data.updatedAt) } }
     );
     // The business database is the only write target in Mongo mode. Backups are explicit snapshots.
-    return !!saved;
+    if(saved.matchedCount===1)readMongoSnapshot.committed(data);
+    return saved.matchedCount===1;
   }
   if (process.env.VERCEL) throw new Error('MONGO_URI is required');
   const current = loadLocalDb();
@@ -230,7 +248,7 @@ const pushService=createPushService({collection:pushCollection,readState:readSto
   enabled:!!MONGO_URI&&process.env.NEXUS_ENABLE_WEB_PUSH==='1',publicKey:process.env.WEB_PUSH_PUBLIC_KEY,privateKey:process.env.WEB_PUSH_PRIVATE_KEY,subject:process.env.WEB_PUSH_SUBJECT,
   background:job=>{if(process.env.VERCEL)waitUntil(job);}
 });
-const stateApi = createStateApi({ read: readStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled,
+const stateApi = createStateApi({ read: readStore, readAuth:readAuthStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled,
   onCommitted:pushService.committed,onLogout:pushService.logout });
 app.use('/api/push',stateApi.authorizePush);
 app.get('/api/push/config',pushService.config);
@@ -374,7 +392,7 @@ function generateLocalAiFallback(action, prompt, context = {}) {
 async function getStoredAiKey() {
   if (mongoConnected) {
     try {
-      const doc = await DataModel.findOne({ key: 'main_store' });
+      const doc = await DataModel.findOne({ key: 'main_store' }).select({'content.store.deepseekApiKey':1,_id:0}).lean();
       const k = doc?.content?.store?.deepseekApiKey;
       if (k) return String(k).trim();
     } catch (_) {}
