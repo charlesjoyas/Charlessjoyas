@@ -267,7 +267,7 @@ class NexusApp {
     const body={type,args,operationId,actorId:this.currentUser?.id,baseUpdatedAt:this._lastServerUpdatedAt};
     try {
       this.setPendingFinancialCommand(body);
-      const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+      const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
       const result=await res.json();
       if(!res.ok||!result.success)throw Object.assign(new Error((result.error || 'El servidor no confirmó la operación.')+(result.reference?` Referencia: ${result.reference}.`:'')),{status:res.status,code:result.code});
       this.data=result.data;this._lastServerUpdatedAt=result.updatedAt;this._confirmedData=JSON.parse(JSON.stringify(result.data));
@@ -1086,7 +1086,7 @@ class NexusApp {
   }
 
   async loadPersistence() {
-    const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(90000) });
     if (!res.ok) throw Object.assign(new Error('No se pudo cargar la base de datos. Verifica la conexión e inicia sesión.'), { status: res.status });
     const state = await res.json();
     if (!Array.isArray(state.products)) throw new Error('Respuesta de datos inválida.');
@@ -1223,7 +1223,7 @@ class NexusApp {
       const res = await fetch('/api/data', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexus-Client': 'stabilized-v1' },
         body: JSON.stringify({ baseUpdatedAt: this._lastServerUpdatedAt ?? null, data: this.data }),
-        signal: AbortSignal.timeout(20000)
+        signal: AbortSignal.timeout(90000)
       });
       const result = await res.json();
       if (!res.ok || !result.success) throw Object.assign(new Error(result.error || 'El servidor no confirmó el guardado.'), { status: res.status });
@@ -1287,11 +1287,11 @@ class NexusApp {
   async syncRemoteDataIfChanged() {
     if (!this.currentUser || this._isSaving || this._mutationActive || this._requiresRefresh) return;
     try {
-      const res = await fetch('/api/data', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+      const res = await fetch('/api/data', { cache: 'no-store', headers:this._lastServerUpdatedAt?{'X-Nexus-Known-Revision':this._lastServerUpdatedAt}:{}, signal: AbortSignal.timeout(90000) });
       if (res.status === 401) { this.logout(); return; }
       if (!res.ok) return;
       const remote = await res.json();
-      if (!Array.isArray(remote.products) || remote.updatedAt === this._lastServerUpdatedAt) return;
+      if (remote.unchanged || !Array.isArray(remote.products) || remote.updatedAt === this._lastServerUpdatedAt) return;
       // A mutation may have started while the request was in flight.
       if (this._mutationActive || this._isSaving || this._requiresRefresh) return;
       this.data = remote;
@@ -1592,7 +1592,7 @@ class NexusApp {
 
   async checkAuth() {
     try {
-      const res = await fetch('/api/auth/session', { cache:'no-store', signal:AbortSignal.timeout(15000) });
+      const res = await fetch('/api/auth/session', { cache:'no-store', signal:AbortSignal.timeout(25000) });
       if (res.ok) { const { user } = await res.json(); await this.loginUser(user); return; }
     } catch (_) {}
     this.currentUser = null;
@@ -1640,7 +1640,7 @@ class NexusApp {
     if (this._loggingIn) return;
     this._loggingIn = true;
     try {
-      const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({email:document.getElementById('login-email')?.value?.trim(),password:document.getElementById('login-password')?.value}),signal:AbortSignal.timeout(15000) });
+      const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'}, body:JSON.stringify({email:document.getElementById('login-email')?.value?.trim(),password:document.getElementById('login-password')?.value}),signal:AbortSignal.timeout(25000) });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'No se pudo iniciar sesión.');
       await this.loginUser(result.user);
