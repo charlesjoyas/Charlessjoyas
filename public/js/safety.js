@@ -48,9 +48,9 @@
   function replenishment(product, quantity, costPerGram, pieceWeight) {
     const current = Number(product.stock) || 0;
     const pesaje = isPesaje(product);
-    if (![quantity, costPerGram].every(Number.isFinite) || quantity <= 0 || costPerGram < 0) throw new Error('Cantidad o costo de compra inválido.');
+    if (![quantity, costPerGram].every(Number.isFinite) || quantity <= 0 || costPerGram < 0) throw Object.assign(new Error('Cantidad o costo de compra inválido.'), {status:422, code:'INVALID_PURCHASE_AMOUNT'});
     if (!pesaje && current > 0 && weight(product) > 0 && pieceWeight > 0 && Math.abs(weight(product) - pieceWeight) > 0.000001) {
-      throw new Error('El peso por pieza es diferente al stock existente. Registra esta compra con otro SKU.');
+      throw Object.assign(new Error('El peso por pieza es diferente al stock existente. Registra esta compra con otro SKU.'), {status:422, code:'PIECE_WEIGHT_MISMATCH'});
     }
     const delta = pesaje ? quantity / factor(product.weightUnit) : quantity;
     const newCost = pesaje ? costPerGram * factor(product.weightUnit) : costPerGram;
