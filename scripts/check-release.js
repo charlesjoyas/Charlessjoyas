@@ -10,6 +10,8 @@ for (const name of assets) {
 }
 for (const name of ['server.js','lib/state-api.js','lib/operations.js','lib/financial-validation.js','lib/local-recovery.js','lib/mongo-recovery.js','scripts/reconcile-history.js','scripts/local-recovery.js','scripts/mongo-recovery.js','scripts/export-git-evidence.js','scripts/validate-isolated-copy.js','scripts/build-reconciliation-review.js','js/app.js','js/data.js','js/safety.js','js/ledger.js','js/reconciliation.js','showcase/js/showcase.js']) execFileSync(process.execPath,['--check',path.join(root,name)]);
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+assert.ok(fs.readFileSync(path.join(root,'js/scrap-gold.js')).equals(fs.readFileSync(path.join(root,'public/js/scrap-gold.js'))),'scrap-gold.js: public copy differs');
+for(const name of ['js/scrap-gold.js','scripts/scrap-gold-local.js'])execFileSync(process.execPath,['--check',path.join(root,name)]);
 for(const name of ['lib/web-push.js','lib/product-names.js','js/push-notifications.js','js/release-notice.js','scripts/stamp-release.js','push-sw.js'])execFileSync(process.execPath,['--check',path.join(root,name)]);
 execFileSync(process.execPath,['--check',path.join(root,'js/chain-lots.js')]);
 execFileSync(process.execPath,['--check',path.join(root,'scripts/chain-lots-local.js')]);

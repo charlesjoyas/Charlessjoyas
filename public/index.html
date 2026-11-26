@@ -41,7 +41,7 @@
     #release-update-notice button:disabled { opacity:.5; cursor:not-allowed; }
     #push-notifications-modal { z-index: 15000; }
     #push-notifications-modal button:disabled { opacity: .45; cursor: not-allowed; }
-    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden] { display: none !important; }
+    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden], #po-material-group[hidden], #scrap-gold-open[hidden] { display: none !important; }
     .thermal-ticket-wrapper {
       background: #f8fafc;
       padding: 10px;
@@ -1099,6 +1099,7 @@
                 </button>
                 <button class="btn btn-primary" id="open-purchase-modal-btn">+ Nueva Orden Compra</button>
                 <button type="button" id="chain-lots-open" class="btn btn-secondary" hidden onclick="app.openChainLots()">Consultar lotes</button>
+                <button type="button" id="scrap-gold-open" class="btn btn-secondary" hidden onclick="window.NexusScrapGold.open(app)">Oro chatarra · resumen</button>
               </div>
             </div>
             <div class="table-wrapper">
@@ -4693,6 +4694,11 @@
             </div>
           </div>
 
+          <div class="form-group" id="po-material-group" hidden>
+            <label class="form-label" for="po-material-form">Presentación de la mercancía</label>
+            <select id="po-material-form" class="form-select" onchange="app.onPurchaseMaterialFormChange()"><option value="jewelry">Joya / mercancía habitual</option><option value="scrapGold">Oro chatarra 18K</option></select>
+            <small>Chatarra: código propio, peso real y costo por gramo. Piloto de oro 18K en Nacional u Oro 18K; existencias separadas.</small>
+          </div>
           <!-- 3. TIPO DE MEDIDA -->
           <div class="form-group" style="margin-bottom: 0.75rem;">
             <label class="form-label" for="po-measure-type">Tipo de medida *</label>
@@ -5719,11 +5725,12 @@
   </div>
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=48" defer></script>
-  <script src="js/safety.js?v=130" defer></script>
+  <script src="js/safety.js?v=131" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=130" defer></script>
+  <script src="js/app.js?v=131" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
+  <script src="js/scrap-gold.js?v=131" defer></script>
   <script src="js/push-notifications.js?v=1" defer></script>
   <script src="js/release-notice.js?v=1" defer></script>
 </body>

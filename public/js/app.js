@@ -301,6 +301,8 @@ class NexusApp {
     if(!this.canPerformAction('create','purchase'))throw new Error('Tu perfil no permite registrar compras.');
     const method=document.getElementById('po-payment-method')?.value || 'Efectivo';
     const lot=this.isPurchaseChainLot();
+    const scrap=document.getElementById('po-material-form')?.value==='scrapGold';
+    if(scrap&&(!window.NexusScrapGold?.enabled||lot))throw new Error('La compra de chatarra requiere el piloto local y pesaje en gramos.');
     const lotArgs=lot?{inventoryMode:'chainLot',lotCode:document.getElementById('po-lot-code')?.value?.trim(),unitCount:Number(document.getElementById('po-lot-units')?.value)}:{};
     if(lot){
       if(!window.NexusChainLots?.enabled)throw new Error('Los lotes no están habilitados en este entorno.');
@@ -310,15 +312,16 @@ class NexusApp {
     }
     const result=await this.executeFinancialOperation('createPurchase',{
       ...lotArgs,
+      ...(scrap?{materialForm:'scrapGold',goldPurity:18}:{}),
       productId:document.getElementById('po-product-id')?.value || undefined,
       sku:document.getElementById('po-product-sku')?.value?.trim() || this.getNextConsecutiveSku(),
       name:document.getElementById('po-product-name')?.value?.trim(),
       supplier:document.getElementById('po-supp-select')?.value,
       category:document.getElementById('po-category-select')?.value,
-      measureType:lot?'Pesaje':document.getElementById('po-measure-type')?.value || 'Pesaje',
+      measureType:lot||scrap?'Pesaje':document.getElementById('po-measure-type')?.value || 'Pesaje',
       quantity:this.readPurchaseQuantity(),
       unitCost:this.parseMoneyInput(document.getElementById('po-unit-cost')?.value),
-      pieceWeight:lot?0:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
+      pieceWeight:lot||scrap?0:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
       paid:document.getElementById('po-payment-status')?.value==='Pagado Total',
       method,targetAccount:/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('po-account-select')?.value || this.getDestinationBankAccounts()[0],
       reason:'Ingreso de mercancía registrado mediante orden de compra'
@@ -3738,7 +3741,7 @@ class NexusApp {
 
   readPurchaseQuantity() {
     const raw=document.getElementById('po-quantity')?.value;
-    if(!this.isPurchaseChainLot())return this.parseCleanNumber(raw);
+    if(!this.isPurchaseChainLot()&&document.getElementById('po-material-form')?.value!=='scrapGold')return this.parseCleanNumber(raw);
     const value=String(raw??'').trim();
     return /^\d+(?:[.,]\d{1,6})?$/.test(value)?Number(value.replace(',','.')):NaN;
   }
@@ -3746,6 +3749,7 @@ class NexusApp {
   openPurchaseModal(mode = 'Pesaje') {
     const poForm = document.getElementById('add-purchase-form');
     if (poForm) poForm.reset();
+    const material=document.getElementById('po-material-form');if(material)material.value=mode==='scrapGold'&&window.NexusScrapGold?.enabled?'scrapGold':'jewelry';
     const hiddenId = document.getElementById('po-product-id');
     if (hiddenId) hiddenId.value = '';
     const nameInput = document.getElementById('po-product-name');
@@ -3823,7 +3827,7 @@ class NexusApp {
     if (!catSelect) return;
     const catId = catSelect.value;
     const catObj = (this.data.categories || []).find(c => c.id === catId);
-    if (!this.isPurchaseChainLot() && catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
+    if (document.getElementById('po-material-form')?.value!=='scrapGold' && !this.isPurchaseChainLot() && catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
       const measureSelect = document.getElementById('po-measure-type');
       if (measureSelect && measureSelect.value !== 'Unidades') {
         measureSelect.value = 'Unidades';
@@ -3887,8 +3891,16 @@ class NexusApp {
     }
   }
 
+  onPurchaseMaterialFormChange() {
+    if(document.getElementById('po-material-form')?.value==='scrapGold'){
+      const measure=document.getElementById('po-measure-type');if(measure)measure.value='Pesaje';
+    }
+    this.onPurchaseMeasureTypeChange();
+  }
+
   onPurchaseMeasureTypeChange() {
     const measureSelect = document.getElementById('po-measure-type');
+    if(document.getElementById('po-material-form')?.value==='scrapGold'&&measureSelect)measureSelect.value='Pesaje';
     const lot=this.isPurchaseChainLot();
     const isPesaje = lot || (measureSelect?.value || 'Pesaje') === 'Pesaje';
     const fields=document.getElementById('po-lot-fields');
@@ -3896,7 +3908,7 @@ class NexusApp {
     for(const id of ['po-lot-code','po-lot-units']){const field=document.getElementById(id);if(field){field.required=lot;field.disabled=!lot;}}
     const qty=document.getElementById('po-quantity');
     if(qty){
-      if(qty.dataset)qty.dataset.plainDecimal=String(lot);
+      if(qty.dataset)qty.dataset.plainDecimal=String(lot||document.getElementById('po-material-form')?.value==='scrapGold');
       if(this._purchaseLotMode!==undefined&&this._purchaseLotMode!==lot)qty.value='';
       qty.placeholder=lot?'Peso real total, ej. 200,25':'1';
     }
@@ -3951,6 +3963,7 @@ class NexusApp {
     if (nameInput && existing.name) nameInput.value = existing.name;
     if (skuInput && (existing.sku || existing.id)) skuInput.value = existing.sku || existing.id;
     if (catSelect && existing.category) catSelect.value = existing.category;
+    const material=document.getElementById('po-material-form');if(material)material.value=NexusSafety.isScrapGold(existing)?'scrapGold':'jewelry';
     if(NexusSafety.isChainLot(existing)&&!window.NexusChainLots?.enabled){this.showToast('Los lotes no están habilitados en este entorno.','warning');return;}
     if (measureSelect) measureSelect.value = NexusSafety.isChainLot(existing)?'chainLot':existing.measureType || 'Pesaje';
     this.onPurchaseMeasureTypeChange();

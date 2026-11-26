@@ -45,6 +45,14 @@
     const extrasByCategory = [...groups.values()].map(group => ({ ...group, value:round(group.value,2), grams:round(group.grams), units:round(group.units), averageCostPerGram:group.grams>0?round(group.value/group.grams,2):0, averageCostPerUnit:group.units>0?round(group.value/group.units,2):0 }));
     return { inventoryValue:round(generalValue+extraValue,2), generalInventoryValue:round(generalValue,2), extrasInventoryValue:round(extraValue,2), totalGrams:round(grams), avgCostGrams:round(grams), avgCostPerGram:grams>0?Math.round(metalValue/grams):0, skusCount:products.length, generalSkusCount:generalCodes, extrasByCategory };
   }
+  const isScrapGold = p => p?.materialForm === 'scrapGold';
+  function scrapCategoryTotals(products = [], categories = []) {
+    return categories.filter(c=>products.some(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id)).map(c=>{
+      const members=products.filter(p=>categoryFor(p,categories)?.id===c.id);
+      const total=list=>{const grams=round(list.reduce((s,p)=>s+physicalGrams(p),0)),value=round(list.reduce((s,p)=>s+productValue(p),0),2);return {grams,value,average:grams>0?round(value/grams,2):0};};
+      return {id:c.id,name:c.name,jewelry:total(members.filter(p=>!isScrapGold(p))),scrap:total(members.filter(isScrapGold)),total:total(members)};
+    });
+  }
   function replenishment(product, quantity, costPerGram, pieceWeight) {
     const current = Number(product.stock) || 0;
     const pesaje = isPesaje(product);
@@ -96,7 +104,7 @@
     if (!isChainLot(product) || item.inventoryMode !== 'chainLot' || item.lotCode !== product.lotCode || item.unit !== 'g') throw lotError('La venta no identifica el lote original.');
     return { grams: Number(item.qty ?? item.quantity), units: item.unitCount };
   }
-  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics };
+  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics, isScrapGold, scrapCategoryTotals };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.NexusSafety = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -7,6 +7,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "demo:lotes": "node scripts/chain-lots-local.js",
+    "demo:chatarra": "node scripts/scrap-gold-local.js",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check-release.js"
   },
