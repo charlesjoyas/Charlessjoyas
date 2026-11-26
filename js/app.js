@@ -141,7 +141,10 @@ class NexusApp {
       host.prepend(notice);
     }
     notice.replaceChildren();
-    const pending=this.getPendingFinancialCommand();
+    let pending=this.getPendingFinancialCommand();
+    if(pending&&pending.actorId===this.currentUser.id&&(this._confirmedData?.financialLedger||[]).some(e=>e.operationId===pending.operationId&&e.actorId===pending.actorId)){
+      this.setPendingFinancialCommand(null);pending=null;
+    }
     notice.hidden = !this._requiresRefresh && !pending;
     if (notice.hidden) return;
     const text = document.createElement('span');
@@ -149,7 +152,8 @@ class NexusApp {
       ? 'Guardado sin confirmar o conflicto con otro dispositivo. Revisa el historial antes de repetir la operación. '
       : 'Hay una operación pendiente de revisión; consulta su estado antes de realizar otra.';
     notice.appendChild(text);
-    if(pending&&!this._requiresRefresh){
+    if(pending){
+      if(pending.type==='createPurchase'&&pending.args?.sku){const detail=document.createElement('span');detail.textContent=` Compra del código ${pending.args.sku}. `;notice.appendChild(detail);}
       const recover=document.createElement('button');recover.type='button';recover.textContent='Revisar operación pendiente';
       recover.addEventListener('click',()=>this.reviewPendingOperation());notice.appendChild(recover);
     }
@@ -265,13 +269,14 @@ class NexusApp {
       this.setPendingFinancialCommand(body);
       const res=await fetch('/api/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Client':'stabilized-v1'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
       const result=await res.json();
-      if(!res.ok||!result.success)throw Object.assign(new Error(result.error || 'El servidor no confirmó la operación.'),{status:res.status,code:result.code});
+      if(!res.ok||!result.success)throw Object.assign(new Error((result.error || 'El servidor no confirmó la operación.')+(result.reference?` Referencia: ${result.reference}.`:'')),{status:res.status,code:result.code});
       this.data=result.data;this._lastServerUpdatedAt=result.updatedAt;this._confirmedData=JSON.parse(JSON.stringify(result.data));
       this._requiresRefresh=false;
       this.currentUser=this.data.users.find(u=>u.id===this.currentUser?.id)||this.currentUser;
       this.setPendingFinancialCommand(null);
       try{this.writeBrowserStorage('nexus_pos_data',JSON.stringify(this.data));}catch(_){}
-      this.sanitizeLoadedData();this.syncAllModules();this.renderCart();this.updateSafetyNotice();
+      try{this.sanitizeLoadedData();this.syncAllModules();this.renderCart();this.updateSafetyNotice();}
+      catch(_){this.showToast('La operación quedó guardada. Actualiza la pantalla para ver el resultado.','warning');}
       return result;
     }catch(error){
       if(error.status&&error.status<500&&error.status!==409){this.setPendingFinancialCommand(null);throw error;}
