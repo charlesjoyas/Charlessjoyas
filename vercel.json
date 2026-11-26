@@ -17,7 +17,8 @@
       "codex/fix-purchase-save-status": false,
       "codex/fix-production-purchase-grams": false,
       "codex/fix-product-category-correction": false,
-      "codex/fix-mongo-read-timeouts": false
+      "codex/fix-mongo-read-timeouts": false,
+      "codex/lazy-audit-and-branding": false
     }
   },
   "headers": [

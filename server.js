@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { createStateApi } = require('./lib/state-api');
 const {createRevisionReader}=require('./lib/revision-reader');
+const {compactMongoPipeline}=require('./lib/compact-state');
 const localRecovery=require('./lib/local-recovery');
 const fs = require('fs');
 const path = require('path');
@@ -207,6 +208,29 @@ const readMongoSnapshot=createRevisionReader({metadata:readAuthStore,full:async(
   const doc=await DataModel.findOne({key:'main_store'}).select({content:1,_id:0}).lean();
   return doc?.content||null;
 }});
+const readMongoCompact=createRevisionReader({metadata:readAuthStore,full:async()=>{
+  // Aggregation only shapes a response; there is no $out, $merge or storage mutation.
+  const rows=await DataModel.aggregate(compactMongoPipeline());
+  return rows[0]?.content||null;
+}});
+async function readCompactStore(){
+  if(!MONGO_URI)return readStore();
+  if(!await ensureDbConnected())throw new Error('Database unavailable');
+  return readMongoCompact();
+}
+async function readAuditEntry(id){
+  if(!MONGO_URI)return (await readStore())?.financialLedger?.find(e=>e.id===id);
+  if(!await ensureDbConnected())throw new Error('Database unavailable');
+  const doc=await DataModel.findOne({key:'main_store'}).select({'content.financialLedger':{$elemMatch:{id}},_id:0}).lean();
+  return doc?.content?.financialLedger?.[0]||null;
+}
+async function readLogo(revision){
+  if(!MONGO_URI)return (await readStore())?.store?.branding?.logoUrl;
+  const cached=readMongoSnapshot.peek(revision);if(cached)return cached.store?.branding?.logoUrl;
+  if(!await ensureDbConnected())throw new Error('Database unavailable');
+  const doc=await DataModel.findOne({key:'main_store'}).select({'content.store.branding.logoUrl':1,_id:0}).lean();
+  return doc?.content?.store?.branding?.logoUrl;
+}
 // MongoDB is authoritative when configured. Never promote an older local copy during an outage.
 async function readStore() {
   if (MONGO_URI) {
@@ -224,7 +248,7 @@ async function compareAndSwapStore(expected, data) {
       { $set: { content: data, updatedAt: new Date(data.updatedAt) } }
     );
     // The business database is the only write target in Mongo mode. Backups are explicit snapshots.
-    if(saved.matchedCount===1)readMongoSnapshot.committed(data);
+    if(saved.matchedCount===1){readMongoSnapshot.committed(data);readMongoCompact.committed(data);}
     return saved.matchedCount===1;
   }
   if (process.env.VERCEL) throw new Error('MONGO_URI is required');
@@ -248,7 +272,7 @@ const pushService=createPushService({collection:pushCollection,readState:readSto
   enabled:!!MONGO_URI&&process.env.NEXUS_ENABLE_WEB_PUSH==='1',publicKey:process.env.WEB_PUSH_PUBLIC_KEY,privateKey:process.env.WEB_PUSH_PRIVATE_KEY,subject:process.env.WEB_PUSH_SUBJECT,
   background:job=>{if(process.env.VERCEL)waitUntil(job);}
 });
-const stateApi = createStateApi({ read: readStore, readAuth:readAuthStore, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled,
+const stateApi = createStateApi({ read: readStore, readAuth:readAuthStore, readCompact:readCompactStore, readAudit:readAuditEntry, readLogo, compareAndSwap: compareAndSwapStore, secret: AUTH_SECRET, secure: !!process.env.VERCEL, chainLotsEnabled,
   onCommitted:pushService.committed,onLogout:pushService.logout });
 app.use('/api/push',stateApi.authorizePush);
 app.get('/api/push/config',pushService.config);
@@ -261,6 +285,8 @@ app.get('/api/auth/session', stateApi.session);
 app.post('/api/auth/logout', stateApi.logout);
 app.post('/api/auth/password', stateApi.password);
 app.get('/api/data', stateApi.get);
+app.get('/api/audit',stateApi.audit);
+app.get('/api/branding/logo',stateApi.logo);
 app.post('/api/data', stateApi.post);
 app.post('/api/operations', stateApi.operation);
 app.use('/api/ai', stateApi.authorizeAi);
