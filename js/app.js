@@ -211,7 +211,7 @@ class NexusApp {
 
   async openAuditDetails(index) {
     const entry=this._auditRows?.[index],host=document.getElementById('audit-entry-details');if(!entry||!host)return;
-    this._auditRequestId=entry.id;host.textContent='Consultando los valores originales…';
+    this._auditRequestId=entry.id;host.textContent='Consultando los valores originales…';host.scrollIntoView?.({block:'nearest'});
     try{
       const res=await fetch('/api/audit?id='+encodeURIComponent(entry.id),{cache:'no-store',signal:AbortSignal.timeout(90000)}),data=await res.json();
       if(!res.ok)throw new Error(data.error||'No se pudo consultar el detalle.');
