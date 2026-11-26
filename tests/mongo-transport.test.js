@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),{execFileSy
 test('Mongo transport uses projected authentication, versioned reads and atomic acknowledgments without returning the database on writes',()=>{
  const script=`
  const assert=require('node:assert/strict'),crypto=require('node:crypto');
- process.env.VERCEL='1';process.env.MONGO_URI='mongodb://127.0.0.1:1/never_connect';process.env.AUTH_SECRET='transport-test-secret-at-least-32-characters';
+ process.env.VERCEL='1';process.env.NEXUS_LOCAL_ONLY='0';process.env.MONGO_URI='mongodb://127.0.0.1:1/never_connect';process.env.AUTH_SECRET='transport-test-secret-at-least-32-characters';
  const mongoose=require('mongoose'),{browserHarness,clone}=require('./tests/helpers');let state=browserHarness().seed,fullReads=0,authReads=0,writes=0,options;
  mongoose.connect=async(uri,opts)=>{options=opts;mongoose.connection.readyState=1;return mongoose;};
  mongoose.models.NexusData={findOne(filter){return {select(projection){this.projection=projection;return this;},async lean(){assert.equal(filter.key,'main_store');if(this.projection?.content){fullReads++;return {content:clone(state)};}authReads++;return {content:{users:clone(state.users),perfiles:clone(state.perfiles),updatedAt:state.updatedAt}};}};},async updateOne(filter,update){writes++;if(filter['content.updatedAt']!==state.updatedAt)return {matchedCount:0};state=clone(update.$set.content);return {matchedCount:1};},findOneAndUpdate(){throw Error('Do not return full documents from writes');}};
