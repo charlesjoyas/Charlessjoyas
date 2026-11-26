@@ -15,7 +15,12 @@ function start(){
   if(process.env.VERCEL)throw new Error('Este piloto no se inicia en producción.');
   const directory=path.resolve(__dirname,'../scratch/scrap-gold-local');fs.mkdirSync(directory,{recursive:true});const file=path.join(directory,'independent-db.json');
   if(!fs.existsSync(file))fs.writeFileSync(file,JSON.stringify(demoSeed(),null,2),{flag:'wx'});
-  process.env.NEXUS_LOCAL_ONLY='1';process.env.NEXUS_ENABLE_SCRAP_GOLD='1';process.env.NEXUS_ENABLE_CHAIN_LOTS='1';process.env.NEXUS_DB_FILE=file;process.env.NEXUS_BACKUP_DIR=path.join(directory,'backups');process.env.AUTH_SECRET=crypto.randomBytes(48).toString('hex');
+  process.env.NEXUS_LOCAL_ONLY='1';process.env.NEXUS_ENABLE_SCRAP_GOLD='1';process.env.NEXUS_ENABLE_CHAIN_LOTS='1';process.env.NEXUS_DB_FILE=file;process.env.NEXUS_BACKUP_DIR=path.join(directory,'backups');process.env.AUTH_SECRET=localSessionSecret(directory);
   return require('../server').listen(43136,'127.0.0.1',()=>console.log('Chatarra local: http://127.0.0.1:43136 · local@example.test / LotesLocal2026! · datos ficticios, sin MongoDB'));
 }
-if(require.main===module)start();module.exports={demoSeed,start};
+function localSessionSecret(directory){
+  const file=path.join(directory,'session-secret.txt');
+  try{fs.writeFileSync(file,crypto.randomBytes(48).toString('hex'),{flag:'wx',mode:0o600});}catch(error){if(error.code!=='EEXIST')throw error;}
+  const secret=fs.readFileSync(file,'utf8').trim();if(!/^[a-f0-9]{96}$/.test(secret))throw new Error('La clave de sesión del piloto local no es válida.');return secret;
+}
+if(require.main===module)start();module.exports={demoSeed,start,localSessionSecret};

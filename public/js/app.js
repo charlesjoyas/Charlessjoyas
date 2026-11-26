@@ -299,6 +299,8 @@ class NexusApp {
   async submitPurchase(event) {
     event?.preventDefault();
     if(!this.canPerformAction('create','purchase'))throw new Error('Tu perfil no permite registrar compras.');
+    const supplierName=String(document.getElementById('po-supp-select')?.value||'').trim();
+    if(!supplierName)throw new Error('Selecciona un proveedor registrado antes de guardar la compra.');
     const method=document.getElementById('po-payment-method')?.value || 'Efectivo';
     const lot=this.isPurchaseChainLot();
     const scrap=this.isPurchaseScrap();
@@ -316,7 +318,7 @@ class NexusApp {
       productId:document.getElementById('po-product-id')?.value || undefined,
       sku:document.getElementById('po-product-sku')?.value?.trim() || this.getNextConsecutiveSku(),
       name:document.getElementById('po-product-name')?.value?.trim(),
-      supplier:document.getElementById('po-supp-select')?.value,
+      supplier:supplierName,
       category:document.getElementById('po-category-select')?.value,
       measureType:lot||scrap?'Pesaje':document.getElementById('po-measure-type')?.value || 'Pesaje',
       quantity:this.readPurchaseQuantity(),
@@ -3787,9 +3789,9 @@ class NexusApp {
     }
 
     if (suppSelect) {
-      const suppliers = (this.data.suppliers || []).filter(s => s.name && s.name.toLowerCase() !== 'proveedor general');
+      const suppliers = (this.data.suppliers || []).filter(s => s.name && !/^(inactive|inactivo)$/i.test(s.status||''));
       suppSelect.innerHTML = `
-        <option value="" selected>Proveedor General</option>
+        <option value="" selected disabled>Selecciona un proveedor</option>
         ${suppliers.map(s => `<option value="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</option>`).join('')}
       `;
       suppSelect.value = '';
