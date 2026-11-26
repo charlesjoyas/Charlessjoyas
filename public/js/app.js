@@ -3624,6 +3624,11 @@ class NexusApp {
           if (!catObj) throw new Error('La categoría seleccionada ya no está disponible. Revisa el producto antes de guardar.');
           const isExtraCat = catObj && (catObj.type === 'extras' || catObj.isExtra);
 
+          if (catObj.id !== p.category) {
+            await this.saveProductCategoryCorrection(p,catObj,pieceWeight);
+            return;
+          }
+
           if (nextMeasureType === 'Unidades' && !isExtraCat && pieceWeight <= 0) {
             this.showToast('Por favor ingresa el peso del producto (g) para calcular el gramaje del lote y sincronizar la categoría.', 'warning');
             document.getElementById('edit-prod-piece-weight')?.focus();
@@ -4581,11 +4586,14 @@ class NexusApp {
       }
     }
 
+    const original=prefix==='edit'?this.data.products.find(p=>p.id===document.getElementById('edit-prod-id')?.value):null;
+    const categoryCorrection=original&&document.getElementById('edit-prod-cat')?.value!==original.category;
+    if(categoryCorrection)totalCost=NexusSafety.productValue(original);
     const costEl = document.getElementById(`${prefix}-preview-total-cost`);
     if (costEl) {
       if (isUnidades) {
         const pieceWeight = this.parseCleanNumber(pieceWeightInput?.value);
-        const pieceCost = pieceWeight > 0 ? Math.round(pieceWeight * cost) : cost;
+        const pieceCost = categoryCorrection ? totalCost/Number(original.stock||1) : pieceWeight > 0 ? Math.round(pieceWeight * cost) : cost;
         costEl.innerHTML = `${this.formatCurrency(totalCost)} <span style="font-size:0.75rem; font-weight:600; color:var(--text-muted);">(${this.formatCurrency(pieceCost)} / u.)</span>`;
       } else {
         costEl.textContent = this.formatCurrency(totalCost);
@@ -4609,6 +4617,22 @@ class NexusApp {
     }).join('');
   }
 
+  async saveProductCategoryCorrection(p,category,pieceWeight) {
+    if(!this.isAdminUser())throw new Error('La corrección de categoría requiere un administrador.');
+    const value=id=>document.getElementById(id)?.value;
+    const costText=value('edit-prod-cost');
+    if(value('edit-prod-sku').trim()!==String(p.sku)||value('edit-prod-name').trim()!==p.name||value('edit-prod-supplier')!==(p.supplier||'ANONIMO')||this.parseCleanNumber(value('edit-prod-stock'))!==Number(p.stock)||(costText!==this.formatNumberWithCommas(p.cost,true)&&this.parseMoneyInput(costText)!==Number(p.cost))||(document.getElementById('edit-prod-active')?.checked!==false)!==(p.status!=='inactive'))throw new Error('Guarda la corrección de categoría por separado, conservando nombre, código, proveedor, stock, costo y estado.');
+    if(value('edit-prod-measure-type')!==(p.measureType||'Pesaje')&&!(category.isExtra||category.type==='extras'))throw new Error('La corrección conserva la medida del producto.');
+    if(this.cart.some(i=>String(i.product?.id)===String(p.id)))throw new Error('Retira este producto del carrito antes de corregir su categoría.');
+    const extra=!!(category.isExtra||category.type==='extras');
+    if(!extra&&p.isExtra&&(!(pieceWeight>0)||NexusSafety.round(pieceWeight)!==pieceWeight))throw new Error('Indica el peso real de cada pieza, con hasta seis decimales.');
+    const reason=prompt('Corregir '+p.sku+': '+(p.categoryName||p.category)+' → '+category.name+'. Se conservarán el valor de compra, los pagos y la deuda. Indica el motivo de la corrección:');
+    if(!reason?.trim())return;
+    await this.executeFinancialOperation('reclassifyProduct',{productId:p.id,productSku:p.sku,fromCategory:p.category,categoryId:category.id,pieceWeight:extra?0:pieceWeight,reason:reason.trim()});
+    this.closeModal('edit-product-modal');
+    this.showToast('Categoría corregida con el mismo código. Se conservaron el valor de compra, los pagos y la deuda.','success');
+  }
+
   onProductCategoryChange(prefix = 'new') {
     const catSelect = document.getElementById(`${prefix}-prod-cat`);
     const costInput = document.getElementById(`${prefix}-prod-cost`);
@@ -4624,6 +4648,14 @@ class NexusApp {
     if (!cat) return;
 
     const isExtras = cat.type === 'extras' || cat.isExtra;
+    if(prefix==='edit'){
+      const p=this.data.products.find(p=>p.id===document.getElementById('edit-prod-id')?.value);
+      if(p&&cat.id!==p.category&&hintEl)hintEl.textContent='Corrección manual: conserva código, existencias, valor de compra y pagos. Si sale de Extras, indica el peso real por pieza.';
+      if(p&&cat.id===p.category&&pieceWeightInput){
+        pieceWeightInput.value=this.formatNumberWithCommas(NexusSafety.weight(p),true);
+        if(measureSelect)measureSelect.value=p.measureType||'Pesaje';
+      }
+    }
     if (isExtras) {
       if (measureSelect) {
         measureSelect.value = 'Unidades';
@@ -5623,31 +5655,10 @@ class NexusApp {
     }
     const cat = (this.data.categories || []).find(c => c.id === id);
     const catName = cat ? cat.name : id;
-    if (!confirm(`¿Estás seguro de eliminar la categoría "${catName}"? Los productos asociados se reasignarán a otra categoría compatible.`)) return;
-
-    const isExtras = cat && (cat.type === 'extras' || cat.isExtra);
-    const fallbackCat = isExtras
-      ? ((this.data.categories || []).find(c => c.id !== id && (c.type === 'extras' || c.isExtra)))
-      : ((this.data.categories || []).find(c => c.id !== id && !(c.type === 'extras' || c.isExtra) && (c.id === 'oro18k' || c.name.toLowerCase().includes('oro')))
-        || (this.data.categories || []).find(c => c.id !== id && !(c.type === 'extras' || c.isExtra)));
-    const prodsToReassign = (this.data.products || []).filter(p => p.category === id || (!p.category && p.categoryName === catName));
-    if (prodsToReassign.length > 0 && !fallbackCat) {
-      this.showToast(`No se puede eliminar "${catName}" porque tiene productos y no hay otra categoría del mismo tipo para reasignarlos.`, 'warning');
-      return;
+    if((this.data.products||[]).some(p=>NexusSafety.categoryFor(p,this.data.categories)?.id===id)){
+      this.showToast('Esta categoría tiene productos. Corrige manualmente su categoría antes de eliminarla.','warning');return;
     }
-    if (fallbackCat && prodsToReassign.length > 0) {
-      let movedGrams = 0;
-      prodsToReassign.forEach(p => {
-        p.category = fallbackCat.id;
-        p.categoryName = fallbackCat.name;
-        movedGrams += this.getGramsFromProduct(p);
-      });
-      if (!isExtras && fallbackCat.type !== 'extras' && !fallbackCat.isExtra) {
-        const catGrams = Number(cat?.availableGrams) || movedGrams;
-        fallbackCat.availableGrams = Math.round(((fallbackCat.availableGrams || 0) + catGrams) * 100) / 100;
-      }
-      this.showToast(`${prodsToReassign.length} productos reasignados a "${fallbackCat.name}"`, 'info');
-    }
+    if(!confirm('¿Eliminar la categoría vacía '+catName+'?'))return;
 
     this.data.categories = (this.data.categories || []).filter(c => c.id !== id);
     if (this.selectedCategory === id) this.selectedCategory = 'all';
