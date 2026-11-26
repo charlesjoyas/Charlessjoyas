@@ -15,7 +15,8 @@
       "codex/fix-cash-outflow-labels": false,
       "codex/fix-purchase-product-name": false,
       "codex/fix-purchase-save-status": false,
-      "codex/fix-production-purchase-grams": false
+      "codex/fix-production-purchase-grams": false,
+      "codex/fix-product-category-correction": false
     }
   },
   "headers": [
