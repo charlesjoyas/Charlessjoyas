@@ -305,6 +305,8 @@ class NexusApp {
     const lot=this.isPurchaseChainLot();
     const scrap=this.isPurchaseScrap();
     if(scrap&&(!window.NexusScrapGold?.enabled||lot))throw new Error('La compra de chatarra requiere el piloto local y pesaje en gramos.');
+    const scrapOrigin=document.getElementById('po-scrap-origin')?.value;
+    if(scrap&&!['italiano','nacional'].includes(scrapOrigin))throw new Error('Selecciona la subcategoría de Chatarra: Italiano o Nacional.');
     const lotArgs=lot?{inventoryMode:'chainLot',lotCode:document.getElementById('po-lot-code')?.value?.trim(),unitCount:Number(document.getElementById('po-lot-units')?.value)}:{};
     if(lot){
       if(!window.NexusChainLots?.enabled)throw new Error('Los lotes no están habilitados en este entorno.');
@@ -314,7 +316,7 @@ class NexusApp {
     }
     const result=await this.executeFinancialOperation('createPurchase',{
       ...lotArgs,
-      ...(scrap?{materialForm:'scrapGold'}:{}),
+      ...(scrap?{materialForm:'scrapGold',scrapOrigin}:{}),
       productId:document.getElementById('po-product-id')?.value || undefined,
       sku:document.getElementById('po-product-sku')?.value?.trim() || this.getNextConsecutiveSku(),
       name:document.getElementById('po-product-name')?.value?.trim(),
@@ -3831,7 +3833,7 @@ class NexusApp {
     if (!catSelect) return;
     const catId = catSelect.value;
     const catObj = (this.data.categories || []).find(c => c.id === catId);
-    if(this.isPurchaseScrap())this.onPurchaseMeasureTypeChange();
+    this.onPurchaseMeasureTypeChange();
     if (!this.isPurchaseScrap() && !this.isPurchaseChainLot() && catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
       const measureSelect = document.getElementById('po-measure-type');
       if (measureSelect && measureSelect.value !== 'Unidades') {
@@ -3898,6 +3900,9 @@ class NexusApp {
 
   onPurchaseMeasureTypeChange() {
     const measureSelect = document.getElementById('po-measure-type');
+    const scrapGroup=document.getElementById('po-scrap-origin-group'),scrapField=document.getElementById('po-scrap-origin');
+    if(scrapGroup)scrapGroup.hidden=!this.isPurchaseScrap();
+    if(scrapField){scrapField.required=this.isPurchaseScrap();scrapField.disabled=!this.isPurchaseScrap();if(!this.isPurchaseScrap())scrapField.value='';}
     if(this.isPurchaseScrap()&&measureSelect)measureSelect.value='Pesaje';
     const lot=this.isPurchaseChainLot();
     const isPesaje = lot || (measureSelect?.value || 'Pesaje') === 'Pesaje';
@@ -3965,6 +3970,7 @@ class NexusApp {
     if (measureSelect) measureSelect.value = NexusSafety.isChainLot(existing)?'chainLot':existing.measureType || 'Pesaje';
     this.onPurchaseMeasureTypeChange();
     const lotCode=document.getElementById('po-lot-code');
+    const scrapOrigin=document.getElementById('po-scrap-origin');if(scrapOrigin)scrapOrigin.value=existing.scrapOrigin||'';
     if(lotCode)lotCode.value=NexusSafety.isChainLot(existing)?existing.lotCode:'';
     const lotUnits=document.getElementById('po-lot-units');
     if(lotUnits)lotUnits.value='';
@@ -9876,6 +9882,7 @@ class NexusApp {
 
       const prodDisplay = po.productName ? `
         <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(po.productName)}</div>
+        ${po.materialForm==='scrapGold'?`<div class="text-xs">Chatarra · ${{italiano:'Italiano',nacional:'Nacional'}[po.scrapOrigin]||'Sin clasificar (anterior)'}</div>`:''}
         ${po.inventoryMode==='chainLot'?`<div class="text-xs">Lote ${this.escapeHtml(po.lotCode)} · ${po.unitCount} cadenas</div>`:''}
         <div class="text-xs" style="color:var(--text-muted);">${po.productSku ? `<span style="font-family:monospace; font-weight:700; color:var(--brand-primary);">${this.escapeHtml(po.productSku)}</span> · ` : ''}${this.escapeHtml(po.supplier || '')}</div>
       ` : `<div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(po.supplier || 'Proveedor')}</div>`;
@@ -10293,6 +10300,7 @@ class NexusApp {
     document.getElementById('edit-po-supplier').value = po.supplier || '';
     document.getElementById('edit-po-product-name').value = po.productName || '';
     document.getElementById('edit-po-product-sku').value = po.productSku || '';
+    const originInfo=document.getElementById('edit-po-scrap-origin');if(originInfo){originInfo.hidden=po.materialForm!=='scrapGold';originInfo.textContent='Chatarra · '+({italiano:'Italiano',nacional:'Nacional'}[po.scrapOrigin]||'Sin clasificar (anterior)');}
 
     // Poblar lista de proveedores sugeridos
     const datalist = document.getElementById('edit-po-suppliers-datalist');
@@ -20775,7 +20783,7 @@ class NexusApp {
 
     const ticketItems = [{
       inventoryMode:po.inventoryMode,lotCode:po.lotCode,unitCount:po.unitCount,
-      name: po.productName || 'Metal en Bruto',
+      name: (po.productName || 'Metal en Bruto')+(po.materialForm==='scrapGold'?' · Chatarra '+({italiano:'Italiano',nacional:'Nacional'}[po.scrapOrigin]||'Sin clasificar'):''),
       sku: po.productSku || prod?.sku || '',
       product: prod,
       formattedQty,
@@ -26516,7 +26524,7 @@ class NexusApp {
     if (elId) elId.value = p.id;
     if (elName) elName.textContent = p.name;
     if (elSku) elSku.textContent = `Código: ${p.sku || p.id}${NexusSafety.isChainLot(p) ? ' · Lote: ' + p.lotCode : ''}`;
-    if (elCat) elCat.textContent = cat?.name || p.categoryName || p.category || 'General';
+    if (elCat) elCat.textContent = (cat?.name || p.categoryName || p.category || 'General')+(NexusSafety.isScrapGold(p)?' · '+({italiano:'Italiano',nacional:'Nacional'}[p.scrapOrigin]||'Sin clasificar'):'');
     if (elStock) elStock.textContent = NexusSafety.isChainLot(p) ? `${p.stockUnits} cadenas · ${p.stock} g` : isUnitWithWeight ? `Stock: ${stockNum} u. (${maxAvailableQty} g)` : `Stock: ${stockNum} ${unit}`;
     if (elPill) {
       if (isPesaje) {

@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('crypto');
 const {browserHarness,connectOperations,clone}=require('./helpers'),{demoSeed}=require('../scripts/scrap-gold-local'),{publicState}=require('../lib/state-api'),I=require('../js/safety');
-const receipt={supplier:'Proveedor de prueba',category:'chatarra',sku:'CHAT-AUDIT',name:'Chatarra de auditoría',measureType:'Pesaje',quantity:10.123456,unitCost:300000,paid:false,reason:'Synthetic local audit'};
+const receipt={supplier:'Proveedor de prueba',category:'chatarra',scrapOrigin:'nacional',sku:'CHAT-AUDIT',name:'Chatarra de auditoría',measureType:'Pesaje',quantity:10.123456,unitCost:300000,paid:false,reason:'Synthetic local audit'};
 async function setup(){const h=browserHarness();h.app.data=publicState({...demoSeed(),users:h.seed.users});h.app.currentUser=h.app.data.users[0];h.app._lastServerUpdatedAt=h.app.data.updatedAt;const api=await connectOperations(h,{scrapGoldEnabled:true,chainLotsEnabled:true});await h.app.executeFinancialOperation('createPurchase',receipt);return {...h,api};}
 test('category preserves all six gram decimals and its exact weighted average',async()=>{
  const {app}=await setup();app.syncAllCategoryGrams();const c=app.data.categories.find(c=>c.id==='chatarra');assert.equal(c.availableGrams,10.123456);assert.equal(c.cost,300000);

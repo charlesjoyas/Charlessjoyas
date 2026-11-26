@@ -52,7 +52,10 @@
     return categories.filter(c=>products.some(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id)).map(c=>{
       const members=products.filter(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id);
       const total=list=>{const grams=round(list.reduce((s,p)=>s+physicalGrams(p),0)),value=round(list.reduce((s,p)=>s+productValue(p),0),2);return {grams,value,average:grams>0?round(value/grams,2):0};};
-      return {id:c.id,name:c.name,total:total(members)};
+      const subcategories=['italiano','nacional'].map(id=>({id,name:id==='italiano'?'Italiano':'Nacional',...total(members.filter(p=>p.scrapOrigin===id))}));
+      const unclassified=members.filter(p=>!['italiano','nacional'].includes(p.scrapOrigin));
+      if(unclassified.length)subcategories.push({id:'unclassified',name:'Sin clasificar (anterior)',...total(unclassified)});
+      return {id:c.id,name:c.name,total:total(members),subcategories};
     });
   }
   function replenishment(product, quantity, costPerGram, pieceWeight) {

@@ -41,7 +41,7 @@
     #release-update-notice button:disabled { opacity:.5; cursor:not-allowed; }
     #push-notifications-modal { z-index: 15000; }
     #push-notifications-modal button:disabled { opacity: .45; cursor: not-allowed; }
-    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden], #po-material-group[hidden], #scrap-gold-open[hidden] { display: none !important; }
+    #chain-lots-open[hidden], #pos-add-chain-units-group[hidden], #po-lot-fields[hidden], #po-scrap-origin-group[hidden], #scrap-gold-open[hidden] { display: none !important; }
     .thermal-ticket-wrapper {
       background: #f8fafc;
       padding: 10px;
@@ -3071,6 +3071,7 @@
               <input type="text" id="edit-po-product-sku" class="form-control" placeholder="Código / SKU (opcional)" style="font-family:monospace;">
             </div>
             <small style="color:var(--text-muted);">Actualiza el nombre de esta referencia en el catálogo y sus compras vigentes.</small>
+            <small id="edit-po-scrap-origin" hidden></small>
           </div>
 
           <!-- Fila 2: Cantidad, Gramos y Costo Unitario -->
@@ -4694,6 +4695,11 @@
             </div>
           </div>
 
+          <div class="form-group" id="po-scrap-origin-group" hidden>
+            <label class="form-label" for="po-scrap-origin">Subcategoría de Chatarra *</label>
+            <select id="po-scrap-origin" class="form-select" disabled><option value="" selected disabled>Selecciona Italiano o Nacional</option><option value="italiano">Italiano</option><option value="nacional">Nacional</option></select>
+            <small>Se registra dentro de CHATARRA, con promedio propio y sin afectar las categorías principales.</small>
+          </div>
           <!-- 3. TIPO DE MEDIDA -->
           <div class="form-group" style="margin-bottom: 0.75rem;">
             <label class="form-label" for="po-measure-type">Tipo de medida *</label>
@@ -5720,12 +5726,12 @@
   </div>
   <script src="js/chart.min.js" defer></script>
   <script src="js/data.js?v=48" defer></script>
-  <script src="js/safety.js?v=131" defer></script>
+  <script src="js/safety.js?v=132" defer></script>
   <script src="js/ledger.js?v=2" defer></script>
   <script src="js/reconciliation.js?v=1" defer></script>
-  <script src="js/app.js?v=131" defer></script>
+  <script src="js/app.js?v=132" defer></script>
   <script src="js/chain-lots.js?v=121" defer></script>
-  <script src="js/scrap-gold.js?v=131" defer></script>
+  <script src="js/scrap-gold.js?v=132" defer></script>
   <script src="js/push-notifications.js?v=1" defer></script>
   <script src="js/release-notice.js?v=1" defer></script>
 </body>
