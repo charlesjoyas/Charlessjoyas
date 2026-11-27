@@ -3,19 +3,26 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {spawnSync}=require('node:child_process');
 const {stampRelease}=require('../scripts/stamp-release');
 const root=path.resolve(__dirname,'..'),id='a'.repeat(40),next='b'.repeat(40);
-function harness(){
- let release=id,clock=20000,modal=false,fail=false,reloads=0,requests=0;
+function harness(loaded=id,href='https://charlessjoyas.vercel.app/'){
+ let release=loaded,navigation=null,clock=20000,modal=false,fail=false,reloads=0,requests=0;
  const nodes={'release-update-notice':{hidden:true},'release-update-button':{disabled:false},'release-update-help':{textContent:''}},intervals=[];
  const app={currentUser:{id:'user'},cart:[],showToast(){}};
- const context={Date:{now:()=>clock},AbortController,setTimeout,clearTimeout,setInterval:(fn,ms)=>intervals.push({fn,ms}),document:{readyState:'complete',visibilityState:'visible',querySelector:selector=>selector.startsWith('meta')?{content:id}:modal?{}:null,getElementById:key=>nodes[key],addEventListener(){}},window:{app,location:{reload:()=>reloads++},addEventListener(){}},fetch:async()=>{requests++;if(fail)throw Error('offline');return{ok:true,json:async()=>({release})};}};
+ const context={Date:{now:()=>clock},URL,AbortController,setTimeout,clearTimeout,setInterval:(fn,ms)=>intervals.push({fn,ms}),document:{readyState:'complete',visibilityState:'visible',querySelector:selector=>selector.startsWith('meta')?{content:loaded}:modal?{}:null,getElementById:key=>nodes[key],addEventListener(){}},window:{app,location:{href,replace:target=>{navigation=target;reloads++;}},addEventListener(){}},fetch:async()=>{requests++;if(fail)throw Error('offline');return{ok:true,json:async()=>({release})};}};
  vm.runInNewContext(fs.readFileSync(path.join(root,'js/release-notice.js'),'utf8'),context);
- return {app,nodes,context,intervals,get reloads(){return reloads;},get requests(){return requests;},get visible(){return !nodes['release-update-notice'].hidden;},get disabled(){return nodes['release-update-button'].disabled;},modal:value=>{modal=value;},offline:value=>{fail=value;},check:async value=>{release=value;clock+=60001;await context.window.CharlesRelease.check();},render:()=>intervals.find(x=>x.ms===1000).fn()};
+ return {app,nodes,context,intervals,get navigation(){return navigation;},get reloads(){return reloads;},get requests(){return requests;},get visible(){return !nodes['release-update-notice'].hidden;},get disabled(){return nodes['release-update-button'].disabled;},modal:value=>{modal=value;},offline:value=>{fail=value;},check:async value=>{release=value;clock+=60001;await context.window.CharlesRelease.check();},render:()=>intervals.find(x=>x.ms===1000).fn()};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 test('a new published version displays a notice without automatically reloading or touching the cart',async()=>{
  const h=harness();await settle();assert(!h.visible);await h.check(next);assert(h.visible);assert.equal(h.reloads,0);assert.deepEqual(h.app.cart,[]);
  h.context.window.CharlesRelease.reload();assert.equal(h.reloads,1);
 });
+test('update navigates with a fresh cache key, preserves the route and disappears on the newly loaded release',async()=>{
+ const h=harness(id,'https://charlessjoyas.vercel.app/index.html?view=pos#carrito');await settle();await h.check(next);h.context.window.CharlesRelease.reload();
+ const target=new URL(h.navigation);assert.equal(target.pathname,'/index.html');assert.equal(target.searchParams.get('view'),'pos');assert.equal(target.hash,'#carrito');assert(target.searchParams.get('_nexus_update').startsWith(next+'.'));
+ await h.check(next);h.context.window.CharlesRelease.reload();assert.notEqual(h.navigation,target.href,'Each user-requested update bypasses a cached navigation');
+ const refreshed=harness(next,h.navigation);await settle();assert(!refreshed.visible);await refreshed.check(next);assert(!refreshed.visible);assert.equal(refreshed.reloads,0);
+});
+
 test('sale, in-flight save, unresolved transaction and open form all prevent refresh, including a click-time race',async()=>{
  const h=harness();await settle();await h.check(next);
  for(const key of ['cart','_mutationActive','_isSaving','_requiresRefresh']){
@@ -42,6 +49,6 @@ test('build stamps identical HTML with a commit, preserves inputs and never read
  }finally{fs.rmSync(temp,{recursive:true,force:true});}
 });
 test('version endpoint has no cache and never connects to the database',()=>{
- const script=`process.env.NEXUS_LOCAL_ONLY='1';process.env.AUTH_SECRET='version-test-only-signing-secret-more-than-32-characters';const mongoose=require('mongoose');mongoose.connect=()=>{throw Error('Database forbidden');};const assert=require('assert/strict');const server=require('./server').listen(0,'127.0.0.1',async()=>{try{const r=await fetch('http://127.0.0.1:'+server.address().port+'/api/version');assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store');assert.deepEqual(Object.keys(await r.json()),['release']);}catch(e){console.error(e.message);process.exitCode=1;}finally{server.close();}});`;
+ const script=`process.env.NEXUS_LOCAL_ONLY='1';process.env.AUTH_SECRET='version-test-only-signing-secret-more-than-32-characters';const mongoose=require('mongoose');mongoose.connect=()=>{throw Error('Database forbidden');};const assert=require('assert/strict');const server=require('./server').listen(0,'127.0.0.1',async()=>{try{const r=await fetch('http://127.0.0.1:'+server.address().port+'/api/version');assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store');assert.deepEqual(Object.keys(await r.json()),['release']);for(const route of ['/', '/index.html','/?_nexus_update=test']){const page=await fetch('http://127.0.0.1:'+server.address().port+route);assert.equal(page.status,200);assert.equal(page.headers.get('cache-control'),'no-store');await page.text();}}catch(e){console.error(e.message);process.exitCode=1;}finally{server.close();}});`;
  const result=spawnSync(process.execPath,['-e',script],{cwd:root,encoding:'utf8',timeout:15000});assert.equal(result.status,0,result.stderr||result.error?.message);
 });

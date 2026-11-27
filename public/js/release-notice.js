@@ -38,7 +38,11 @@
       // Check again at click time: a sale may have started since the last render.
       if(!window.app?.currentUser||!latest)return;
       const reason=blocked();if(reason){render();window.app?.showToast(reason,'info');return;}
-      window.location.reload();
+      // Give this navigation a new cache key, including on installed Safari apps.
+      // Preserve the current route, query parameters and fragment.
+      const target=new URL(window.location.href);
+      target.searchParams.set('_nexus_update',latest+'.'+Date.now());
+      window.location.replace(target.href);
     }
   };
   const start=()=>{check();setInterval(check,60000);setInterval(render,1000);};
