@@ -45,6 +45,19 @@
     const extrasByCategory = [...groups.values()].map(group => ({ ...group, value:round(group.value,2), grams:round(group.grams), units:round(group.units), averageCostPerGram:group.grams>0?round(group.value/group.grams,2):0, averageCostPerUnit:group.units>0?round(group.value/group.units,2):0 }));
     return { inventoryValue:round(generalValue+extraValue,2), generalInventoryValue:round(generalValue,2), extrasInventoryValue:round(extraValue,2), totalGrams:round(grams), avgCostGrams:round(grams), avgCostPerGram:grams>0?Math.round(metalValue/grams):0, skusCount:products.length, generalSkusCount:generalCodes, extrasByCategory };
   }
+  const isScrapGold = p => p?.materialForm === 'scrapGold';
+  const validScrapWeight = (value, allowZero = false) => typeof value==='number'&&Number.isFinite(value)&&(allowZero&&value===0||value>=0.000001)&&Number.isFinite(round(value))&&Number(value.toFixed(6))===value;
+  const parseGramInput = raw => /^\d+(?:[.,]\d{1,6})?$/.test(String(raw??'').trim())?Number(String(raw).trim().replace(',','.')):NaN;
+  function scrapCategoryTotals(products = [], categories = []) {
+    return categories.filter(c=>products.some(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id)).map(c=>{
+      const members=products.filter(p=>isScrapGold(p)&&categoryFor(p,categories)?.id===c.id);
+      const total=list=>{const grams=round(list.reduce((s,p)=>s+physicalGrams(p),0)),value=round(list.reduce((s,p)=>s+productValue(p),0),2);return {grams,value,average:grams>0?round(value/grams,2):0};};
+      const subcategories=['italiano','nacional'].map(id=>({id,name:id==='italiano'?'Italiano':'Nacional',...total(members.filter(p=>p.scrapOrigin===id))}));
+      const unclassified=members.filter(p=>!['italiano','nacional'].includes(p.scrapOrigin));
+      if(unclassified.length)subcategories.push({id:'unclassified',name:'Sin clasificar (anterior)',...total(unclassified)});
+      return {id:c.id,name:c.name,total:total(members),subcategories};
+    });
+  }
   function replenishment(product, quantity, costPerGram, pieceWeight) {
     const current = Number(product.stock) || 0;
     const pesaje = isPesaje(product);
@@ -105,7 +118,7 @@
     const lot=isChainLot(product)||po.inventoryMode==='chainLot';
     return {extra,lot,measureType,quantity,pieceWeight:extra?0:pieceWeight,grams:extra?0:measureType==='Pesaje'?quantity:round(quantity*pieceWeight),editable:!!product&&!extra&&!lot&&product.id===po.productId&&sku(product.sku)===sku(po.productSku)};
   }
-  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics, purchaseWeightInfo };
+  const api = { factor, round, weight, isPesaje, sku, replenishment, restoreQuantity, historicalCost, isChainLot, assertLot, lotMovement, lotItem, categoryFor, isExtraCategory, isExtraInventory, physicalGrams, productValue, inventoryMetrics, purchaseWeightInfo, isScrapGold, scrapCategoryTotals, validScrapWeight, parseGramInput };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.NexusSafety = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

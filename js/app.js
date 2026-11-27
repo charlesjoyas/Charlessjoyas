@@ -323,8 +323,14 @@ class NexusApp {
   async submitPurchase(event) {
     event?.preventDefault();
     if(!this.canPerformAction('create','purchase'))throw new Error('Tu perfil no permite registrar compras.');
+    const supplierName=String(document.getElementById('po-supp-select')?.value||'').trim();
+    if(!supplierName)throw new Error('Selecciona un proveedor registrado antes de guardar la compra.');
     const method=document.getElementById('po-payment-method')?.value || 'Efectivo';
     const lot=this.isPurchaseChainLot();
+    const scrap=this.isPurchaseScrap();
+    if(scrap&&(!window.NexusScrapGold?.enabled||lot))throw new Error('La compra de chatarra requiere estar habilitada y pesaje en gramos.');
+    const scrapOrigin=document.getElementById('po-scrap-origin')?.value;
+    if(scrap&&!['italiano','nacional'].includes(scrapOrigin))throw new Error('Selecciona la subcategoría de Chatarra: Italiano o Nacional.');
     const lotArgs=lot?{inventoryMode:'chainLot',lotCode:document.getElementById('po-lot-code')?.value?.trim(),unitCount:Number(document.getElementById('po-lot-units')?.value)}:{};
     if(lot){
       if(!window.NexusChainLots?.enabled)throw new Error('Los lotes no están habilitados en este entorno.');
@@ -334,15 +340,16 @@ class NexusApp {
     }
     const result=await this.executeFinancialOperation('createPurchase',{
       ...lotArgs,
+      ...(scrap?{materialForm:'scrapGold',scrapOrigin}:{}),
       productId:document.getElementById('po-product-id')?.value || undefined,
       sku:document.getElementById('po-product-sku')?.value?.trim() || this.getNextConsecutiveSku(),
       name:document.getElementById('po-product-name')?.value?.trim(),
-      supplier:document.getElementById('po-supp-select')?.value,
+      supplier:supplierName,
       category:document.getElementById('po-category-select')?.value,
-      measureType:lot?'Pesaje':document.getElementById('po-measure-type')?.value || 'Pesaje',
+      measureType:lot||scrap?'Pesaje':document.getElementById('po-measure-type')?.value || 'Pesaje',
       quantity:this.readPurchaseQuantity(),
       unitCost:this.parseMoneyInput(document.getElementById('po-unit-cost')?.value),
-      pieceWeight:lot?0:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
+      pieceWeight:lot||scrap?0:this.parseCleanNumber(document.getElementById('po-product-grams')?.value),
       paid:document.getElementById('po-payment-status')?.value==='Pagado Total',
       method,targetAccount:/efectivo/i.test(method)?'Caja Mostrador (Efectivo)':document.getElementById('po-account-select')?.value || this.getDestinationBankAccounts()[0],
       reason:'Ingreso de mercancía registrado mediante orden de compra'
@@ -1165,6 +1172,10 @@ class NexusApp {
   }
 
   getProductTotalCost(p) { return p ? NexusSafety.productValue(p) : 0; }
+  getInventoryCategoryLabel(p) {
+    const label=p.categoryName||p.category||'General';
+    return NexusSafety.isScrapGold(p)?label+' · '+({italiano:'Italiano',nacional:'Nacional'}[p.scrapOrigin]||'Sin clasificar'):label;
+  }
 
   syncAllCategoryGrams() {
     if (!this.data || !Array.isArray(this.data.categories) || !Array.isArray(this.data.products)) return;
@@ -1194,7 +1205,8 @@ class NexusApp {
         cat.totalValuation = Math.round((prodsInCat.length > 0 ? totalCost : ((cat.availableUnits || 0) * (cat.cost || 0))) * 100) / 100;
       } else {
         const totalGrams = prodsInCat.reduce((sum, p) => sum + (this.getCategoryProductGrams(p) || 0), 0);
-        cat.availableGrams = prodsInCat.length > 0 ? (Math.round(totalGrams * 100) / 100) : (Math.max(0, Number(cat.availableGrams) || 0));
+        cat.availableGrams = cat.id==='chatarra'?NexusSafety.round(totalGrams):prodsInCat.length > 0 ? (Math.round(totalGrams * 100) / 100) : (Math.max(0, Number(cat.availableGrams) || 0));
+        if(cat.id==='chatarra'&&totalGrams===0)cat.cost=0;
         if (isUnidades) {
           const totalUnits = prodsInCat.reduce((sum, p) => sum + Math.max(0, (parseFloat(String(p.stock || 0).replace(',', '.')) || 0)), 0);
           cat.availableUnits = prodsInCat.length > 0 ? totalUnits : (Number(cat.availableUnits) || 0);
@@ -3765,10 +3777,11 @@ class NexusApp {
   }
 
   isPurchaseChainLot() { return document.getElementById('po-measure-type')?.value === 'chainLot'; }
+  isPurchaseScrap() { return document.getElementById('po-category-select')?.value === 'chatarra'; }
 
   readPurchaseQuantity() {
     const raw=document.getElementById('po-quantity')?.value;
-    if(!this.isPurchaseChainLot())return this.parseCleanNumber(raw);
+    if(!this.isPurchaseChainLot()&&!this.isPurchaseScrap())return this.parseCleanNumber(raw);
     const value=String(raw??'').trim();
     return /^\d+(?:[.,]\d{1,6})?$/.test(value)?Number(value.replace(',','.')):NaN;
   }
@@ -3790,6 +3803,7 @@ class NexusApp {
     if(measure)measure.value=mode==='chainLot'&&window.NexusChainLots?.enabled?'chainLot':'Pesaje';
     this._purchaseLotMode=false;
     this.populatePurchaseProductSelect();
+    if(mode==='scrapGold'&&window.NexusScrapGold?.enabled){document.getElementById('po-category-select').value='chatarra';this.onPurchaseCategoryChange();}
     this.openModal('purchase-modal');
   }
 
@@ -3803,7 +3817,8 @@ class NexusApp {
       catSelect.innerHTML = this.data.categories.map(c => 
         `<option value="${this.escapeHtml(c.id)}">${this.escapeHtml(c.name)}</option>`
       ).join('');
-      if (prevCat && this.data.categories.some(c => c.id === prevCat)) {
+      if(window.NexusScrapGold?.enabled&&!this.data.categories.some(c=>c.id==='chatarra'))catSelect.add(new Option('CHATARRA','chatarra'));
+      if (prevCat && [...catSelect.options].some(c => c.value === prevCat)) {
         catSelect.value = prevCat;
       } else {
         catSelect.value = 'oro18k';
@@ -3811,9 +3826,9 @@ class NexusApp {
     }
 
     if (suppSelect) {
-      const suppliers = (this.data.suppliers || []).filter(s => s.name && s.name.toLowerCase() !== 'proveedor general');
+      const suppliers = (this.data.suppliers || []).filter(s => s.name && !/^(inactive|inactivo)$/i.test(s.status||''));
       suppSelect.innerHTML = `
-        <option value="" selected>Proveedor General</option>
+        <option value="" selected disabled>Selecciona un proveedor</option>
         ${suppliers.map(s => `<option value="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</option>`).join('')}
       `;
       suppSelect.value = '';
@@ -3853,7 +3868,8 @@ class NexusApp {
     if (!catSelect) return;
     const catId = catSelect.value;
     const catObj = (this.data.categories || []).find(c => c.id === catId);
-    if (!this.isPurchaseChainLot() && catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
+    this.onPurchaseMeasureTypeChange();
+    if (!this.isPurchaseScrap() && !this.isPurchaseChainLot() && catObj && (catObj.type === 'extras' || catObj.isExtra || catObj.measureType === 'Unidades' || catId === 'relojes' || catId === 'accesorios')) {
       const measureSelect = document.getElementById('po-measure-type');
       if (measureSelect && measureSelect.value !== 'Unidades') {
         measureSelect.value = 'Unidades';
@@ -3919,6 +3935,10 @@ class NexusApp {
 
   onPurchaseMeasureTypeChange() {
     const measureSelect = document.getElementById('po-measure-type');
+    const scrapGroup=document.getElementById('po-scrap-origin-group'),scrapField=document.getElementById('po-scrap-origin');
+    if(scrapGroup)scrapGroup.hidden=!this.isPurchaseScrap();
+    if(scrapField){scrapField.required=this.isPurchaseScrap();scrapField.disabled=!this.isPurchaseScrap();if(!this.isPurchaseScrap())scrapField.value='';}
+    if(this.isPurchaseScrap()&&measureSelect)measureSelect.value='Pesaje';
     const lot=this.isPurchaseChainLot();
     const isPesaje = lot || (measureSelect?.value || 'Pesaje') === 'Pesaje';
     const fields=document.getElementById('po-lot-fields');
@@ -3926,7 +3946,7 @@ class NexusApp {
     for(const id of ['po-lot-code','po-lot-units']){const field=document.getElementById(id);if(field){field.required=lot;field.disabled=!lot;}}
     const qty=document.getElementById('po-quantity');
     if(qty){
-      if(qty.dataset)qty.dataset.plainDecimal=String(lot);
+      if(qty.dataset)qty.dataset.plainDecimal=String(lot||this.isPurchaseScrap());
       if(this._purchaseLotMode!==undefined&&this._purchaseLotMode!==lot)qty.value='';
       qty.placeholder=lot?'Peso real total, ej. 200,25':'1';
     }
@@ -3985,6 +4005,7 @@ class NexusApp {
     if (measureSelect) measureSelect.value = NexusSafety.isChainLot(existing)?'chainLot':existing.measureType || 'Pesaje';
     this.onPurchaseMeasureTypeChange();
     const lotCode=document.getElementById('po-lot-code');
+    const scrapOrigin=document.getElementById('po-scrap-origin');if(scrapOrigin)scrapOrigin.value=existing.scrapOrigin||'';
     if(lotCode)lotCode.value=NexusSafety.isChainLot(existing)?existing.lotCode:'';
     const lotUnits=document.getElementById('po-lot-units');
     if(lotUnits)lotUnits.value='';
@@ -4767,6 +4788,7 @@ class NexusApp {
     const origSkuInput = document.getElementById('edit-prod-orig-sku');
     if (origSkuInput) origSkuInput.value = p.sku || '';
     document.getElementById('edit-prod-sku').value = p.sku || '001';
+    document.getElementById('edit-prod-sku').readOnly = NexusSafety.isScrapGold(p);
     document.getElementById('edit-prod-name').value = p.name;
     document.getElementById('edit-prod-cost').value = p.cost !== undefined ? this.formatNumberWithCommas(p.cost, true) : '';
     document.getElementById('edit-prod-stock').value = p.stock !== undefined ? this.formatNumberWithCommas(p.stock, true) : 0;
@@ -9901,6 +9923,7 @@ class NexusApp {
 
       const prodDisplay = po.productName ? `
         <div style="font-weight:700; color:var(--text-main); font-size:0.92rem;">${this.escapeHtml(po.productName)}</div>
+        ${po.materialForm==='scrapGold'?`<div class="text-xs">Chatarra · ${{italiano:'Italiano',nacional:'Nacional'}[po.scrapOrigin]||'Sin clasificar (anterior)'}</div>`:''}
         ${po.inventoryMode==='chainLot'?`<div class="text-xs">Lote ${this.escapeHtml(po.lotCode)} · ${po.unitCount} cadenas</div>`:''}
         <div class="text-xs" style="color:var(--text-muted);">${po.productSku ? `<span style="font-family:monospace; font-weight:700; color:var(--brand-primary);">${this.escapeHtml(po.productSku)}</span> · ` : ''}${this.escapeHtml(po.supplier || '')}</div>
       ` : `<div style="font-weight:700; color:var(--text-main);">${this.escapeHtml(po.supplier || 'Proveedor')}</div>`;
@@ -10318,6 +10341,7 @@ class NexusApp {
     document.getElementById('edit-po-supplier').value = po.supplier || '';
     document.getElementById('edit-po-product-name').value = po.productName || '';
     document.getElementById('edit-po-product-sku').value = po.productSku || '';
+    const originInfo=document.getElementById('edit-po-scrap-origin');if(originInfo){originInfo.hidden=po.materialForm!=='scrapGold';originInfo.textContent='Chatarra · '+({italiano:'Italiano',nacional:'Nacional'}[po.scrapOrigin]||'Sin clasificar (anterior)');}
 
     // Poblar lista de proveedores sugeridos
     const datalist = document.getElementById('edit-po-suppliers-datalist');
@@ -10848,13 +10872,13 @@ class NexusApp {
         p.barcode || 'S/B',
         p.id || '',
         p.name || '',
-        p.categoryName || p.category || 'General',
+        this.getInventoryCategoryLabel(p),
         p.measureType || 'Pesaje',
         unit,
         p.supplier || 'ANÓNIMO',
         this.formatNumberWithDots(unitPieceCost, 0),
         priceNum > 0 ? this.formatNumberWithDots(priceNum, 0) : '0',
-        (isPesaje || pWeight > 0) ? this.formatNumberWithDots(stockNum, 2) : this.formatNumberWithDots(stockNum, 0),
+        (isPesaje || pWeight > 0) ? this.formatNumberWithDots(stockNum, NexusSafety.isScrapGold(p)?6:2) : this.formatNumberWithDots(stockNum, 0),
         estadoIndicator,
         estadoCatalogo,
         this.formatNumberWithDots(totalCostVal, 0),
@@ -11001,7 +11025,7 @@ class NexusApp {
 
       totalCosto += totalCostVal;
       totalVenta += totalPriceVal;
-      totalGramos += this.getGramsFromProduct(p);
+      totalGramos += NexusSafety.isScrapGold(p)?NexusSafety.physicalGrams(p):this.getGramsFromProduct(p);
       if (!isPesaje) {
         totalUnidades += stockNum;
       }
@@ -11015,7 +11039,7 @@ class NexusApp {
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.barcode || 'S/B')}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.id || '')}</Data></Cell>
         <Cell ss:StyleID="CellLeftBold"><Data ss:Type="String">${escapeXml(p.name || '')}</Data></Cell>
-        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(p.categoryName || p.category || 'General')}</Data></Cell>
+        <Cell ss:StyleID="CellLeft"><Data ss:Type="String">${escapeXml(this.getInventoryCategoryLabel(p))}</Data></Cell>
         <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(p.measureType || 'Pesaje')}</Data></Cell>
         <Cell ss:StyleID="CellGrams"><Data ss:Type="Number">${pWeight}</Data></Cell>
         <Cell ss:StyleID="${(isPesaje || pWeight > 0) ? 'CellGrams' : 'CellNumber'}"><Data ss:Type="Number">${stockNum}</Data></Cell>
@@ -11110,7 +11134,7 @@ class NexusApp {
       const isPesaje = (p.measureType || 'Pesaje') === 'Pesaje';
       const pWeight = parseNum(p.pieceWeight !== undefined && p.pieceWeight !== null ? p.pieceWeight : (p.weight || 0));
       const cost = parseNum(p.cost || entry.baseCost || 0);
-      const prodGrams = this.getGramsFromProduct(p);
+      const prodGrams = NexusSafety.isScrapGold(p)?NexusSafety.physicalGrams(p):this.getGramsFromProduct(p);
 
       entry.stockGrams += prodGrams;
       if (!isPesaje) {
@@ -11236,6 +11260,8 @@ class NexusApp {
     });
 
     const totalGramosGestionados = totalStockGrams + totalSoldGrams;
+    const hasScrap=allProds.some(NexusSafety.isScrapGold);
+    const consolidatedAverageCost=hasScrap?NexusSafety.inventoryMetrics(allProds,cats).avgCostPerGram:(totalStockGrams>0?Math.round(totalStockCost/totalStockGrams):0);
     const rotacionGlobal = totalGramosGestionados > 0 ? (totalSoldGrams / totalGramosGestionados) * 100 : 0;
     const margenBrutoGlobal = totalSoldCop - totalSoldCost;
     const pctMargenGlobal = totalSoldCop > 0 ? (margenBrutoGlobal / totalSoldCop) * 100 : 0;
@@ -11274,7 +11300,7 @@ class NexusApp {
     activeCats.forEach(c => {
       const totG = Math.round((c.stockGrams + c.soldGrams) * 100) / 100;
       const soldG = Math.round(c.soldGrams * 100) / 100;
-      const stockG = Math.round(c.stockGrams * 100) / 100;
+      const stockG = c.id==='chatarra'?NexusSafety.round(c.stockGrams):Math.round(c.stockGrams * 100) / 100;
       const rotPct = totG > 0 ? (c.soldGrams / totG) * 100 : 0;
       const soldU = Math.round(c.soldUnits);
       const stockU = Math.round(c.stockUnits);
@@ -11322,10 +11348,10 @@ class NexusApp {
       const soldU = Math.round(p.soldUnits);
       const soldCop = Math.round(p.soldTotalCop);
       const stockG = (p.measureType === 'Pesaje' || p.pieceWeight > 0)
-        ? `${this.getGramsFromProduct(p).toLocaleString('es-CO')} g`
+        ? `${(NexusSafety.isScrapGold(p)?NexusSafety.physicalGrams(p):this.getGramsFromProduct(p)).toLocaleString('es-CO',{maximumFractionDigits:NexusSafety.isScrapGold(p)?6:3})} g`
         : `${parseNum(p.stock).toLocaleString('es-CO')} u.`;
       const totG = (p.measureType === 'Pesaje' || p.pieceWeight > 0)
-        ? Math.round((this.getGramsFromProduct(p) + p.soldGrams) * 100) / 100
+        ? NexusSafety.isScrapGold(p)?NexusSafety.round(NexusSafety.physicalGrams(p)+p.soldGrams):Math.round((this.getGramsFromProduct(p) + p.soldGrams) * 100) / 100
         : soldG;
       const isAgotado = parseNum(p.stock) <= 0;
       const estadoBadge = isAgotado ? 'BadgeRose' : 'BadgeGreen';
@@ -11535,7 +11561,7 @@ class NexusApp {
    </Row>
    ${rowsTabla2Xml}
    <Row ss:Height="24">
-    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">TOTALES BALANCE</Data></Cell>
+    <Cell ss:StyleID="TotalLabel"><Data ss:Type="String">${hasScrap?'TOTALES BALANCE · promedio principal sin Chatarra':'TOTALES BALANCE'}</Data></Cell>
     <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalGramosGestionados * 100) / 100}</Data></Cell>
     <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalSoldGrams * 100) / 100}</Data></Cell>
     <Cell ss:StyleID="TotalCellGrams"><Data ss:Type="Number">${Math.round(totalStockGrams * 100) / 100}</Data></Cell>
@@ -11543,7 +11569,7 @@ class NexusApp {
     <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${Math.round(totalSoldUnits)}</Data></Cell>
     <Cell ss:StyleID="TotalCellNumber"><Data ss:Type="Number">${Math.round(totalStockUnits)}</Data></Cell>
     <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${Math.round(totalStockCost)}</Data></Cell>
-    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${totalStockGrams > 0 ? Math.round(totalStockCost / totalStockGrams) : 0}</Data></Cell>
+    <Cell ss:StyleID="TotalCellCurrency"><Data ss:Type="Number">${consolidatedAverageCost}</Data></Cell>
     <Cell ss:StyleID="BadgeGreen"><Data ss:Type="String">CONSOLIDADO</Data></Cell>
    </Row>
    <Row ss:Height="15"></Row>
@@ -20819,7 +20845,7 @@ class NexusApp {
 
     const ticketItems = [{
       inventoryMode:po.inventoryMode,lotCode:po.lotCode,unitCount:po.unitCount,
-      name: po.productName || 'Metal en Bruto',
+      name: (po.productName || 'Metal en Bruto')+(po.materialForm==='scrapGold'?' · Chatarra '+({italiano:'Italiano',nacional:'Nacional'}[po.scrapOrigin]||'Sin clasificar'):''),
       sku: po.productSku || prod?.sku || '',
       product: prod,
       formattedQty,
@@ -26509,7 +26535,7 @@ class NexusApp {
 
   readPosQuantity(raw = document.getElementById('pos-add-qty-input')?.value) {
     const p = this.data.products.find(p => p.id === document.getElementById('pos-add-product-id')?.value);
-    if (!NexusSafety.isChainLot(p)) return this.parseCleanNumber(raw);
+    if (!NexusSafety.isChainLot(p)&&!NexusSafety.isScrapGold(p)) return this.parseCleanNumber(raw);
     const value = String(raw ?? '').trim();
     return /^\d+(?:[.,]\d{1,6})?$/.test(value) ? Number(value.replace(',', '.')) : NaN;
   }
@@ -26560,7 +26586,7 @@ class NexusApp {
     if (elId) elId.value = p.id;
     if (elName) elName.textContent = p.name;
     if (elSku) elSku.textContent = `Código: ${p.sku || p.id}${NexusSafety.isChainLot(p) ? ' · Lote: ' + p.lotCode : ''}`;
-    if (elCat) elCat.textContent = cat?.name || p.categoryName || p.category || 'General';
+    if (elCat) elCat.textContent = (cat?.name || p.categoryName || p.category || 'General')+(NexusSafety.isScrapGold(p)?' · '+({italiano:'Italiano',nacional:'Nacional'}[p.scrapOrigin]||'Sin clasificar'):'');
     if (elStock) elStock.textContent = NexusSafety.isChainLot(p) ? `${p.stockUnits} cadenas · ${p.stock} g` : isUnitWithWeight ? `Stock: ${stockNum} u. (${maxAvailableQty} g)` : `Stock: ${stockNum} ${unit}`;
     if (elPill) {
       if (isPesaje) {
@@ -26662,7 +26688,7 @@ class NexusApp {
       lotUnits.max = isLot ? String(p.stockUnits || 0) : '';
     }
     if (elQtyInput) {
-      if (elQtyInput.dataset) elQtyInput.dataset.plainDecimal = String(isLot);
+      if (elQtyInput.dataset) elQtyInput.dataset.plainDecimal = String(isLot||NexusSafety.isScrapGold(p));
       elQtyInput.value = isLot ? (existing ? String(existing.qty) : '') : this.formatNumberWithCommas(defaultQty, isPesaje || isUnitWithWeight);
       elQtyInput.max = maxAvailableQty;
     }
@@ -26684,7 +26710,7 @@ class NexusApp {
     if (elPriceInput) {
       elPriceInput.value = initialPrice > 0 ? this.formatNumberWithCommas(initialPrice) : '';
     }
-    this._posLotQuotedPrice = isLot && existing && initialPrice > 0 ? {id:p.id,price:initialPrice,display:elPriceInput?.value} : null;
+    this._posLotQuotedPrice = (isLot||NexusSafety.isScrapGold(p)) && existing && initialPrice > 0 ? {id:p.id,price:initialPrice,display:elPriceInput?.value} : null;
 
     const elPriceUnitTag = document.getElementById('pos-add-price-unit-tag');
     if (elPriceUnitTag) {
@@ -26737,7 +26763,7 @@ class NexusApp {
     const id = document.getElementById('pos-add-product-id')?.value;
     const p = this.data.products.find(p => p.id === id);
     // Retain the negotiated whole-peso total even when its price/g is fractional.
-    this._posLotQuotedPrice = NexusSafety.isChainLot(p) && qtyVal > 0 && totalSale > 0 ? {id, price:totalSale/qtyVal, display:priceInput?.value} : null;
+    this._posLotQuotedPrice = (NexusSafety.isChainLot(p)||NexusSafety.isScrapGold(p)) && qtyVal > 0 && totalSale > 0 ? {id, price:totalSale/qtyVal, display:priceInput?.value} : null;
     this.updateAddToCartModalPreview();
   }
 
@@ -26884,9 +26910,10 @@ class NexusApp {
     }
     const deltaStep = delta > 0 ? step : -step;
 
-    let cur = this.parseCleanNumber(input.value);
-    let next = Math.round((cur + deltaStep) * 100) / 100;
-    const minVal = isUnitWithWeight ? pWeight : (isPesaje ? 0.01 : 1);
+    let cur = NexusSafety.isScrapGold(p)?this.readPosQuantity(input.value):this.parseCleanNumber(input.value);
+    if(NexusSafety.isScrapGold(p)&&!Number.isFinite(cur)){this.showToast('Digita un peso válido antes de ajustarlo.','warning');return;}
+    let next = NexusSafety.isScrapGold(p)?NexusSafety.round(cur+deltaStep):Math.round((cur + deltaStep) * 100) / 100;
+    const minVal = NexusSafety.isScrapGold(p)?0.000001:isUnitWithWeight ? pWeight : (isPesaje ? 0.01 : 1);
     if (next < minVal) next = minVal;
     if (next > maxStock) next = maxStock;
     input.value = this.formatNumberWithCommas(next, isPesaje || isUnitWithWeight);
@@ -27000,6 +27027,7 @@ class NexusApp {
   addToCart(productId, qty = null, customPrice = null, unitCount = null) {
     const product = this.data.products.find(p => p.id === productId);
     if (!product) return false;
+    if(NexusSafety.isScrapGold(product)&&qty!==null&&!NexusSafety.validScrapWeight(Number(qty))){this.showToast('Digita un peso de Chatarra válido, con hasta seis decimales.','warning');return false;}
     if (NexusSafety.isChainLot(product)) {
       if (qty === null || unitCount === null) { this.openAddToCartModal(productId); return false; }
       try { NexusSafety.lotMovement(product, qty, unitCount); }
@@ -27123,7 +27151,8 @@ class NexusApp {
     const maxStock = isUnitWithWeight ? NexusSafety.round(maxStockUnits * pWeight) : maxStockUnits;
     const roundPrec = 1000000;
 
-    let val = this.parseCleanNumber(rawValue);
+    let val = NexusSafety.isScrapGold(cartItem.product)?NexusSafety.parseGramInput(rawValue):this.parseCleanNumber(rawValue);
+    if(NexusSafety.isScrapGold(cartItem.product)&&(!Number.isFinite(val)||val>0&&!NexusSafety.validScrapWeight(val))){this.showToast('Digita gramos con hasta seis decimales, sin separadores de miles.','warning');this.renderCart();return;}
     if (isNaN(val) || val <= 0) {
       this.cart.splice(itemIndex, 1);
     } else {

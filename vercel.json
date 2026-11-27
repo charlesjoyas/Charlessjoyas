@@ -21,7 +21,9 @@
       "codex/lazy-audit-and-branding": false,
       "codex/fix-lazy-audit-projection": false,
       "codex/fix-purchase-save-transfer": false,
-      "codex/fix-persistent-release-notice": false
+      "codex/fix-persistent-release-notice": false,
+      "codex/local-scrap-gold": false,
+      "codex/release-glass-scrap": false
     }
   },
   "headers": [
