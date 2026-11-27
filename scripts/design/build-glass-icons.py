@@ -5,13 +5,14 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.colorLib.builder import buildCOLR, buildCPAL
 from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
+from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 
 ROOT=Path(__file__).resolve().parents[2]
-def glyph(draw):
+def glyph(draw,drop=0):
  p=TTGlyphPen(None)
  def poly(points):
-  p.moveTo((points[0][0]*40+40,880-points[0][1]*40))
-  for x,y in points[1:]:p.lineTo((x*40+40,880-y*40))
+  p.moveTo((points[0][0]*40+40,880-(points[0][1]+drop)*40))
+  for x,y in points[1:]:p.lineTo((x*40+40,880-(y+drop)*40))
   p.closePath()
  def circle(x,y,r):
   n=20;poly([(x+r*math.cos(i*math.tau/n),y+r*math.sin(i*math.tau/n)) for i in range(n)])
@@ -54,6 +55,11 @@ def pictogram(kind):
    for a,b in [((5,8),(12,4)),((12,4),(19,8)),((19,8),(19,16)),((19,16),(12,20)),((12,20),(5,16)),((5,16),(5,8)),((5,8),(12,12)),((12,12),(19,8)),((12,12),(12,20))]:L(*a,*b,1.2)
   elif kind=='chart':
    R(5,13,3,6);R(10.5,9,3,10);R(16,5,3,14)
+  elif kind=='hourglass':
+   L(6,5,18,5);L(6,19,18,19);L(7,6,17,18);L(17,6,7,18);L(7,6,7,9);L(17,6,17,9);L(7,15,7,18);L(17,15,17,18)
+  elif kind=='rewind':P([(11,6),(4,12),(11,18)]);P([(20,6),(13,12),(20,18)])
+  elif kind=='barcode':
+   for x,w in [(5,1.1),(7.4,.7),(9.5,1.6),(12.2,.7),(14.5,1.1),(17,1.8)]:R(x,6,w,12)
   elif kind in ['person','people']:
    C(12,8,3);L(7,18,8,14,2);L(8,14,16,14,2);L(16,14,17,18,2)
    if kind=='people':C(5,10,1.7);C(19,10,1.7);L(4,15,3,18,1.6);L(20,15,21,18,1.6)
@@ -138,15 +144,36 @@ groups={'diamond':'💎','bank':'🏦🏢🏬🏭','money':'💵💰💸','card'
 mapping={ord(ch):kind for kind,chars in groups.items() for ch in chars}
 groups.update({'info':'ℹ','return':'↩'})
 mapping.update({ord(ch):kind for kind in ['info','return'] for ch in groups[kind]})
+groups.update({'hourglass':'⏳','rewind':'⏪','barcode':'║'})
+for kind in ['hourglass','rewind','barcode']:mapping.update({ord(ch):kind for ch in groups[kind]})
+mapping.update({0x21BA:'refresh',0xE001:'money',0xE002:'cross',0xE003:'plus',0xE004:'minus'})
 for file in [ROOT/'index.html',*(ROOT/'js').glob('*.js')]:
  for ch in file.read_text(encoding='utf-8'):
   if 0x1F000<=ord(ch)<=0x1FAFF or 0x2600<=ord(ch)<=0x27FF:mapping.setdefault(ord(ch),'sparkle')
 palette=[(0.05,0.48,0.77,1),(0.35,0.29,0.78,1),(0.04,0.55,0.43,1),(0.75,0.43,0.08,1),(0.79,0.20,0.32,1),(1,1,1,0.24),(1,1,1,0.12),(1,1,1,0.94)]
+palette += [(1,1,1,.72),(.03,.11,.24,.33)]
 gly={'.notdef':glyph(lambda *a:None)}
 gly['tile']=glyph(lambda P,C,L,R,B:B(1,1,22,22,5))
 gly['shine']=glyph(lambda P,C,L,R,B:B(2,2,20,9,4))
 gly['facet']=glyph(lambda P,C,L,R,B:P([(2,20),(20,2),(22,5),(22,19),(19,22),(5,22)]))
-for kind in groups:gly['shape_'+kind]=glyph(pictogram(kind))
+for kind in groups:
+ gly['shape_'+kind]=glyph(pictogram(kind))
+ gly['shadow_'+kind]=glyph(pictogram(kind),.45)
+bands=[]
+for i in range(24):
+ y=1.6+i*20.8/24;h=20.8/24+.025
+ def left(t):
+  r=4.8;d=max(0,6.4-t,t-17.6)
+  return 1.6+r-math.sqrt(max(0,r*r-d*d))
+ x1,x2=left(y),left(min(22.4,y+h))
+ name='glass_band_'+str(i);gly[name]=glyph(lambda P,C,L,R,B,y=y,h=h,x1=x1,x2=x2:P([(x1,y),(24-x1,y),(24-x2,y+h),(x2,y+h)]));bands.append(name)
+gradient_indices={}
+for tone in range(5):
+ gradient_indices[tone]=[]
+ for i in range(24):
+  t=i/23;blend=.53*(1-t)**2
+  gradient_indices[tone].append(len(palette))
+  palette.append(tuple(v*(1-blend)+blend for v in palette[tone][:3])+(.94,))
 colorlayers={};cmap={}
 for cp,kind in mapping.items():
  name='u'+hex(cp)[2:];gly[name]=gly['.notdef'];cmap[cp]=name
@@ -154,8 +181,10 @@ for cp,kind in mapping.items():
  if cp==ord('🔴'):tone=4
  if cp==ord('🟡'):tone=3
  if cp==ord('🟢'):tone=2
- colorlayers[name]=[('tile',tone),('shine',5),('facet',6),('shape_'+kind,7)]
-fb=FontBuilder(1000,isTTF=True);fb.setupGlyphOrder(list(gly));fb.setupCharacterMap(cmap);fb.setupGlyf(gly);fb.setupHorizontalMetrics({n:(1040,0) for n in gly});fb.setupHorizontalHeader(ascent=920,descent=-180);fb.setupNameTable({'familyName':'Charles Glass Icons','styleName':'Regular','uniqueFontIdentifier':'CharlesGlassIcons-1','fullName':'Charles Glass Icons','psName':'CharlesGlassIcons-Regular','version':'Version 1.0'});fb.setupOS2(sTypoAscender=920,sTypoDescender=-180,usWinAscent=920,usWinDescent=180);fb.setupPost();fb.font['COLR']=buildCOLR(colorlayers,version=0);fb.font['CPAL']=buildCPAL([palette])
+ colorlayers[name]=[('tile',8),*[(band,gradient_indices[tone][i]) for i,band in enumerate(bands)],('shine',5),('facet',6),('shadow_'+kind,9),('shape_'+kind,7)]
+gly['barcode_combined']=gly['.notdef'];colorlayers['barcode_combined']=colorlayers['u2551']
+fb=FontBuilder(1000,isTTF=True);fb.setupGlyphOrder(list(gly));fb.setupCharacterMap(cmap);fb.setupGlyf(gly);fb.setupHorizontalMetrics({n:(1040,0) for n in gly});fb.setupHorizontalHeader(ascent=920,descent=-180);fb.setupNameTable({'familyName':'Charles Glass Icons','styleName':'Regular','uniqueFontIdentifier':'CharlesGlassIcons-2','fullName':'Charles Glass Icons','psName':'CharlesGlassIcons-Regular','version':'Version 2.0'});fb.setupOS2(sTypoAscender=920,sTypoDescender=-180,usWinAscent=920,usWinDescent=180);fb.setupPost();fb.font['COLR']=buildCOLR(colorlayers,version=0);fb.font['CPAL']=buildCPAL([palette])
+addOpenTypeFeaturesFromString(fb.font,'feature liga { sub u2551 u2551 u2551 u2551 by barcode_combined; } liga;')
 uvs=CmapSubtable.newSubtable(14);uvs.platformID=0;uvs.platEncID=5;uvs.cmap={};uvs.uvsDict={0xFE0F:[(cp,None) for cp in mapping]};fb.font['cmap'].tables.append(uvs)
 output=ROOT/'icons/charles-glass-icons.woff2';fb.font.flavor='woff2';fb.font.save(output);shutil.copy2(output,ROOT/'public/icons'/output.name)
 print(f'{len(mapping)} Unicode icons, {len(groups)} original pictograms, {output.stat().st_size} bytes')

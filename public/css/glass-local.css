@@ -2,18 +2,18 @@
    Printing deliberately keeps the original stylesheet and original emoji fonts. */
 @font-face {
   font-family: 'Charles Glass Icons';
-  src: url('../icons/charles-glass-icons.woff2') format('woff2');
+  src: url('../icons/charles-glass-icons.woff2?v=2') format('woff2');
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  unicode-range: U+2139, U+21A9, U+2600-27FF, U+1F000-1FAFF;
+  unicode-range: U+2139, U+21A9, U+21BA, U+23EA, U+23F3, U+2551, U+2600-27FF, U+E001-E004, U+1F000-1FAFF;
 }
 @media screen {
   :root {
     --font-body: 'Charles Glass Icons', 'Outfit', 'Segoe UI', system-ui, sans-serif !important;
     --font-heading: 'Charles Glass Icons', 'Outfit', 'Segoe UI', system-ui, sans-serif !important;
     --glass-panel: rgba(255,255,255,.69);
-    --glass-panel-strong: rgba(248,252,255,.93);
+    --glass-panel-strong: rgba(248,252,255,.98);
     --glass-highlight: rgba(255,255,255,.76);
     --glass-line: rgba(255,255,255,.92);
     --glass-shadow: 0 12px 36px -18px rgba(40,65,115,.28), inset 0 1px 0 rgba(255,255,255,.9);
@@ -40,7 +40,7 @@
   }
   [data-theme='dark'] {
     --glass-panel: rgba(27,40,66,.67);
-    --glass-panel-strong: rgba(19,31,53,.96);
+    --glass-panel-strong: rgba(19,31,53,.985);
     --glass-highlight: rgba(169,202,255,.09);
     --glass-line: rgba(189,216,255,.16);
     --glass-shadow: 0 16px 42px -20px rgba(0,0,0,.68), inset 0 1px 0 rgba(222,239,255,.10);
@@ -64,6 +64,7 @@
     background: radial-gradient(ellipse at 8% 5%,rgba(126,182,244,.30),transparent 44%),radial-gradient(ellipse at 93% 32%,rgba(182,153,235,.23),transparent 45%),radial-gradient(ellipse at 52% 100%,rgba(109,210,204,.20),transparent 48%),var(--bg-app) !important;
     background-attachment: fixed !important;
   }
+  button, summary { font-family:var(--font-body); }
   [data-theme='dark'] body {
     background: radial-gradient(ellipse at 5% 0%,rgba(38,104,176,.25),transparent 48%),radial-gradient(ellipse at 96% 28%,rgba(111,70,170,.18),transparent 43%),radial-gradient(ellipse at 50% 100%,rgba(18,133,143,.14),transparent 48%),var(--bg-app) !important;
   }
@@ -105,6 +106,19 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,.56),0 5px 14px -9px rgba(30,111,173,.5);
     color: var(--brand-primary);
   }
+  .kpi-icon-wrap { font-size:26px; line-height:1; }
+  .kpi-icon-indigo { font-size:0; }
+  .kpi-icon-indigo::before { content:'\E001'; font:26px/1 'Charles Glass Icons'; }
+  .nav-icon svg { width:22px; height:22px; flex-shrink:0; }
+  .nexus-ai-fab-icon { font-size:21px; }
+  .modal-close-btn, .nexus-ai-btn-icon[title='Cerrar Copilot'] { font-size:0 !important; }
+  .modal-close-btn::before, .nexus-ai-btn-icon[title='Cerrar Copilot']::before { content:'\E002'; font:22px/1 'Charles Glass Icons'; }
+  .pos-add-btn[title='Fijar precio y agregar'], .qty-btn[title='Sumar'], .qty-btn[title='Restar'], button[onclick='app.adjustAddToCartQty(1)'], button[onclick='app.adjustAddToCartQty(-1)'] { font-size:0 !important; }
+  .pos-add-btn[title='Fijar precio y agregar']::before, .qty-btn[title='Sumar']::before, button[onclick='app.adjustAddToCartQty(1)']::before { content:'\E003'; font:20px/1 'Charles Glass Icons'; }
+  .qty-btn[title='Restar']::before, button[onclick='app.adjustAddToCartQty(-1)']::before { content:'\E004'; font:20px/1 'Charles Glass Icons'; }
+  .pos-add-btn[title='Producto agotado'] { background:var(--bg-surface-hover) !important; opacity:.45; box-shadow:none; }
+  .btn-danger, .btn-action-delete, .text-danger { --glass-native-icon-filter:hue-rotate(145deg) drop-shadow(0 2px 2px rgba(150,35,65,.16)); }
+  .btn-success, .text-success { --glass-native-icon-filter:hue-rotate(-55deg) drop-shadow(0 2px 2px rgba(15,110,90,.16)); }
   :is(.btn,.btn-icon,.theme-toggle-btn,.toggle-sidebar-btn,.modal-close-btn,.category-pill,.auth-tab-btn,.search-trigger,.kbd-shortcut) {
     border-color: var(--glass-line);
     box-shadow: inset 0 1px 0 var(--glass-highlight),0 3px 10px -7px rgba(24,72,120,.35);
@@ -158,7 +172,7 @@
   .login-form-pane, .login-hero { background:transparent !important; }
   .login-title, .login-brand-title, .login-label { color:var(--text-main) !important; }
   :is(.ai-copilot-drawer,.nexus-ai-panel,.nexus-ai-drawer,.ai-chat-container) { background:var(--glass-panel-strong) !important; border-color:var(--glass-line) !important; box-shadow:var(--glass-shadow); }
-  :is(.ai-copilot-fab,.nexus-ai-fab,#ai-copilot-fab) { background:linear-gradient(135deg,rgba(113,77,208,.95),rgba(16,148,194,.95)) !important; border:1px solid rgba(219,234,255,.4) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 12px 30px -14px rgba(88,57,170,.6); }
+  :is(.ai-copilot-fab,.nexus-ai-fab,#ai-copilot-fab) { background:linear-gradient(135deg,rgba(113,77,208,.95),rgba(16,148,194,.95)) !important; border:1px solid rgba(219,234,255,.4) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 12px 30px -14px rgba(88,57,170,.6); z-index:900; }
   /* Native SVG pictograms retain their exact geometry and button hit areas. */
   svg[viewBox='0 0 24 24']:not(.chart-icon) { filter:drop-shadow(0 1px 0 rgba(255,255,255,.35)) drop-shadow(0 2px 3px rgba(29,117,184,.17)); }
   :is(.nav-icon,.btn-icon,.theme-toggle-btn,.kpi-icon-wrap,.brand-icon,.login-brand-logo) svg[viewBox='0 0 24 24'] { background:linear-gradient(145deg,rgba(132,206,244,.23),rgba(151,125,223,.12)); border-radius:6px; box-shadow:inset 0 1px 0 rgba(255,255,255,.2); }
