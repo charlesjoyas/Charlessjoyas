@@ -1,0 +1,62 @@
+/* Local report presentation. Leaves filters, values and calculations unchanged. */
+@media screen {
+  :is(.finanzas-period-selector,.compras-period-selector,.finanzas-date-range-box) {
+    background:linear-gradient(140deg,var(--glass-highlight),transparent 70%),var(--glass-panel) !important;
+    border:1px solid var(--glass-line) !important; border-radius:14px !important;
+    box-shadow:var(--glass-shadow); padding:5px !important; gap:5px !important;
+    flex-wrap:wrap !important; max-width:100%; overflow:visible !important;
+  }
+  :is(.finanzas-period-pill,.compras-period-pill) {
+    background:transparent !important; color:var(--text-muted) !important;
+    border:1px solid transparent !important; border-radius:10px !important;
+    padding:7px 12px !important; min-height:34px; line-height:1.3;
+    white-space:normal !important; font-weight:700;
+  }
+  :is(.finanzas-period-pill,.compras-period-pill):hover { background:var(--bg-surface-hover) !important; color:var(--text-main) !important; }
+  :is(.finanzas-period-pill,.compras-period-pill).active {
+    background:linear-gradient(130deg,rgba(52,159,215,.21),rgba(137,115,221,.16)) !important;
+    color:var(--text-main) !important; border-color:rgba(85,168,222,.35) !important;
+    box-shadow:inset 0 1px 0 var(--glass-highlight),0 3px 9px -6px rgba(20,93,150,.4);
+  }
+  .finanzas-date-range-box { padding:7px 10px !important; gap:8px !important; }
+  .finanzas-date-range-box input[type='date'] { min-height:34px; border-radius:9px; }
+  [data-theme='dark'] input[type='date'] { color-scheme:dark; }
+  input[type='date']::-webkit-calendar-picker-indicator { width:18px; height:18px; background-image:url('../icons/glass-ui/glass-a0b71ebe5a99.svg'); background-size:18px 18px; background-position:center; opacity:1; filter:none; cursor:pointer; }
+  :is(#fin-ventas-period-badge,#fin-ventas-count-badge,#rep-general-period-badge) {
+    color:var(--text-main) !important; background:var(--glass-panel) !important;
+    border:1px solid var(--border-color) !important; box-shadow:inset 0 1px 0 var(--glass-highlight);
+  }
+  #fin-ventas-total-badge { color:var(--emerald-text) !important; background:var(--emerald-bg) !important; }
+  #fin-val-utilidad { color:var(--text-main) !important; }
+  #fin-val-utilidad[style*='254, 205, 211'], #fin-val-utilidad[style*='#FECDD3'] { color:var(--rose-text) !important; }
+  #fin-badge-netmargin { background:var(--glass-panel) !important; }
+  #fin-badge-netmargin[style*='239, 68, 68'] { background:var(--rose-bg) !important; color:var(--rose-text) !important; border-color:var(--rose-danger); }
+  .finanzas-kpi-grid, .compras-kpi-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
+  .finanzas-kpi-card, .compras-kpi-card {
+    --report-accent:91,133,217;
+    background:linear-gradient(140deg,rgba(var(--report-accent),.16),transparent 72%),linear-gradient(140deg,var(--glass-highlight),transparent 60%),var(--glass-panel) !important;
+    color:var(--text-main) !important; border:1px solid var(--glass-line) !important;
+    border-radius:20px; box-shadow:var(--glass-shadow); min-width:0; min-height:178px;
+    padding:18px; justify-content:flex-start; gap:4px;
+    -webkit-backdrop-filter:blur(16px) saturate(125%); backdrop-filter:blur(16px) saturate(125%);
+  }
+  .finanzas-kpi-card::before, .compras-kpi-card::before { content:''; position:absolute; top:0; left:18px; right:18px; height:2px; background:linear-gradient(90deg,transparent,rgba(var(--report-accent),.7),transparent); pointer-events:none; }
+  .finanzas-kpi-ingresos, .compras-kpi-inversion { --report-accent:38,151,213; }
+  .finanzas-kpi-cogs, .compras-kpi-gramos { --report-accent:202,144,45; }
+  .finanzas-kpi-opex, .compras-kpi-cxp { --report-accent:215,77,113; }
+  .finanzas-kpi-utilidad { --report-accent:25,170,143; }
+  .compras-kpi-proveedores { --report-accent:137,109,218; }
+  #rep-prod-kpi-grid > :nth-child(1) { --report-accent:137,109,218; }
+  #rep-prod-kpi-grid > :nth-child(2) { --report-accent:25,170,143; }
+  #rep-prod-kpi-grid > :nth-child(3) { --report-accent:202,144,45; }
+  #rep-prod-kpi-grid > :nth-child(4) { --report-accent:38,151,213; }
+  .finanzas-kpi-label, .compras-kpi-label { color:var(--text-muted); opacity:1; align-items:flex-start; gap:10px; min-width:0; font-size:.75rem; line-height:1.45; }
+  :is(.finanzas-kpi-label,.compras-kpi-label) > span:first-child { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+  .finanzas-kpi-badge, .compras-kpi-badge { color:var(--text-main); background:rgba(var(--report-accent),.13); border:1px solid rgba(var(--report-accent),.23); border-radius:9px; flex:0 1 auto; max-width:46%; padding:4px 7px; font-size:.68rem; line-height:1.3; white-space:normal; text-align:center; box-shadow:inset 0 1px 0 var(--glass-highlight); }
+  .finanzas-kpi-val, .compras-kpi-val { color:var(--text-main); white-space:normal !important; overflow:visible !important; text-overflow:clip !important; overflow-wrap:anywhere; min-width:0; line-height:1.25; font-size:clamp(1.25rem,1.65vw,1.65rem); margin:3px 0; }
+  .finanzas-kpi-sub, .compras-kpi-sub { color:var(--text-muted); opacity:1; padding-right:42px; line-height:1.5; overflow-wrap:anywhere; margin-top:auto; }
+  .finanzas-kpi-watermark, .compras-kpi-watermark { right:14px; bottom:14px; width:32px; height:32px; opacity:1; }
+  :is(.finanzas-kpi-watermark,.compras-kpi-watermark) svg { width:32px; height:32px; }
+  @media (max-width:1200px) { .finanzas-kpi-grid,.compras-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:640px) { .finanzas-kpi-grid,.compras-kpi-grid { grid-template-columns:minmax(0,1fr); } .finanzas-kpi-card,.compras-kpi-card { -webkit-backdrop-filter:none;backdrop-filter:none;min-height:156px; } }
+}

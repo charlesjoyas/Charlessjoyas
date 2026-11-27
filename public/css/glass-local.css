@@ -135,7 +135,7 @@
   }
   .btn-secondary, .btn-outline, .btn-icon, .theme-toggle-btn, .toggle-sidebar-btn, .search-trigger, .category-pill, .auth-tab-btn {
     background: linear-gradient(140deg,var(--glass-highlight),transparent),var(--glass-panel) !important;
-    color: var(--text-main);
+    color: var(--text-main) !important;
   }
   .btn:not(.btn-primary):not(.btn-success):not(.btn-danger):not(.btn-checkout) { background:linear-gradient(140deg,var(--glass-highlight),transparent),var(--glass-panel) !important; color:var(--text-main); }
   .btn-primary, .pos-add-btn, .login-submit-btn, .btn-login-submit, .pos-mobile-cart-btn {
