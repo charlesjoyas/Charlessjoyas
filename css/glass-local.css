@@ -1,0 +1,169 @@
+/* Charles Joyas local visual prototype. No layout, visibility, events or data changes.
+   Printing deliberately keeps the original stylesheet and original emoji fonts. */
+@font-face {
+  font-family: 'Charles Glass Icons';
+  src: url('../icons/charles-glass-icons.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+2139, U+21A9, U+2600-27FF, U+1F000-1FAFF;
+}
+@media screen {
+  :root {
+    --font-body: 'Charles Glass Icons', 'Outfit', 'Segoe UI', system-ui, sans-serif !important;
+    --font-heading: 'Charles Glass Icons', 'Outfit', 'Segoe UI', system-ui, sans-serif !important;
+    --glass-panel: rgba(255,255,255,.69);
+    --glass-panel-strong: rgba(248,252,255,.93);
+    --glass-highlight: rgba(255,255,255,.76);
+    --glass-line: rgba(255,255,255,.92);
+    --glass-shadow: 0 12px 36px -18px rgba(40,65,115,.28), inset 0 1px 0 rgba(255,255,255,.9);
+    --bg-app: #eaf0fa;
+    --bg-surface: rgba(255,255,255,.70);
+    --bg-surface-hover: rgba(219,233,252,.66);
+    --border-color: rgba(120,148,183,.24);
+    --text-main: #19324f;
+    --text-muted: #4c6380;
+    --text-subtle: #617791;
+    --brand-primary: #087fad;
+    --brand-primary-hover: #066c99;
+    --brand-primary-light: rgba(6,143,196,.11);
+    --brand-primary-text: #076e96;
+    --brand-glow: rgba(31,157,211,.19);
+    --sidebar-text: #536b88;
+    --sidebar-text-active: #123f63;
+    --sidebar-border: rgba(130,158,190,.18);
+    --card-border: var(--glass-line);
+    --card-bg: var(--glass-panel);
+    --shadow-card: var(--glass-shadow);
+    --radius-lg: 20px;
+    --radius-md: 13px;
+  }
+  [data-theme='dark'] {
+    --glass-panel: rgba(27,40,66,.67);
+    --glass-panel-strong: rgba(19,31,53,.96);
+    --glass-highlight: rgba(169,202,255,.09);
+    --glass-line: rgba(189,216,255,.16);
+    --glass-shadow: 0 16px 42px -20px rgba(0,0,0,.68), inset 0 1px 0 rgba(222,239,255,.10);
+    --bg-app: #0c1528;
+    --bg-surface: rgba(28,43,69,.76);
+    --bg-surface-hover: rgba(73,106,151,.24);
+    --border-color: rgba(172,202,243,.17);
+    --text-main: #edf5ff;
+    --text-muted: #bccde3;
+    --text-subtle: #93acca;
+    --brand-primary: #66c9f4;
+    --brand-primary-hover: #87d7fa;
+    --brand-primary-light: rgba(67,168,224,.16);
+    --brand-primary-text: #9edffd;
+    --brand-glow: rgba(74,173,237,.19);
+    --sidebar-text: #a9bfdc;
+    --sidebar-text-active: #f2f8ff;
+    --sidebar-border: rgba(184,213,255,.12);
+  }
+  body {
+    background: radial-gradient(ellipse at 8% 5%,rgba(126,182,244,.30),transparent 44%),radial-gradient(ellipse at 93% 32%,rgba(182,153,235,.23),transparent 45%),radial-gradient(ellipse at 52% 100%,rgba(109,210,204,.20),transparent 48%),var(--bg-app) !important;
+    background-attachment: fixed !important;
+  }
+  [data-theme='dark'] body {
+    background: radial-gradient(ellipse at 5% 0%,rgba(38,104,176,.25),transparent 48%),radial-gradient(ellipse at 96% 28%,rgba(111,70,170,.18),transparent 43%),radial-gradient(ellipse at 50% 100%,rgba(18,133,143,.14),transparent 48%),var(--bg-app) !important;
+  }
+  #app, .main-wrapper, .main-content, .content-body, .view-container, .sub-view-pane {
+    background-color: transparent !important;
+  }
+  .sidebar, .top-bar {
+    background: linear-gradient(145deg,var(--glass-highlight),transparent 62%),var(--glass-panel) !important;
+    border-color: var(--glass-line) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(135%);
+    backdrop-filter: blur(24px) saturate(135%);
+    box-shadow: var(--glass-shadow);
+  }
+  .sidebar-footer, .sidebar-header { background: transparent !important; border-color: var(--sidebar-border) !important; }
+  .brand-text, .sidebar .user-name, .sidebar .user-info { color: var(--text-main) !important; }
+  .menu-group-title { color: var(--text-subtle) !important; letter-spacing: .06em; }
+  .nav-item { border: 1px solid transparent; border-radius: 13px; }
+  .nav-item:hover, .sub-menu-item:hover { background: var(--bg-surface-hover) !important; border-color: var(--glass-line); }
+  .nav-item.active {
+    background: linear-gradient(125deg,rgba(41,155,217,.17),rgba(140,116,221,.13)) !important;
+    border-color: rgba(85,169,222,.25);
+    box-shadow: inset 0 1px 0 var(--glass-highlight),0 5px 16px -12px rgba(12,114,169,.5);
+  }
+  .nav-item.active .nav-text { color:var(--sidebar-text-active) !important; }
+  :is(.card,.kpi-card,.pos-product-card,.table-wrapper,.table-container,.report-card,.summary-card,.compras-kpi-card,.stat-card,.finance-card) {
+    background: linear-gradient(135deg,var(--glass-highlight),transparent 57%),var(--glass-panel) !important;
+    border-color: var(--glass-line) !important;
+    box-shadow: var(--glass-shadow);
+    border-radius: var(--radius-lg);
+  }
+  .card, .kpi-card { -webkit-backdrop-filter: blur(16px) saturate(125%); backdrop-filter: blur(16px) saturate(125%); }
+  .card .card, .card .kpi-card { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .kpi-card:hover, .pos-product-card:hover { box-shadow: var(--glass-shadow),0 8px 24px -15px rgba(37,143,212,.5); border-color: rgba(101,174,225,.46) !important; }
+  .card-header, .modal-header, .modal-footer, .cart-footer, .cart-header { background: transparent !important; border-color: var(--border-color) !important; }
+  .kpi-value, .section-title, .card-title, .modal-title { color: var(--text-main); }
+  .kpi-icon-wrap, .brand-icon, .login-brand-logo {
+    background: linear-gradient(135deg,rgba(116,202,248,.32),rgba(146,125,229,.18)) !important;
+    border: 1px solid var(--glass-line);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.56),0 5px 14px -9px rgba(30,111,173,.5);
+    color: var(--brand-primary);
+  }
+  :is(.btn,.btn-icon,.theme-toggle-btn,.toggle-sidebar-btn,.modal-close-btn,.category-pill,.auth-tab-btn,.search-trigger,.kbd-shortcut) {
+    border-color: var(--glass-line);
+    box-shadow: inset 0 1px 0 var(--glass-highlight),0 3px 10px -7px rgba(24,72,120,.35);
+  }
+  .btn-secondary, .btn-outline, .btn-icon, .theme-toggle-btn, .toggle-sidebar-btn, .search-trigger, .category-pill, .auth-tab-btn {
+    background: linear-gradient(140deg,var(--glass-highlight),transparent),var(--glass-panel) !important;
+    color: var(--text-main);
+  }
+  .btn:not(.btn-primary):not(.btn-success):not(.btn-danger):not(.btn-checkout) { background:linear-gradient(140deg,var(--glass-highlight),transparent),var(--glass-panel) !important; color:var(--text-main); }
+  .btn-primary, .pos-add-btn, .login-submit-btn, .btn-login-submit, .pos-mobile-cart-btn {
+    background: linear-gradient(135deg,#168cbe,#5863c5) !important;
+    color: #fff !important;
+    border-color: rgba(184,229,255,.38) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.3),0 7px 20px -11px rgba(27,114,191,.7);
+  }
+  .btn-primary:hover { background: linear-gradient(135deg,#107ba9,#4c56b6) !important; }
+  .btn-success, .btn-checkout { background: linear-gradient(130deg,#128b79,#198786) !important; color:#fff !important; }
+  .btn-danger { background: linear-gradient(135deg,#c2445e,#a93f61) !important; color:#fff !important; }
+  .btn:disabled, button:disabled { box-shadow: none; }
+  :is(input,select,textarea,.form-control,.form-input,.form-select,.login-input,.table-search-input input,#pos-product-search) {
+    font-family: var(--font-body);
+    background-color: var(--glass-panel-strong) !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-main) !important;
+    box-shadow: inset 0 1px 3px rgba(27,56,100,.035),0 1px 0 var(--glass-highlight);
+  }
+  input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; opacity:1; }
+  select option { background:var(--glass-panel-strong); color:var(--text-main); }
+  :is(input,select,textarea):focus { border-color: var(--brand-primary) !important; box-shadow:0 0 0 3px var(--brand-primary-light) !important; }
+  :is(button,a,input,select,textarea):focus-visible { outline:2px solid var(--brand-primary); outline-offset:3px; }
+  input[type='checkbox'], input[type='radio'] { accent-color:#1186b6; }
+  :is(.badge,.badge-trend,.store-status-pill,.brand-badge) { border:1px solid var(--border-color); box-shadow:inset 0 1px 0 var(--glass-highlight); }
+  table { background:transparent !important; }
+  thead, thead th { background:var(--bg-surface-hover) !important; color:var(--text-muted) !important; border-color:var(--border-color) !important; }
+  tbody tr { background:transparent; }
+  tbody tr:hover { background:var(--bg-surface-hover) !important; }
+  td, th { border-color:var(--border-color) !important; }
+  .pos-product-img { background:linear-gradient(140deg,rgba(133,186,234,.14),rgba(159,137,219,.12)) !important; }
+  .pos-product-img img, .custom-logo-img, .login-custom-logo-img { filter:none; }
+  [data-theme='dark'] :is(#salesChart,#categoryChart,.chart-container canvas) { filter:brightness(1.6) saturate(.9); }
+  .category-pill.active { background:linear-gradient(125deg,rgba(39,155,213,.22),rgba(124,113,217,.14)) !important; color:var(--text-main) !important; border-color:var(--brand-primary); }
+  .modal-backdrop { background:rgba(6,16,34,.62) !important; }
+  .modal-card {
+    background:linear-gradient(135deg,var(--glass-highlight),transparent 55%),var(--glass-panel-strong) !important;
+    border:1px solid var(--glass-line);
+    box-shadow:0 30px 90px -25px rgba(0,12,32,.6),inset 0 1px 0 var(--glass-highlight);
+  }
+  .toast { background:var(--glass-panel-strong) !important; color:var(--text-main) !important; border:1px solid var(--glass-line); box-shadow:var(--glass-shadow); }
+  .login-screen { background:radial-gradient(ellipse at 15% 15%,rgba(90,168,231,.25),transparent 50%),radial-gradient(ellipse at 90% 80%,rgba(141,115,221,.23),transparent 55%),var(--bg-app) !important; }
+  .login-container { background:var(--glass-panel) !important; border:1px solid var(--glass-line); box-shadow:var(--glass-shadow); -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px); }
+  .login-form-pane, .login-hero { background:transparent !important; }
+  .login-title, .login-brand-title, .login-label { color:var(--text-main) !important; }
+  :is(.ai-copilot-drawer,.nexus-ai-panel,.nexus-ai-drawer,.ai-chat-container) { background:var(--glass-panel-strong) !important; border-color:var(--glass-line) !important; box-shadow:var(--glass-shadow); }
+  :is(.ai-copilot-fab,.nexus-ai-fab,#ai-copilot-fab) { background:linear-gradient(135deg,rgba(113,77,208,.95),rgba(16,148,194,.95)) !important; border:1px solid rgba(219,234,255,.4) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 12px 30px -14px rgba(88,57,170,.6); }
+  /* Native SVG pictograms retain their exact geometry and button hit areas. */
+  svg[viewBox='0 0 24 24']:not(.chart-icon) { filter:drop-shadow(0 1px 0 rgba(255,255,255,.35)) drop-shadow(0 2px 3px rgba(29,117,184,.17)); }
+  :is(.nav-icon,.btn-icon,.theme-toggle-btn,.kpi-icon-wrap,.brand-icon,.login-brand-logo) svg[viewBox='0 0 24 24'] { background:linear-gradient(145deg,rgba(132,206,244,.23),rgba(151,125,223,.12)); border-radius:6px; box-shadow:inset 0 1px 0 rgba(255,255,255,.2); }
+  @supports not (backdrop-filter:blur(1px)) { .card,.kpi-card,.sidebar,.top-bar,.login-container { background:var(--glass-panel-strong) !important; } }
+  @media (max-width:768px) { .card,.kpi-card { -webkit-backdrop-filter:none;backdrop-filter:none; } .sidebar { background:var(--glass-panel-strong) !important; } }
+  @media (prefers-reduced-motion:reduce) { .kpi-card:hover,.pos-product-card:hover { transform:none; } }
+  @media (prefers-reduced-transparency:reduce) { .sidebar,.top-bar,.card,.kpi-card,.modal-card,.login-container { background:var(--glass-panel-strong) !important;-webkit-backdrop-filter:none;backdrop-filter:none; } }
+}
