@@ -243,11 +243,13 @@
     }
   </style>
   <!-- Local-only visual prototype; business scripts remain unchanged. -->
-  <link rel="stylesheet" href="css/glass-local.css?v=5">
-  <link rel="stylesheet" href="css/glass-ui-icons.css?v=1">
-  <link rel="stylesheet" href="css/glass-tables.css?v=1">
-  <link rel="stylesheet" href="css/glass-reports.css?v=1">
-  <script src="js/glass-layout.js?v=1" defer></script>
+  <link rel="stylesheet" href="css/glass-local.css?v=5" data-appearance="glass" media="not all">
+  <link rel="stylesheet" href="css/glass-ui-icons.css?v=1" data-appearance="glass" media="not all">
+  <link rel="stylesheet" href="css/glass-tables.css?v=1" data-appearance="glass" media="not all">
+  <link rel="stylesheet" href="css/glass-reports.css?v=1" data-appearance="glass" media="not all">
+  <link rel="stylesheet" href="css/appearance-settings.css?v=1">
+  <script src="js/appearance.js?v=1"></script>
+  <script src="js/glass-layout.js?v=2" defer></script>
 </head>
 <body>
   <!-- ====================================================================
@@ -2570,6 +2572,23 @@
                 <p class="section-subtitle">Gestiona la identidad visual, colores corporativos, tipografía y datos fiscales de tu comercio.</p>
               </div>
             </div>
+
+            <section class="card" id="appearance-settings" aria-labelledby="appearance-heading">
+              <h3 id="appearance-heading">Apariencia de este dispositivo</h3>
+              <p class="appearance-description">Elige el diseño que prefieras. Ambos funcionan en modo claro u oscuro.</p>
+              <div class="appearance-choices" role="group" aria-label="Diseño de la aplicación">
+                <button type="button" class="appearance-choice" data-appearance-choice="classic" aria-pressed="true">
+                  <span class="appearance-preview" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+                  <strong>Clásico</strong><small>La apariencia anterior, con superficies sólidas.</small>
+                </button>
+                <button type="button" class="appearance-choice" data-appearance-choice="glass" aria-pressed="false">
+                  <span class="appearance-preview appearance-preview-glass" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+                  <strong>Glass</strong><small>Paneles translúcidos e iconos con acabado de cristal.</small>
+                </button>
+              </div>
+              <p class="appearance-note">Cada equipo puede usar un diseño distinto. El cambio se aplica al instante.</p>
+              <p id="appearance-status" role="status" aria-live="polite">Diseño actual: Clásico.</p>
+            </section>
 
             <!-- TABS CONFIGURACIÓN -->
             <div class="config-tab-nav">

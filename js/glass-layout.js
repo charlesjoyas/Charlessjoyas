@@ -2,10 +2,11 @@
    replaces content, clones controls, submits forms or changes business event handlers. */
 (() => {
   'use strict';
-  const pending=new Set(),hosts=new Map();let scheduled=false,cleanup=false;
+  const pending=new Set(),hosts=new Map();let scheduled=false,cleanup=false,running=false,observer=null;
   const allowed=table=>table instanceof HTMLTableElement&&table.closest('#app,.modal-card')&&!table.closest('#receipt-modal,.thermal-ticket-card,.thermal-ticket-wrapper');
   const set=(node,key,value)=>{if(node.getAttribute(key)!==value)node.setAttribute(key,value);};
   const mode=host=>{
+    if(!running)return;
     const width=host.clientWidth;if(!width)return;
     const layout=width<540?'stack':width<960?'cards':'table';
     for(const table of hosts.get(host)||[])if(table.isConnected)set(table,'data-glass-layout',layout);
@@ -53,6 +54,7 @@
   }
   function flush(){
     scheduled=false;
+    if(!running){pending.clear();return;}
     if(cleanup){for(const [host,tables]of hosts){for(const t of tables)if(!t.isConnected||t.parentElement!==host)tables.delete(t);if(!host.isConnected||!tables.size){resize?.unobserve(host);hosts.delete(host);}}cleanup=false;}
     const tables=[...pending];pending.clear();tables.forEach(decorate);
   }
@@ -63,16 +65,27 @@
     el.querySelectorAll?.('table').forEach(t=>{if(allowed(t))pending.add(t);});
   };
   const start=()=>{
+    if(running)return;running=true;
     document.querySelectorAll('table').forEach(t=>{if(allowed(t))pending.add(t);});flush();
-    new MutationObserver(records=>{
+    observer=new MutationObserver(records=>{
+      if(!running)return;
       for(const record of records){
         const el=record.target.nodeType===1?record.target:record.target.parentElement;
         const table=el?.closest('table');if(table&&allowed(table))pending.add(table);
         record.addedNodes.forEach(collect);if(record.removedNodes.length)cleanup=true;
       }
       if(pending.size||cleanup)schedule();
-    }).observe(document.body,{childList:true,subtree:true,characterData:true});
-    if(!resize)window.addEventListener('resize',()=>hosts.forEach((_,host)=>mode(host)),{passive:true});
+    });observer.observe(document.body,{childList:true,subtree:true,characterData:true});
   };
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+  const stop=()=>{
+    running=false;observer?.disconnect();observer=null;resize?.disconnect();pending.clear();hosts.clear();cleanup=false;
+    document.querySelectorAll('.glass-table,.glass-table-host,[data-glass-label],[data-glass-action],[data-glass-span]').forEach(node=>{
+      node.classList.remove('glass-table','glass-table-host');
+      for(const name of ['data-glass-columns','data-glass-layout','data-glass-host','data-glass-label','data-glass-action','data-glass-span'])node.removeAttribute(name);
+    });
+  };
+  const sync=()=>{if(document.documentElement.dataset.appearance==='glass')start();else if(running)stop();};
+  document.addEventListener('charles:appearance-change',sync);
+  if(!resize)window.addEventListener('resize',()=>hosts.forEach((_,host)=>mode(host)),{passive:true});
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sync,{once:true});else sync();
 })();
