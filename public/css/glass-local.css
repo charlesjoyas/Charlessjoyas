@@ -35,6 +35,10 @@
     --card-border: var(--glass-line);
     --card-bg: var(--glass-panel);
     --shadow-card: var(--glass-shadow);
+    --glass-action-edit: #086c94;
+    --glass-action-view: #38566f;
+    --glass-action-danger: #aa2c4c;
+    --glass-action-key: #91610b;
     --radius-lg: 20px;
     --radius-md: 13px;
   }
@@ -59,6 +63,10 @@
     --sidebar-text: #a9bfdc;
     --sidebar-text-active: #f2f8ff;
     --sidebar-border: rgba(184,213,255,.12);
+    --glass-action-edit: #a0dfff;
+    --glass-action-view: #deebfc;
+    --glass-action-danger: #ffc0cd;
+    --glass-action-key: #ffe0a1;
   }
   body {
     background: radial-gradient(ellipse at 8% 5%,rgba(126,182,244,.30),transparent 44%),radial-gradient(ellipse at 93% 32%,rgba(182,153,235,.23),transparent 45%),radial-gradient(ellipse at 52% 100%,rgba(109,210,204,.20),transparent 48%),var(--bg-app) !important;
@@ -139,6 +147,22 @@
   .btn-primary:hover { background: linear-gradient(135deg,#107ba9,#4c56b6) !important; }
   .btn-success, .btn-checkout { background: linear-gradient(130deg,#128b79,#198786) !important; color:#fff !important; }
   .btn-danger { background: linear-gradient(135deg,#c2445e,#a93f61) !important; color:#fff !important; }
+  :is(.btn-action-edit,.btn-action-view,.btn-action-delete,.btn-action-key,.action-btn-group > .btn) {
+    appearance:none; -webkit-appearance:none;
+    display:inline-flex !important; align-items:center; justify-content:center; vertical-align:middle;
+    min-height:36px; gap:6px; margin:0 !important; padding:8px 12px !important;
+    border:1px solid var(--border-color); border-radius:11px !important;
+    font-family:var(--font-body) !important; font-size:.78rem !important; font-weight:700 !important; line-height:1.25 !important;
+    text-align:center; text-decoration:none; cursor:pointer;
+    box-shadow:inset 0 1px 0 var(--glass-highlight),0 3px 8px -5px rgba(22,60,110,.3);
+    transition:background-color .15s,border-color .15s,box-shadow .15s;
+  }
+  .btn-action-edit { background:linear-gradient(145deg,var(--glass-highlight),transparent 70%),rgba(27,148,204,.13) !important; border-color:rgba(50,158,210,.32) !important; color:var(--glass-action-edit) !important; }
+  .btn-action-view { background:linear-gradient(145deg,var(--glass-highlight),transparent 70%),var(--glass-panel) !important; border-color:var(--border-color) !important; color:var(--glass-action-view) !important; }
+  .btn-action-delete { background:linear-gradient(145deg,var(--glass-highlight),transparent 70%),rgba(205,67,101,.13) !important; border-color:rgba(213,83,118,.32) !important; color:var(--glass-action-danger) !important; }
+  .btn-action-key { background:linear-gradient(145deg,var(--glass-highlight),transparent 70%),rgba(202,148,39,.13) !important; border-color:rgba(202,148,39,.32) !important; color:var(--glass-action-key) !important; }
+  :is(.btn-action-edit,.btn-action-view,.btn-action-delete,.btn-action-key):hover:not(:disabled) { border-color:currentColor !important; box-shadow:inset 0 1px 0 var(--glass-highlight),0 4px 12px -6px rgba(22,60,110,.4); }
+  :is(.btn-action-edit,.btn-action-view,.btn-action-delete,.btn-action-key):disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
   .btn:disabled, button:disabled { box-shadow: none; }
   :is(input,select,textarea,.form-control,.form-input,.form-select,.login-input,.table-search-input input,#pos-product-search) {
     font-family: var(--font-body);
