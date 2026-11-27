@@ -2,7 +2,7 @@
    Printing deliberately keeps the original stylesheet and original emoji fonts. */
 @font-face {
   font-family: 'Charles Glass Icons';
-  src: url('../icons/charles-glass-icons.woff2?v=2') format('woff2');
+  src: url('../icons/charles-glass-icons.woff2?v=3') format('woff2');
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
@@ -107,6 +107,8 @@
     color: var(--brand-primary);
   }
   .kpi-icon-wrap { font-size:26px; line-height:1; }
+  .kpi-icon-wrap, .nav-icon, .feature-icon, .nexus-ai-fab-icon, .payment-check-icon, .cartera-kpi-icon, #accounts-balance-overview span[style*='width:36px'][style*='inline-flex'] { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; line-height:1 !important; text-align:center; }
+  .nav-icon { width:24px; height:24px; }
   .kpi-icon-indigo { font-size:0; }
   .kpi-icon-indigo::before { content:'\E001'; font:26px/1 'Charles Glass Icons'; }
   .nav-icon svg { width:22px; height:22px; flex-shrink:0; }
