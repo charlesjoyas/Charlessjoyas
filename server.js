@@ -83,11 +83,13 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname));
+const frontendStaticOptions={setHeaders(res,file){if(path.extname(file)==='.html')res.setHeader('Cache-Control','no-store');}};
+app.use(express.static(path.join(__dirname, 'public'),frontendStaticOptions));
+app.use(express.static(__dirname,frontendStaticOptions));
 
 // Explicit frontend route handler for root requests
 app.get(['/', '/index.html'], (req, res) => {
+  res.setHeader('Cache-Control','no-store');
   const publicIndex = path.join(__dirname, 'public', 'index.html');
   if (fs.existsSync(publicIndex)) {
     return res.sendFile(publicIndex);
