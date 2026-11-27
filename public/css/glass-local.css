@@ -106,6 +106,17 @@
   @media (prefers-reduced-motion:reduce) { .toggle-sidebar-btn { transition:none; } }
   .brand-text, .sidebar .user-name, .sidebar .user-info { color: var(--text-main) !important; }
   .menu-group-title { color: var(--text-subtle) !important; letter-spacing: .06em; }
+  .top-bar .search-trigger {
+    height:38px; padding:0 12px; gap:9px; border-radius:12px;
+    font-size:13px; line-height:1.2;
+  }
+  .top-bar .search-trigger > svg { flex:0 0 18px; }
+  .top-bar .search-trigger > span:not(.kbd-shortcut) {
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .top-bar .search-trigger .kbd-shortcut {
+    flex:0 0 auto; white-space:nowrap; font-size:10px; line-height:1.2; padding:3px 5px;
+  }
   .nav-item { border: 1px solid transparent; border-radius: 13px; }
   .nav-item:hover, .sub-menu-item:hover { background: var(--bg-surface-hover) !important; border-color: var(--glass-line); }
   .nav-item.active {
